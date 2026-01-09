@@ -1,0 +1,152 @@
+import 'dart:io';
+import '../config/api_config.dart';
+import 'api_service.dart';
+
+/// Videos Service
+/// Handles video listing, uploading, and live videos
+class VideosService {
+  /// Get Videos
+  /// 
+  /// Parameters:
+  /// - status: Filter by status (default: 'Approved')
+  /// - fruitTag: Filter by fruit tag
+  /// - userId: Filter by user ID
+  /// - limit: Number of results (default: 20)
+  /// - offset: Pagination offset (default: 0)
+  /// 
+  /// Returns: List of videos
+  static Future<List<Map<String, dynamic>>> getVideos({
+    String status = 'Approved',
+    String? fruitTag,
+    int? userId,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    final queryParams = <String, String>{
+      'status': status,
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+    };
+
+    if (fruitTag != null) queryParams['fruit_tag'] = fruitTag;
+    if (userId != null) queryParams['user_id'] = userId.toString();
+
+    final response = await ApiService.get(
+      ApiConfig.videos,
+      queryParameters: queryParams,
+    );
+
+    if (response['success'] == true && response['data'] != null) {
+      return List<Map<String, dynamic>>.from(response['data']);
+    } else {
+      throw ApiException(response['message'] ?? 'Failed to fetch videos');
+    }
+  }
+
+  /// Get Single Video with Comments
+  /// 
+  /// Parameters:
+  /// - videoId: Video ID
+  /// 
+  /// Returns: Video with comments
+  static Future<Map<String, dynamic>> getVideoDetails(int videoId) async {
+    final response = await ApiService.get(
+      ApiConfig.videos,
+      queryParameters: {'id': videoId.toString()},
+    );
+
+    if (response['success'] == true && response['data'] != null) {
+      return response['data'] as Map<String, dynamic>;
+    } else {
+      throw ApiException(response['message'] ?? 'Failed to fetch video details');
+    }
+  }
+
+  /// Upload Video
+  /// 
+  /// Parameters:
+  /// - userId: User ID
+  /// - videoFile: Video file to upload
+  /// - thumbnailFile: Thumbnail file (optional, will be generated if not provided)
+  /// - fruitTag: Tag video with fruit (optional)
+  /// - title: Video title (optional)
+  /// 
+  /// Returns: Uploaded video ID and file path
+  static Future<Map<String, dynamic>> uploadVideo({
+    required int userId,
+    required File videoFile,
+    File? thumbnailFile,
+    String? fruitTag,
+    String? title,
+    String? description,
+    String? category,
+  }) async {
+    final fields = <String, String>{
+      'user_id': userId.toString(),
+    };
+
+    if (fruitTag != null) fields['fruit_tag'] = fruitTag;
+    if (title != null && title.isNotEmpty) fields['title'] = title;
+    if (description != null && description.isNotEmpty) fields['description'] = description;
+    if (category != null && category.isNotEmpty) fields['category'] = category;
+
+    try {
+      final files = <String, File>{'video': videoFile};
+      if (thumbnailFile != null) {
+        final thumbnailExists = await thumbnailFile.exists();
+        print('📤 Thumbnail file check: exists=$thumbnailExists, path=${thumbnailFile.path}');
+        if (thumbnailExists) {
+          final thumbnailSize = await thumbnailFile.length();
+          print('📤 Adding thumbnail to upload: ${thumbnailFile.path} (${thumbnailSize} bytes)');
+          files['thumbnail'] = thumbnailFile;
+        } else {
+          print('⚠️ Thumbnail file does not exist, skipping upload');
+        }
+      } else {
+        print('⚠️ No thumbnail file provided');
+      }
+      
+      print('📤 Uploading ${files.length} file(s): ${files.keys.join(", ")}');
+      final response = await ApiService.postMultipart(
+        ApiConfig.videos,
+        fields: fields,
+        files: files,
+      );
+
+      print('📤 Video upload response: ${response['success']}, message: ${response['message']}');
+
+      if (response['success'] == true && response['data'] != null) {
+        return response['data'] as Map<String, dynamic>;
+      } else {
+        final errorMsg = response['message'] ?? 'Failed to upload video';
+        print('❌ Video upload failed: $errorMsg');
+        throw ApiException(errorMsg);
+      }
+    } catch (e) {
+      print('❌ Video upload exception: $e');
+      rethrow;
+    }
+  }
+
+  /// Get Live Videos
+  /// 
+  /// Parameters:
+  /// - status: Filter by status (default: 'Live')
+  /// 
+  /// Returns: List of live videos
+  static Future<List<Map<String, dynamic>>> getLiveVideos({
+    String status = 'Live',
+  }) async {
+    final response = await ApiService.get(
+      '${ApiConfig.videos}?action=live',
+      queryParameters: {'status': status},
+    );
+
+    if (response['success'] == true && response['data'] != null) {
+      return List<Map<String, dynamic>>.from(response['data']);
+    } else {
+      throw ApiException(response['message'] ?? 'Failed to fetch live videos');
+    }
+  }
+}
+

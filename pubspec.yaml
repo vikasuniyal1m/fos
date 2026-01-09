@@ -1,0 +1,250 @@
+name: fruitsofspirit
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.2+3
+
+environment:
+  sdk: ^3.9.0
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+  get: ^4.6.5
+  permission_handler: ^11.3.1
+  flutter_svg: ^2.0.10+1
+  icons_plus: ^5.0.0
+  http: ^1.2.0
+  http_parser: ^4.0.2
+  bootstrap_icons: ^1.13.1
+  firebase_core: ^4.1.1
+  firebase_auth: ^6.1.0
+  shared_preferences: ^2.2.3
+
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+  video_player: ^2.8.2
+  image_picker: ^1.0.7
+  image_cropper: ^8.0.2
+  video_thumbnail: ^0.5.3
+  
+  # Performance & Caching
+  cached_network_image: ^3.3.1
+  flutter_cache_manager: ^3.3.1
+  
+  # Offline Support
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.2
+  
+  # Push Notifications (will be implemented with service worker)
+  # web_push: ^0.1.0  # Not available, will use custom implementation
+  
+  # Analytics (custom implementation, no package needed)
+  
+  # Deep Linking (app_links is the replacement for discontinued uni_links)
+  app_links: ^6.3.1
+  
+  # Localization
+  easy_localization: ^3.0.4
+  
+  # URL Launcher (for external links)
+  url_launcher: ^6.2.5
+  
+  # Social Sharing
+  share_plus: ^10.1.2
+  
+  # Lottie Animations
+  lottie: ^3.1.2
+
+  # Sign in with Apple
+  sign_in_with_apple: ^6.1.3
+
+  # Google Sign In
+  google_sign_in: ^6.2.1
+
+  # Screen Util for Responsive Design
+  flutter_screenutil: ^5.9.0
+  
+  # Audio Player for Voice Overs
+  audioplayers: ^6.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^5.0.0
+  
+  # Testing
+  mockito: ^5.4.4
+  build_runner: ^2.4.8
+  
+  # Hive Code Generation
+  hive_generator: ^2.0.1
+  device_preview: ^1.1.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  # To add assets to your application, add an assets section, like this:
+  assets:
+    - assets/images/
+    - assets/images/splash1.png
+    - assets/images/onboardingfirst.png
+    - assets/images/onboardingthird.png
+    - assets/images/onboardingfourth.png
+    - assets/images/google_logo.svg
+    - assets/images/apple_logo.svg
+    - assets/images/facebook_logo.svg
+    - assets/images/grow.png
+    - assets/images/logo 1.png
+    - assets/images/notification.png
+    - assets/images/Pray.png
+    - assets/images/Strawberry.png
+    - assets/images/User Groups.png
+    - assets/images/videothumbnail.png
+    - assets/fruitofspirit/
+    - assets/fruitofspirit/Untitled design (39).png
+    - assets/fruitofspirit/Untitled design (40).png
+    - assets/fruitofspirit/Untitled design (41).png
+    - assets/fruitofspirit/Untitled design (42).png
+    - assets/fruitofspirit/Untitled design (43).png
+    - assets/fruitofspirit/Untitled design (44).png
+    - assets/fruitofspirit/Untitled design (45).png
+    - assets/fruitofspirit/Untitled design (46).png
+    - assets/fruitofspirit/Untitled design (47).png
+    - assets/Vector.png
+    - assets/Frame.png
+    - assets/Vectorser.png
+    - assets/translations/
+    - assets/quickactions/
+    - assets/quickactions/pray.png
+    - assets/quickactions/blog-post.png
+    - assets/quickactions/discussion.gif
+    - assets/animations/
+    - assets/animations/praying_hands_advanced.json
+    - assets/google.png
+    - assets/facebook.png
+    - assets/images/fruit_of_spirit_splash.jpg
+    - assets/images/fruit_of_spirit.jpg
+    - assets/foslogo.jpg
+    - assets/logoname.png
+    - assets/FOSfruit.png
+    - assets/group.png
+    - assets/praying.png
+    - assets/healthy-food.png
+    - assets/fosshoppinglogo.png
+    - assets/blogger.png
+    - assets/home.png
+    - assets/gallery.png
+    - assets/video.png
+    - assets/happy.png
+    - assets/prayer.png
+
+  # An image asset can refer to one or more resolution-specific "variants", see
+  # https://flutter.dev/to/resolution-aware-images
+
+  # For details regarding adding assets from package dependencies, see
+  # https://flutter.dev/to/asset-from-package
+
+  # To add custom fonts to your application, add a fonts section here,
+  # in this "flutter" section. Each entry in this list should have a
+  # "family" key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors for the font. For
+  # example:
+  fonts:
+    - family: MontserratAlternates
+      fonts:
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-Black.ttf
+          weight: 900
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-BlackItalic.ttf
+          weight: 900
+          style: italic
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-BoldItalic.ttf
+          weight: 700
+          style: italic
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-ExtraBoldItalic.ttf
+          weight: 800
+          style: italic
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-ExtraLight.ttf
+          weight: 200
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-ExtraLightItalic.ttf
+          weight: 200
+          style: italic
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-Light.ttf
+          weight: 300
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-LightItalic.ttf
+          weight: 300
+          style: italic
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-MediumItalic.ttf
+          weight: 500
+          style: italic
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-SemiBoldItalic.ttf
+          weight: 600
+          style: italic
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-Thin.ttf
+          weight: 100
+        - asset: assets/fonts/Montserrat_Alternates/MontserratAlternates-ThinItalic.ttf
+          weight: 100
+          style: italic
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
+  #   - family: Trajan Pro
+  #     fonts:
+  #       - asset: fonts/TrajanPro.ttf
+  #       - asset: fonts/TrajanPro_Bold.ttf
+  #         weight: 700
+  #
+  # For details regarding fonts from package dependencies,
+  # see https://flutter.dev/to/font-from-package

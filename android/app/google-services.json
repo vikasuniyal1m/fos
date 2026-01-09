@@ -1,0 +1,34 @@
+{
+  "project_info": {
+    "project_number": "55853574935",
+    "project_id": "fruitsofspirit-809e7",
+    "storage_bucket": "fruitsofspirit-809e7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:55853574935:android:c802b094b604cfa5d72552",
+        "android_client_info": {
+          "package_name": "com.fruitsofspirit.android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "502290384332-d5k46kobvp1uq1044cu4t3n2q0ceb7ut.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDVOBcyxBHWg4T1LkBKs1R4UibVsqdFRgk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

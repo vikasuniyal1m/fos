@@ -1,0 +1,41 @@
+{
+  "quickActions": [
+    {
+      "id": "prayer",
+      "icon": "volunteer_activism",
+      "iconColor": "#E53935",
+      "backgroundColor": "#FFEBEE",
+      "label": "Prayer Request",
+      "route": "/create-prayer",
+      "description": "Share your prayer requests"
+    },
+    {
+      "id": "bloggers",
+      "icon": "auto_stories",
+      "iconColor": "#1976D2",
+      "backgroundColor": "#E3F2FD",
+      "label": "Bloggers",
+      "route": "/blogger-zone",
+      "description": "Read and share blogs"
+    },
+    {
+      "id": "groups",
+      "icon": "groups",
+      "iconColor": "#388E3C",
+      "backgroundColor": "#E8F5E9",
+      "label": "Groups",
+      "route": "/groups",
+      "description": "Join or create groups"
+    },
+    {
+      "id": "fruits",
+      "icon": "spa",
+      "iconColor": "#7B1FA2",
+      "backgroundColor": "#F3E5F5",
+      "label": "Nine Fruits",
+      "route": "/fruits",
+      "description": "Explore fruits of the spirit"
+    }
+  ]
+}
+
