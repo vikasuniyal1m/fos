@@ -270,32 +270,32 @@ class GroupChatController extends GetxController {
         file: file,
       );
       
-      // Ensure sent message has correct group_id and handle null message
       sentMessage['group_id'] = groupId;
       sentMessage['user_id'] = userId.value;
-      // Handle null message text - ensure it's not null
+      if ((sentMessage['message'] == null || sentMessage['message'] == '' || sentMessage['message'] == 'null') &&
+          sentMessage['text'] != null &&
+          sentMessage['text'] is String &&
+          (sentMessage['text'] as String).trim().isNotEmpty) {
+        sentMessage['message'] = (sentMessage['text'] as String).trim();
+      }
+      if (sentMessage['created_at'] == null && sentMessage['time'] != null) {
+        sentMessage['created_at'] = sentMessage['time'];
+      }
       if (sentMessage['message'] == null || sentMessage['message'] == 'null') {
         sentMessage['message'] = '';
       }
       
-      // Small delay to ensure backend has processed the message
-      await Future.delayed(const Duration(milliseconds: 800));
-      
-      // Force refresh messages to get the latest grouped messages from backend
-      // Clear first to ensure fresh load
-      messages.value = [];
+      // Add the newly sent message to the list
+      messages.add(sentMessage);
       messages.refresh();
       
-      // Load fresh messages
-      await loadMessages(groupId, refresh: true);
+      // Update lastMessageId if this is the newest message
+      if (sentMessage['id'] != null && (sentMessage['id'] as int) > (lastMessageId ?? 0)) {
+        lastMessageId = sentMessage['id'] as int;
+      }
       
-      // Additional refresh to ensure UI updates
-      await Future.delayed(const Duration(milliseconds: 200));
-      messages.refresh();
-      
-      // Force one more refresh after a short delay
-      await Future.delayed(const Duration(milliseconds: 300));
-      messages.refresh();
+      // Check for any other new messages that might have arrived
+      await _checkForNewMessages(groupId);
 
       return true;
     } catch (e) {

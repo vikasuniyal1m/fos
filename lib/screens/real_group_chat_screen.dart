@@ -557,7 +557,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                     }
                     final messageGroup = groupedMessages[messageIndex];
                     // Build grouped message bubble
-                    return _buildGroupedMessageBubble(context, messageGroup, messageIndex, groupedMessages);
+                    return _buildMessageBubble(context, messageGroup, messageIndex, groupedMessages);
                   },
                 ),
               );
@@ -591,20 +591,14 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     return messages;
   }
 
-  /// Build grouped message bubble (for consecutive messages from same user)
-  Widget _buildGroupedMessageBubble(BuildContext context, Map<String, dynamic> messageGroup, int index, List<Map<String, dynamic>> groupedMessages) {
-    final msgUserId = messageGroup['user_id'] as int? ?? 0;
+  Widget _buildMessageBubble(BuildContext context, Map<String, dynamic> message, int index, List<Map<String, dynamic>> allMessages) {
+    final msgUserId = message['user_id'] as int? ?? 0;
     final isOwner = groupOwnerId != null && msgUserId == groupOwnerId;
     final isMe = msgUserId == controller.userId.value;
     final isLeftSide = !isMe;
-    final userName = messageGroup['user_name'] as String? ?? 'Unknown';
-    final profilePhoto = messageGroup['profile_photo'] as String?;
-    final createdAt = messageGroup['created_at'] as String? ?? '';
-    
-    // Check if this is a grouped message (has messages_list)
-    final hasMessagesList = messageGroup.containsKey('messages_list') && 
-                           messageGroup['messages_list'] != null &&
-                           (messageGroup['messages_list'] as List).isNotEmpty;
+    final userName = message['user_name'] as String? ?? 'Unknown';
+    final profilePhoto = message['profile_photo'] as String?;
+    final createdAt = message['created_at'] as String? ?? '';
     
     final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
     String? photoUrl;
@@ -618,12 +612,13 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     }
 
     final userInitials = _getUserInitials(userName);
-    final shouldShowAvatar = _shouldShowAvatar(messageGroup, index, groupedMessages);
+    // Avatar should always be shown for each message now
+    final shouldShowAvatar = true;
 
     return Container(
       margin: EdgeInsets.only(
-        bottom: ResponsiveHelper.spacing(context, 1),
-        top: shouldShowAvatar ? ResponsiveHelper.spacing(context, 2) : ResponsiveHelper.spacing(context, 0.5),
+        bottom: ResponsiveHelper.spacing(context, 4), // Consistent spacing between messages
+        top: ResponsiveHelper.spacing(context, 4),
       ),
       child: Row(
         mainAxisAlignment: isLeftSide ? MainAxisAlignment.start : MainAxisAlignment.end,
@@ -660,17 +655,10 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                 vertical: ResponsiveHelper.spacing(context, 8),
               ),
               decoration: BoxDecoration(
-                // WhatsApp style colors: received = light gray, sent = light green
                 color: isLeftSide 
-                    ? Colors.grey[200]  // Received messages (LEFT) - Light gray
-                    : const Color(0xFFDCF8C6), // Sent messages (RIGHT) - Light green (WhatsApp style)
-                borderRadius: BorderRadius.only(
-                  // WhatsApp style: rounded corners except the corner near avatar
-                  topLeft: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                  topRight: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                  bottomLeft: Radius.circular(isLeftSide ? ResponsiveHelper.borderRadius(context, mobile: 4) : ResponsiveHelper.borderRadius(context, mobile: 8)),
-                  bottomRight: Radius.circular(isLeftSide ? ResponsiveHelper.borderRadius(context, mobile: 8) : ResponsiveHelper.borderRadius(context, mobile: 4)),
-                ),
+                    ? Colors.grey[200]
+                    : const Color(0xFFDCF8C6),
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // Uniform rounded corners
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.05),
@@ -683,8 +671,8 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // User name (only for left side, only when new sender)
-                  if (isLeftSide && shouldShowAvatar) ...[
+                  // User name (only for left side)
+                  if (isLeftSide) ...[ // Always show username for left side messages
                     Text(
                       userName + (isOwner ? ' (Owner)' : ''),
                       style: ResponsiveHelper.textStyle(
@@ -697,70 +685,10 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                     const SizedBox(height: 4),
                   ],
                   
-                  // Display grouped messages or single message
-                  if (hasMessagesList) ...[
-                    // Display multiple messages in group
-                    ...(messageGroup['messages_list'] as List).map((msgData) {
-                      final msgText = msgData['text'] as String? ?? '';
-                      final msgType = msgData['message_type'] as String? ?? 'text';
-                      final msgFileUrl = msgData['file_url'] as String?;
-                      
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (msgType == 'image' && msgFileUrl != null) ...[
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: CachedImage(
-                                  imageUrl: msgFileUrl,
-                                  width: double.infinity,
-                                  height: 150,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                              if (msgText.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  msgText,
-                                  style: const TextStyle(fontSize: 13, color: Colors.black87),
-                                ),
-                              ],
-                            ] else if (msgType == 'file' && msgFileUrl != null) ...[
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[200],
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.insert_drive_file, size: 24),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        msgText.isNotEmpty ? msgText : 'File',
-                                        style: const TextStyle(fontSize: 14),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ] else if (msgText.isNotEmpty) ...[
-                              _buildMessageText(context, msgText),
-                            ],
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  ] else ...[
-                    // Single message (backward compatibility)
-                    _buildSingleMessageContent(context, messageGroup, isLeftSide),
-                  ],
+                  // Display single message content
+                  _buildSingleMessageContent(context, message, isLeftSide),
                   
-                  // Timestamp (show only for last message in group)
+                  // Timestamp
                   const SizedBox(height: 4),
                   Align(
                     alignment: isLeftSide ? Alignment.bottomLeft : Alignment.bottomRight,
@@ -843,211 +771,10 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     }
   }
 
-  Widget _buildMessageBubble(BuildContext context, Map<String, dynamic> msg, int index, List<Map<String, dynamic>> groupMessages) {
-    final msgUserId = msg['user_id'] as int? ?? 0;
-    final isOwner = groupOwnerId != null && msgUserId == groupOwnerId;
-    final isMe = msgUserId == controller.userId.value;
-    // WhatsApp style: My messages on RIGHT (blue), Others on LEFT (gray)
-    final isLeftSide = !isMe; // Left = received, Right = sent
-    final userName = msg['user_name'] as String? ?? 'Unknown';
-    // Handle null message - convert to empty string, but don't filter out if there's a file
-    var messageText = msg['message'] as String?;
-    if (messageText == null || messageText == 'null') {
-      messageText = '';
-    }
-    final messageType = msg['message_type'] as String? ?? 'text';
-    final createdAt = msg['created_at'] as String? ?? '';
-    final fileUrl = msg['file_url'] as String?;
-    final profilePhoto = msg['profile_photo'] as String?;
-    
-    // Only skip messages that are completely empty (no text AND no file)
-    // Allow messages with files even if text is empty
-    // IMPORTANT: Don't skip messages with actual text content, even if it's just whitespace after trim
-    // Only skip if message is truly empty AND it's a text message with no file
-    final hasContent = messageText.isNotEmpty || (fileUrl != null && fileUrl.isNotEmpty);
-    if (!hasContent && messageType == 'text') {
-      return const SizedBox.shrink();
-    }
-    
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
-    String? photoUrl;
-    if (profilePhoto != null && profilePhoto.isNotEmpty) {
-      final photoPath = profilePhoto.toString();
-      if (!photoPath.startsWith('http')) {
-        photoUrl = baseUrl + (photoPath.startsWith('/') ? photoPath.substring(1) : photoPath);
-      } else {
-        photoUrl = photoPath;
-      }
-    }
 
-    // Get user initials
-    final userInitials = _getUserInitials(userName);
-    final shouldShowAvatar = _shouldShowAvatar(msg, index, groupMessages);
-
-    return Container(
-      margin: EdgeInsets.only(
-        bottom: ResponsiveHelper.spacing(context, 1),
-        top: shouldShowAvatar ? ResponsiveHelper.spacing(context, 2) : ResponsiveHelper.spacing(context, 0.5),
-      ),
-      child: Row(
-        mainAxisAlignment: isLeftSide ? MainAxisAlignment.start : MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // Avatar (LEFT side only - for received messages, WhatsApp style - always show)
-          if (isLeftSide) ...[
-            CircleAvatar(
-              radius: 18, // Slightly larger for better visibility
-              backgroundColor: Colors.grey[300],
-              backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-              child: photoUrl == null
-                  ? Text(
-                      userInitials,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[800],
-                      ),
-                    )
-                  : null,
-            ),
-            const SizedBox(width: 8),
-          ] else ...[
-            // Spacing for right side (sent messages) to align properly
-            const SizedBox(width: 0),
-          ],
-          
-          // Message Bubble
-          Flexible(
-            child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.75,
-              ),
-              padding: EdgeInsets.symmetric(
-                horizontal: ResponsiveHelper.spacing(context, 12),
-                vertical: ResponsiveHelper.spacing(context, 8),
-              ),
-              decoration: BoxDecoration(
-                // WhatsApp style colors: received = light gray, sent = light green
-                color: isLeftSide 
-                    ? Colors.grey[200]  // Received messages (LEFT) - Light gray
-                    : const Color(0xFFDCF8C6), // Sent messages (RIGHT) - Light green (WhatsApp style)
-                borderRadius: BorderRadius.only(
-                  // WhatsApp style: rounded corners except the corner near avatar
-                  topLeft: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                  topRight: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                  bottomLeft: Radius.circular(isLeftSide ? ResponsiveHelper.borderRadius(context, mobile: 4) : ResponsiveHelper.borderRadius(context, mobile: 8)),
-                  bottomRight: Radius.circular(isLeftSide ? ResponsiveHelper.borderRadius(context, mobile: 8) : ResponsiveHelper.borderRadius(context, mobile: 4)),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 2,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // User name (only for left side/received messages, only when new sender)
-                  if (isLeftSide && shouldShowAvatar) ...[
-                    Text(
-                      userName + (isOwner ? ' (Owner)' : ''),
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF8B4513),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                  ],
-                  
-                  // Message content
-                  if (messageType == 'image' && fileUrl != null) ...[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: CachedImage(
-                        imageUrl: fileUrl,
-                        width: double.infinity,
-                        height: 150,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    if (messageText.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        messageText,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isLeftSide ? Colors.black87 : Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ] else if (messageType == 'file' && fileUrl != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.insert_drive_file, size: 24),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              messageText.isNotEmpty ? messageText : 'File',
-                              style: const TextStyle(fontSize: 14),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else ...[
-                    _buildMessageText(context, messageText),
-                  ],
-                  
-                  // Timestamp
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: isLeftSide ? Alignment.bottomLeft : Alignment.bottomRight,
-                    child: Text(
-                      _formatTime(createdAt),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isLeftSide ? Colors.grey[600] : Colors.grey[700],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          // Spacing for alignment (RIGHT side)
-          if (!isLeftSide) ...[
-            const SizedBox(width: 8),
-          ],
-        ],
-      ),
-    );
-  }
 
   bool _shouldShowAvatar(Map<String, dynamic> msg, int index, List<Map<String, dynamic>> groupMessages) {
-    // Always show avatar for first message
-    if (index == 0) return true;
-    if (index >= groupMessages.length) return true;
-    
-    // Check previous message's user_id
-    final prevMsg = groupMessages[index - 1];
-    final prevUserId = prevMsg['user_id'] as int? ?? 0;
-    final currentUserId = msg['user_id'] as int? ?? 0;
-    
-    // Show avatar if different user (WhatsApp style: show avatar when sender changes)
-    return prevUserId != currentUserId;
+    return true; // Always show avatar for each message
   }
 
   Widget _buildMessageInput(BuildContext context) {

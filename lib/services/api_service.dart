@@ -18,7 +18,7 @@ class ApiService {
         // Try to parse error message from response
         try {
           if (response.body.isNotEmpty) {
-            final errorBody = jsonDecode(response.body);
+            final errorBody = response.body.isNotEmpty ? jsonDecode(response.body) : {'message': 'Unknown error'};
             final errorMsg = errorBody['message'] ?? 'Invalid credentials. Please try again.';
             print('❌ 401 Error message: $errorMsg');
             throw ApiException(errorMsg, statusCode: 401);
@@ -32,7 +32,7 @@ class ApiService {
           throw ApiException('Invalid credentials. Please try again.', statusCode: 401);
         }
       } else if (response.statusCode == 400) {
-        final errorBody = jsonDecode(response.body);
+        final errorBody = response.body.isNotEmpty ? jsonDecode(response.body) : {'message': 'Bad request'};
         throw ApiException(errorBody['message'] ?? 'Bad request', statusCode: 400);
       } else if (response.statusCode == 403) {
         // Forbidden - approval pending or account inactive
@@ -57,15 +57,19 @@ class ApiService {
           throw ApiException('Resource not found', statusCode: 404);
         }
       } else if (response.statusCode >= 500) {
-        // Try to parse error message from response
+        // Try to parse error message from response and log full details for debugging
         try {
           if (response.body.isNotEmpty) {
             final errorBody = jsonDecode(response.body);
             final errorMsg = errorBody['message'] ?? 'Server error. Please try again later.';
-            print('❌ Server error message: $errorMsg');
+            print('❌ Server error ${response.statusCode}: $errorMsg');
+            print('❌ Full server error body: $errorBody');
+            if (errorBody is Map && errorBody['error_details'] != null) {
+              print('❌ Server error details: ${errorBody['error_details']}');
+            }
             throw ApiException(errorMsg, statusCode: response.statusCode);
           } else {
-            print('❌ Server error with empty response body');
+            print('❌ Server error with empty response body (status: ${response.statusCode})');
             throw ApiException('Server error. Please try again later.', statusCode: response.statusCode);
           }
         } catch (e) {
@@ -73,11 +77,11 @@ class ApiService {
             rethrow;
           }
           print('❌ Failed to parse error response: $e');
-          print('❌ Response body was: ${response.body}');
+          print('❌ Raw response body was: ${response.body}');
           throw ApiException('Server error. Please try again later. (Status: ${response.statusCode})', statusCode: response.statusCode);
         }
       } else {
-        final errorBody = jsonDecode(response.body);
+        final errorBody = response.body.isNotEmpty ? jsonDecode(response.body) : {'message': 'Something went wrong'};
         throw ApiException(errorBody['message'] ?? 'Something went wrong', statusCode: response.statusCode);
       }
     } catch (e) {
