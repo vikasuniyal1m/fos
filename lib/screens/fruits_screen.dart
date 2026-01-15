@@ -1486,7 +1486,7 @@ class _FruitsScreenContentState extends State<_FruitsScreenContent> {
         );
         },
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 1),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 1),
     );
   }
 
