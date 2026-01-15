@@ -7,12 +7,14 @@ abstract class Routes {
   Routes._();
   // Auth Routes
   static const SPLASH = _Paths.SPLASH;
+  static const DASHBOARD = _Paths.DASHBOARD;
   static const HOME = _Paths.HOME;
   static const ONBOARDING = _Paths.ONBOARDING;
   static const LOGIN = _Paths.LOGIN;
   static const CREATE_ACCOUNT = _Paths.CREATE_ACCOUNT;
   static const PHONE_AUTH = _Paths.PHONE_AUTH;
   static const FORGOT_PASSWORD = _Paths.FORGOT_PASSWORD;
+
   
   // Feature Routes
   static const FRUITS = _Paths.FRUITS;
@@ -45,12 +47,14 @@ abstract class Routes {
   static const FRUIT_DETAILS = _Paths.FRUIT_DETAILS;
   static const FRUITS_VARIANT_01 = _Paths.FRUITS_VARIANT_01;
   static const PRAYER_REMINDERS = _Paths.PRAYER_REMINDERS;
+  static const LIVE = _Paths.LIVE;
 }
 
 abstract class _Paths {
   _Paths._();
   // Auth Paths
   static const SPLASH = '/splash';
+  static const DASHBOARD = '/dashboard';
   static const HOME = '/home';
   static const ONBOARDING = '/onboarding';
   static const LOGIN = '/login';
@@ -89,4 +93,5 @@ abstract class _Paths {
   static const FRUIT_DETAILS = '/fruit-details';
   static const FRUITS_VARIANT_01 = '/fruits-variant-01';
   static const PRAYER_REMINDERS = '/prayer-reminders';
+  static const LIVE = '/live';
 }
