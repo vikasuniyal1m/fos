@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 
@@ -16,6 +17,12 @@ class JingleService {
   late AudioPlayer _audioPlayer;
   bool _isPlaying = false;
   bool _isInitialized = false;
+  final Map<String, String> _cachedFiles = {};
+
+  /// Initialize audio player and start pre-caching
+  void initialize() {
+    _initializeAudioPlayer();
+  }
 
   /// Initialize audio player
   void _initializeAudioPlayer() {
@@ -24,6 +31,40 @@ class JingleService {
       _audioPlayer.setPlayerMode(PlayerMode.mediaPlayer);
       _isInitialized = true;
       print('✅ AudioPlayer initialized');
+      // Pre-cache all jingles
+      _preCacheAllJingles();
+    }
+  }
+
+  /// Pre-cache all jingles for better user experience
+  void _preCacheAllJingles() {
+    _categoryToJingle.keys.forEach((category) {
+      _preCacheJingle(category);
+    });
+  }
+
+  /// Pre-cache a specific jingle
+  Future<void> _preCacheJingle(String category) async {
+    final url = _getJingleUrl(category);
+    if (url.isEmpty) return;
+    
+    try {
+      print('⏳ Pre-caching jingle for $category: $url');
+      
+      // Use DefaultCacheManager to download and cache the file
+      final fileInfo = await DefaultCacheManager().getFileFromCache(url);
+      
+      if (fileInfo != null) {
+        print('✅ Jingle for $category already in cache: ${fileInfo.file.path}');
+        _cachedFiles[category] = fileInfo.file.path;
+      } else {
+        // Download and cache
+        final file = await DefaultCacheManager().getSingleFile(url);
+        print('✅ Jingle for $category downloaded and cached: ${file.path}');
+        _cachedFiles[category] = file.path;
+      }
+    } catch (e) {
+      print('⚠️ Error pre-caching jingle for $category: $e');
     }
   }
 
@@ -164,13 +205,38 @@ class JingleService {
     return playCount >= _maxPlaysBeforeOption && !isDisabled;
   }
 
-  /// Start playing jingle for a category (non-blocking, doesn't wait for completion)
+  /// Get jingle status for a category
+  Future<Map<String, dynamic>> getJingleStatus(String category) async {
+    final isDisabled = await _isJingleDisabled(category);
+    final playCount = await _getPlayCount(category);
+    final shouldShow = await shouldShowDisableOption(category);
+    
+    return {
+      'isDisabled': isDisabled,
+      'playCount': playCount,
+      'shouldShowOption': shouldShow || playCount >= _maxPlaysBeforeOption,
+    };
+  }
+
+  /// Stop any currently playing jingle
+  Future<void> stopJingle() async {
+    try {
+      await _audioPlayer.stop();
+      _isPlaying = false;
+      print('🛑 Jingle stopped');
+    } catch (e) {
+      print('⚠️ Error stopping jingle: $e');
+    }
+  }
+
   /// Returns true if jingle started playing, false otherwise
   Future<bool> startJingle(String category) async {
     print('🔊 startJingle called for category: $category');
     
     // Initialize audio player if needed
     _initializeAudioPlayer();
+
+    if (category.isEmpty) return false;
     
     // Check if jingle is disabled
     final isDisabled = await _isJingleDisabled(category);
@@ -185,16 +251,17 @@ class JingleService {
       return false;
     }
 
-    // Get jingle URL
-    final jingleUrl = _getJingleUrl(category);
-    if (jingleUrl.isEmpty) {
-      print('⚠️ Empty jingle URL for category: $category');
+    // Get jingle URL or local path
+    String jinglePath = _cachedFiles[category] ?? _getJingleUrl(category);
+    if (jinglePath.isEmpty) {
+      print('⚠️ Empty jingle path for category: $category');
       return false; // No jingle for this category
     }
 
     try {
       _isPlaying = true;
-      print('🔊 Starting to play jingle: $jingleUrl');
+      final isLocal = !jinglePath.startsWith('http');
+      print('🔊 Starting to play jingle (${isLocal ? "local cache" : "direct url"}): $jinglePath');
       
       // Stop any currently playing audio
       try {
@@ -203,9 +270,16 @@ class JingleService {
         // Ignore if nothing is playing
       }
       
+      // Set source and prepare for faster playback
+      if (isLocal) {
+        await _audioPlayer.setSource(DeviceFileSource(jinglePath));
+      } else {
+        await _audioPlayer.setSource(UrlSource(jinglePath));
+      }
+      
       // Start playing the jingle (non-blocking)
-      await _audioPlayer.play(UrlSource(jingleUrl));
-      print('✅ Jingle play command sent successfully');
+      await _audioPlayer.resume();
+      print('✅ Jingle resume command sent successfully');
       
       // Handle completion in background (don't wait)
       _audioPlayer.onPlayerComplete.first.then((_) {
@@ -217,24 +291,14 @@ class JingleService {
           final shouldShow = await shouldShowDisableOption(category);
           if (shouldShow) {
             print('🔔 Should show disable option for $category (3+ plays)');
-            // Show snackbar with option to disable
+            // Just show a simple informative snackbar, no action button
             Get.rawSnackbar(
-              message: 'You\'ve heard this voice over 3 times. Tap to disable.',
-              duration: const Duration(seconds: 4),
-              backgroundColor: Colors.blue,
+              message: 'Tip: You can enable/disable this voice over in the chat menu.',
+              duration: const Duration(seconds: 5),
+              backgroundColor: Colors.blue.withOpacity(0.9),
               snackPosition: SnackPosition.BOTTOM,
-              onTap: (snack) async {
-                await disableJingle(category);
-                Get.closeCurrentSnackbar();
-                Get.snackbar(
-                  'Voice Over Disabled',
-                  'Voice over for $category has been disabled.',
-                  snackPosition: SnackPosition.BOTTOM,
-                  backgroundColor: Colors.green,
-                  colorText: Colors.white,
-                  duration: const Duration(seconds: 2),
-                );
-              },
+              margin: const EdgeInsets.all(12),
+              borderRadius: 8,
             );
           }
         });
@@ -274,17 +338,22 @@ class JingleService {
       return false;
     }
 
-    // Get jingle URL
-    final jingleUrl = _getJingleUrl(category);
-    if (jingleUrl.isEmpty) {
+    // Get jingle URL or local path
+    final jinglePath = _cachedFiles[category] ?? _getJingleUrl(category);
+    if (jinglePath.isEmpty) {
       return false; // No jingle for this category
     }
 
     try {
       _isPlaying = true;
+      final isLocal = !jinglePath.startsWith('http');
       
       // Play the jingle
-      await _audioPlayer.play(UrlSource(jingleUrl));
+      if (isLocal) {
+        await _audioPlayer.play(DeviceFileSource(jinglePath));
+      } else {
+        await _audioPlayer.play(UrlSource(jinglePath));
+      }
       
       // Wait for playback to complete
       await _audioPlayer.onPlayerComplete.first.timeout(
@@ -303,18 +372,6 @@ class JingleService {
       return false;
     } finally {
       _isPlaying = false;
-    }
-  }
-
-  /// Stop current jingle
-  Future<void> stopJingle() async {
-    try {
-      if (_isPlaying) {
-        await _audioPlayer.stop();
-        _isPlaying = false;
-      }
-    } catch (e) {
-      print('⚠️ Error stopping jingle: $e');
     }
   }
 
