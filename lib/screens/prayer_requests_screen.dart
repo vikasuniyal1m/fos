@@ -219,7 +219,6 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           ),
         ],
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 2),
     );
   }
 

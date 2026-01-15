@@ -109,12 +109,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     
     return StatefulBuilder(
       builder: (context, setState) {
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // Main scrollable content
-            SingleChildScrollView(
-              child: Column(
+        return SingleChildScrollView(
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // Main content
+              Column(
                 children: [
                   // Header section at top (with space for avatar)
                   Container(
@@ -145,7 +145,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               }
                             },
                             child: Padding(
-                              padding: EdgeInsets.only(top: 0), // Removed top padding since avatar is fixed
+                              padding: const EdgeInsets.only(top: 0),
                               child: Text(
                                 'Change Picture',
                                 style: ResponsiveHelper.textStyle(
@@ -574,78 +574,78 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                 ],
               ),
-            ),
-            // Profile Picture - Fixed position (doesn't scroll)
-            Positioned(
-              top: ResponsiveHelper.isMobile(context) 
-                  ? 120 
-                  : ResponsiveHelper.isTablet(context) 
-                      ? 130 
-                      : 140, // Position for larger avatar
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                ignoring: false, // Allow taps
-                child: Center(
-                  child: GestureDetector(
-                    onTap: () async {
-                      final picker = ImagePicker();
-                      final image = await picker.pickImage(source: ImageSource.gallery);
-                      if (image != null) {
-                        setState(() {
-                          selectedImage = File(image.path);
-                        });
-                      }
-                    },
-                    child: Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 4,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
+              // Profile Picture - Now it scrolls because it's in the Stack inside SingleChildScrollView
+              Positioned(
+                top: ResponsiveHelper.isMobile(context) 
+                    ? 120 
+                    : ResponsiveHelper.isTablet(context) 
+                        ? 130 
+                        : 140, // Position for larger avatar
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  ignoring: false, // Allow taps
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: () async {
+                        final picker = ImagePicker();
+                        final image = await picker.pickImage(source: ImageSource.gallery);
+                        if (image != null) {
+                          setState(() {
+                            selectedImage = File(image.path);
+                          });
+                        }
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 4,
                           ),
-                        ],
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                      child: CircleAvatar(
+                        radius: ResponsiveHelper.isMobile(context) 
+                            ? 60 
+                            : ResponsiveHelper.isTablet(context) 
+                                ? 70 
+                                : 80, // Larger size for better visibility
+                        backgroundColor: Colors.grey[200],
+                        backgroundImage: selectedImage != null
+                            ? FileImage(selectedImage!)
+                            : (profilePhoto != null && profilePhoto.isNotEmpty
+                                ? NetworkImage(
+                                    profilePhoto.startsWith('http://') || profilePhoto.startsWith('https://')
+                                      ? profilePhoto
+                                      : 'https://fruitofthespirit.templateforwebsites.com/$profilePhoto'
+                                  )
+                                : null) as ImageProvider?,
+                        child: selectedImage == null && (profilePhoto == null || profilePhoto.isEmpty)
+                            ? Icon(
+                                Icons.person,
+                                size: ResponsiveHelper.isMobile(context) 
+                                    ? 60 
+                                    : ResponsiveHelper.isTablet(context) 
+                                        ? 70 
+                                        : 80, // Match avatar size
+                                color: AppTheme.iconscolor,
+                              )
+                            : null,
                       ),
-                    child: CircleAvatar(
-                      radius: ResponsiveHelper.isMobile(context) 
-                          ? 60 
-                          : ResponsiveHelper.isTablet(context) 
-                              ? 70 
-                              : 80, // Larger size for better visibility
-                      backgroundColor: Colors.grey[200],
-                      backgroundImage: selectedImage != null
-                          ? FileImage(selectedImage!)
-                          : (profilePhoto != null && profilePhoto.isNotEmpty
-                              ? NetworkImage(
-                                  profilePhoto.startsWith('http://') || profilePhoto.startsWith('https://')
-                                    ? profilePhoto
-                                    : 'https://fruitofthespirit.templateforwebsites.com/$profilePhoto'
-                                )
-                              : null) as ImageProvider?,
-                      child: selectedImage == null && (profilePhoto == null || profilePhoto.isEmpty)
-                          ? Icon(
-                              Icons.person,
-                              size: ResponsiveHelper.isMobile(context) 
-                                  ? 60 
-                                  : ResponsiveHelper.isTablet(context) 
-                                      ? 70 
-                                      : 80, // Match avatar size
-                              color: AppTheme.iconscolor,
-                            )
-                          : null,
-                    ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

@@ -38,6 +38,11 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
   int? groupOwnerId; // Group owner/creator ID
   String? groupCategory; // Group category for jingle
   final JingleService _jingleService = JingleService();
+  var jingleStatus = <String, dynamic>{
+    'isDisabled': false,
+    'playCount': 0,
+    'shouldShowOption': false,
+  }.obs;
 
   @override
   void initState() {
@@ -46,6 +51,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
       // Don't play jingle here - it's already played before navigation
       // Just load group info for owner check
       _loadGroupOwner();
+      _loadJingleStatus();
       controller.loadMessages(widget.groupId, refresh: true);
       _loadEmojis();
     });
@@ -220,17 +226,65 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
       // Try to get group info from GroupsController
       try {
         final groupsController = Get.find<GroupsController>();
-        final selectedGroup = groupsController.selectedGroup;
+        final selectedGroup = groupsController.selectedGroup.value;
         if (selectedGroup != null && selectedGroup['id'] == widget.groupId) {
           groupOwnerId = selectedGroup['created_by'] as int?;
+          groupCategory = selectedGroup['category'] as String?;
+          _loadJingleStatus();
           return;
         }
       } catch (e) {
         // GroupsController not found, continue
       }
+      
+      // If not found in controller, fetch from API
+      final groupDetails = await GroupsService.getGroupDetails(widget.groupId);
+      setState(() {
+        groupOwnerId = groupDetails['created_by'] as int?;
+        groupCategory = groupDetails['category'] as String?;
+      });
+      _loadJingleStatus();
     } catch (e) {
       // Error loading group owner
     }
+  }
+
+  /// Load jingle status for the current category
+  Future<void> _loadJingleStatus() async {
+    if (groupCategory != null && groupCategory!.isNotEmpty) {
+      final status = await _jingleService.getJingleStatus(groupCategory!);
+      jingleStatus.value = status;
+    }
+  }
+
+  /// Toggle jingle for the current category
+  Future<void> _toggleJingle() async {
+    if (groupCategory == null || groupCategory!.isEmpty) return;
+    
+    final isDisabled = jingleStatus['isDisabled'] ?? false;
+    if (isDisabled) {
+      await _jingleService.enableJingle(groupCategory!);
+      Get.snackbar(
+        'Voice Over Enabled',
+        'Voice over for $groupCategory has been enabled.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 2),
+      );
+    } else {
+      await _jingleService.disableJingle(groupCategory!);
+      await _jingleService.stopJingle();
+      Get.snackbar(
+        'Voice Over Disabled',
+        'Voice over for $groupCategory has been disabled.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 2),
+      );
+    }
+    _loadJingleStatus();
   }
 
   @override
@@ -381,14 +435,113 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                       ],
                     ),
                   ),
+                  // Jingle Sound Toggle - Only show after 3 plays
+                  Obx(() {
+                    final status = jingleStatus.value;
+                    if (status.isEmpty || !(status['shouldShowOption'] ?? false)) {
+                      return const SizedBox.shrink();
+                    }
+                    
+                    final isDisabled = status['isDisabled'] ?? false;
+                    
+                    return Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _toggleJingle,
+                        borderRadius: BorderRadius.circular(30),
+                        child: Container(
+                          width: ResponsiveHelper.isMobile(context) ? 40.0 : 44.0,
+                          height: ResponsiveHelper.isMobile(context) ? 40.0 : 44.0,
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: isDisabled 
+                                ? [Colors.grey[100]!, Colors.grey[200]!]
+                                : [const Color(0xFFFDF8F3), const Color(0xFFF5E6D3)],
+                            ),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: (isDisabled ? Colors.grey : const Color(0xFF8B4513)).withOpacity(0.2),
+                              width: 1,
+                            ),
+                          ),
+                          child: Icon(
+                            isDisabled ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                            color: isDisabled ? Colors.grey : const Color(0xFF8B4513),
+                            size: ResponsiveHelper.isMobile(context) ? 20.0 : 22.0,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
                   // More options
                   Material(
                     color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () {
-                        // Group info menu
+                    child: PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'toggle_jingle') {
+                          _toggleJingle();
+                        } else if (value == 'group_info') {
+                          // Group info logic
+                        }
                       },
-                      borderRadius: BorderRadius.circular(30),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      offset: const Offset(0, 45),
+                      itemBuilder: (context) {
+                        final status = jingleStatus.value;
+                        final shouldShow = status['shouldShowOption'] ?? false;
+                        final isDisabled = status['isDisabled'] ?? false;
+                        
+                        return [
+                          if (shouldShow)
+                            PopupMenuItem<String>(
+                              value: 'toggle_jingle',
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isDisabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                                    color: const Color(0xFF8B4513),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    isDisabled ? 'Enable Voice' : 'Disable Voice',
+                                    style: const TextStyle(
+                                      color: Color(0xFF5F4628),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          const PopupMenuItem<String>(
+                            value: 'group_info',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline_rounded,
+                                  color: Color(0xFF8B4513),
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Group Info',
+                                  style: TextStyle(
+                                    color: Color(0xFF5F4628),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ];
+                      },
                       child: Container(
                         width: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,
                         height: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,

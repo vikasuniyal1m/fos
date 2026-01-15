@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/controllers/profile_controller.dart';
 import '../utils/app_theme.dart';
 
 /// Standard App Bar Widget
@@ -35,14 +36,14 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: ResponsiveHelper.isMobile(context) ? 4 : 8,
             offset: Offset(0, ResponsiveHelper.isMobile(context) ? 2 : 4),
           ),
         ],
         border: Border(
           bottom: BorderSide(
-            color: Colors.grey.withOpacity(0.15),
+            color: Colors.grey.withValues(alpha: 0.15),
             width: ResponsiveHelper.isMobile(context) ? 0.5 : 1,
           ),
         ),
@@ -124,12 +125,12 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                   color: Colors.white,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.8),
+                    color: Colors.white.withValues(alpha: 0.8),
                     width: 2.0,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.grey.withOpacity(0.3),
+                      color: Colors.grey.withValues(alpha: 0.3),
                       blurRadius: 6,
                       offset: const Offset(0, 3),
                       spreadRadius: 1,
@@ -207,53 +208,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  /// Build Back Button
-  Widget _buildBackButton(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => Get.back(),
-        borderRadius: BorderRadius.circular(30),
-        child: Container(
-          width: ResponsiveHelper.isMobile(context)
-              ? 40.0
-              : ResponsiveHelper.isTablet(context)
-                  ? 44.0
-                  : 48.0,
-          height: ResponsiveHelper.isMobile(context)
-              ? 40.0
-              : ResponsiveHelper.isTablet(context)
-                  ? 44.0
-                  : 48.0,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: Colors.white.withOpacity(0.8),
-              width: 2.0,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.3),
-                blurRadius: 6,
-                offset: const Offset(0, 3),
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Icon(
-            Icons.arrow_back_rounded,
-            color: AppTheme.iconscolor,
-            size: ResponsiveHelper.isMobile(context)
-                ? 20.0
-                : ResponsiveHelper.isTablet(context)
-                    ? 22.0
-                    : 24.0,
-          ),
-        ),
-      ),
-    );
-  }
+
 
   /// Build Default Right Actions (Search, Notifications, Profile - Home Page Style)
   Widget _buildDefaultRightActions(BuildContext context) {
@@ -289,10 +244,54 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
         _buildActionIcon(
           context,
           icon: Icons.person_rounded,
-          onTap: () => Get.toNamed(Routes.PROFILE),
+          onTap: () => _handleProfileNavigation(),
         ),
       ],
     );
+  }
+
+  /// Handle profile navigation with loading state
+  void _handleProfileNavigation() async {
+    try {
+      if (Get.isRegistered<ProfileController>()) {
+        final profileController = Get.find<ProfileController>();
+        
+        // Show loading overlay BEFORE navigating
+        // This addresses the user's request to have loading before the screen opens
+        Get.dialog(
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const CircularProgressIndicator(
+                color: Color(0xFF8B4513),
+              ),
+            ),
+          ),
+          barrierDismissible: false,
+        );
+
+        // Load profile data (fresh from API)
+        await profileController.loadProfile(showLoading: false);
+        
+        // Close loading overlay
+        Get.back();
+        
+        // Go to profile screen - it will now have fresh data ready
+        Get.toNamed(Routes.PROFILE);
+      } else {
+        // Fallback: Just go to profile screen
+        Get.toNamed(Routes.PROFILE);
+      }
+    } catch (e) {
+      print('Error navigating to profile: $e');
+      // If error, try to close dialog if open and still go to profile
+      if (Get.isDialogOpen ?? false) Get.back();
+      Get.toNamed(Routes.PROFILE);
+    }
   }
 
   /// Build Action Icon with White Background (Home Page Style)
@@ -307,8 +306,8 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(30),
-        splashColor: Colors.grey.withOpacity(0.1),
-        highlightColor: Colors.grey.withOpacity(0.05),
+        splashColor: Colors.grey.withValues(alpha: 0.1),
+        highlightColor: Colors.grey.withValues(alpha: 0.05),
         child: Container(
           width: ResponsiveHelper.isMobile(context)
               ? 40.0
@@ -324,12 +323,12 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
-              color: Colors.white.withOpacity(0.8),
+              color: Colors.white.withValues(alpha: 0.8),
               width: 2.0,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withOpacity(0.3),
+                color: Colors.grey.withValues(alpha: 0.3),
                 blurRadius: 6,
                 offset: const Offset(0, 3),
                 spreadRadius: 1,
@@ -382,7 +381,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF4CAF50).withOpacity(0.5),
+                              color: const Color(0xFF4CAF50).withValues(alpha: 0.5),
                               blurRadius: 4,
                               spreadRadius: 1,
                             ),
@@ -420,8 +419,8 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(30),
-        splashColor: Colors.grey.withOpacity(0.1),
-        highlightColor: Colors.grey.withOpacity(0.05),
+        splashColor: Colors.grey.withValues(alpha: 0.1),
+        highlightColor: Colors.grey.withValues(alpha: 0.05),
         child: Container(
           width: ResponsiveHelper.isMobile(context)
               ? 40.0
@@ -437,12 +436,12 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
-              color: Colors.white.withOpacity(0.8),
+              color: Colors.white.withValues(alpha: 0.8),
               width: 2.0,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withOpacity(0.3),
+                color: Colors.grey.withValues(alpha: 0.3),
                 blurRadius: 6,
                 offset: const Offset(0, 3),
                 spreadRadius: 1,
@@ -495,7 +494,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF4CAF50).withOpacity(0.5),
+                              color: const Color(0xFF4CAF50).withValues(alpha: 0.5),
                               blurRadius: 4,
                               spreadRadius: 1,
                             ),
@@ -519,4 +518,3 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 }
-

@@ -6,7 +6,7 @@ import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/users_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
-import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
+
 import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 
@@ -56,12 +56,21 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   @override
   void initState() {
     super.initState();
-    prayersController = Get.find<PrayersController>();
+    
+    // Safely find or initialize PrayersController
+    try {
+      prayersController = Get.find<PrayersController>();
+    } catch (e) {
+      prayersController = Get.put(PrayersController());
+    }
+
+    // Safely find or initialize GroupsController
     try {
       groupsController = Get.find<GroupsController>();
     } catch (e) {
       groupsController = Get.put(GroupsController());
     }
+    
     _loadGroupMembers();
   }
   
@@ -215,7 +224,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
         prayersController.selectedCategory.value = '';
         
         // Navigate to prayer requests screen
-        Get.offNamedUntil(Routes.PRAYER_REQUESTS, (route) => route.settings.name == Routes.HOME);
+        Get.offNamedUntil(Routes.PRAYER_REQUESTS, (route) => route.settings.name == Routes.DASHBOARD);
         
         // Force refresh after navigation
         Future.delayed(const Duration(milliseconds: 300), () {
@@ -629,7 +638,6 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 2),
     );
   }
   

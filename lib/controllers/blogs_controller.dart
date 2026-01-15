@@ -436,6 +436,15 @@ class BlogsController extends GetxController {
     }
   }
 
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allBlogs = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
+    }
+  }
+
   /// Apply client-side filter instantly (no API call)
   void _applyClientSideFilter() {
     if (_allBlogs.isEmpty) return;

@@ -6,8 +6,11 @@ import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
-import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+
+import 'package:fruitsofspirit/controllers/main_dashboard_controller.dart';
+
+import '../utils/app_theme.dart';
 
 /// Animated Praying Hands Icon
 class AnimatedPrayingHands extends StatefulWidget {
@@ -119,18 +122,16 @@ class _AnimatedPrayingHandsState extends State<AnimatedPrayingHands>
 /// Use this widget across all screens for consistent navigation
 class AppBottomNavigationBar extends StatelessWidget {
   final int currentIndex;
+  final ValueChanged<int>? onTap;
 
   const AppBottomNavigationBar({
     Key? key,
     required this.currentIndex,
+    this.onTap,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // Calculate responsive sizes based on screen width
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    
     // Calculate icon sizes - bigger sizes
     double iconSize;
     double activeIconSize;
@@ -175,15 +176,17 @@ class AppBottomNavigationBar extends StatelessWidget {
           iconSize: iconSize,
           showSelectedLabels: false,
           showUnselectedLabels: false,
-          onTap: (index) {
-            _handleNavigation(context, index);
-          },
+          onTap: onTap,
           items: [
             BottomNavigationBarItem(
               icon: SizedBox(
                 width: iconSize,
                 height: iconSize,
-                child: Image.asset(
+                child:Icon(
+                  Icons.home_outlined,
+                  size: iconSize,
+                  color: AppTheme.primaryColor,
+                ), /*Image.asset(
                   'assets/home.png',
                   width: iconSize,
                   height: iconSize,
@@ -195,12 +198,16 @@ class AppBottomNavigationBar extends StatelessWidget {
                       color: Colors.grey[600],
                     );
                   },
-                ),
+                ),*/
               ),
               activeIcon: SizedBox(
                 width: activeIconSize,
                 height: activeIconSize,
-                child: Image.asset(
+                child:Icon(
+                  Icons.home,
+                  size: iconSize,
+                  color: AppTheme.primaryColor,
+                ), /*Image.asset(
                   'assets/home.png',
                   width: activeIconSize,
                   height: activeIconSize,
@@ -212,7 +219,7 @@ class AppBottomNavigationBar extends StatelessWidget {
                       color: themeColor,
                     );
                   },
-                ),
+                ),*/
               ),
               label: '',
             ),
@@ -220,7 +227,11 @@ class AppBottomNavigationBar extends StatelessWidget {
               icon: SizedBox(
                 width: iconSize,
                 height: iconSize,
-                child: Image.asset(
+                child: Icon(
+                  Icons.apple,
+                  size: activeIconSize,
+                  color: AppTheme.primaryColor,
+                )/*Image.asset(
                   'assets/happy.png',
                   width: iconSize,
                   height: iconSize,
@@ -232,12 +243,16 @@ class AppBottomNavigationBar extends StatelessWidget {
                       color: Colors.grey[600],
                     );
                   },
-                ),
+                )*/,
               ),
               activeIcon: SizedBox(
                 width: activeIconSize,
                 height: activeIconSize,
-                child: Image.asset(
+                child: Icon(
+                  Icons.apple,
+                  size: activeIconSize,
+                  color: AppTheme.primaryColor,
+                )/*Image.asset(
                   'assets/happy.png',
                   width: activeIconSize,
                   height: activeIconSize,
@@ -249,7 +264,7 @@ class AppBottomNavigationBar extends StatelessWidget {
                       color: themeColor,
                     );
                   },
-                ),
+                )*/,
               ),
               label: '',
             ),
@@ -264,7 +279,7 @@ class AppBottomNavigationBar extends StatelessWidget {
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) {
                     return Icon(
-                      Icons.volunteer_activism_rounded,
+                      Icons.photo_size_select_actual_outlined,
                       size: iconSize,
                       color: Colors.grey[600],
                     );
@@ -294,35 +309,19 @@ class AppBottomNavigationBar extends StatelessWidget {
               icon: SizedBox(
                 width: iconSize,
                 height: iconSize,
-                child: Image.asset(
-                  'assets/video.png',
-                  width: iconSize,
-                  height: iconSize,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.play_circle_outline,
-                      size: iconSize,
-                      color: Colors.grey[600],
-                    );
-                  },
-                ),
+                child: Icon(
+                  Icons.smart_display_outlined,
+                  size: iconSize,
+                  color: AppTheme.primaryColor,
+                )
               ),
               activeIcon: SizedBox(
                 width: activeIconSize,
                 height: activeIconSize,
-                child: Image.asset(
-                  'assets/video.png',
-                  width: activeIconSize,
-                  height: activeIconSize,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.play_circle_outline,
-                      size: activeIconSize,
-                      color: themeColor,
-                    );
-                  },
+                child: Icon(
+                  Icons.smart_display_sharp,
+                  size: activeIconSize,
+                  color: AppTheme.primaryColor,
                 ),
               ),
               label: '',
@@ -331,35 +330,19 @@ class AppBottomNavigationBar extends StatelessWidget {
               icon: SizedBox(
                 width: iconSize,
                 height: iconSize,
-                child: Image.asset(
-                  'assets/gallery.png',
-                  width: iconSize,
-                  height: iconSize,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.photo_library,
-                      size: iconSize,
-                      color: Colors.grey[600],
-                    );
-                  },
+                child: Icon(
+                  Icons.photo_camera_back_outlined,
+                  size: iconSize,
+                  color: AppTheme.primaryColor,
                 ),
               ),
               activeIcon: SizedBox(
                 width: activeIconSize,
                 height: activeIconSize,
-                child: Image.asset(
-                  'assets/gallery.png',
-                  width: activeIconSize,
-                  height: activeIconSize,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.photo_library,
-                      size: activeIconSize,
-                      color: themeColor,
-                    );
-                  },
+                child: Icon(
+                  Icons.photo,
+                  size: iconSize,
+                  color: AppTheme.primaryColor,
                 ),
               ),
               label: '',
@@ -370,49 +353,6 @@ class AppBottomNavigationBar extends StatelessWidget {
     );
   }
 
-  void _handleNavigation(BuildContext context, int index) {
-    // Don't navigate if already on the same screen
-    if (index == currentIndex) {
-      return;
-    }
 
-    switch (index) {
-      case 0:
-        // Home
-        Get.offAllNamed(Routes.HOME);
-        break;
-      case 1:
-        // Fruits
-        Get.toNamed(Routes.FRUITS);
-        break;
-      case 2:
-        // Prayer Requests (center button)
-        // Reset filter to show all users' prayers
-        try {
-          final prayersController = Get.find<PrayersController>();
-          prayersController.filterUserId.value = 0;
-          prayersController.loadPrayers(refresh: true);
-        } catch (e) {
-          // Controller not found, will be created fresh
-        }
-        Get.toNamed(Routes.PRAYER_REQUESTS);
-        break;
-      case 3:
-        // Videos
-        Get.toNamed(Routes.VIDEOS);
-        break;
-      case 4:
-        // Gallery
-        try {
-          final galleryController = Get.find<GalleryController>();
-          galleryController.filterUserId.value = 0;
-          galleryController.loadPhotos(refresh: true);
-        } catch (e) {
-          // Controller not found, will be created fresh
-        }
-        Get.toNamed(Routes.GALLERY);
-        break;
-    }
-  }
 }
 

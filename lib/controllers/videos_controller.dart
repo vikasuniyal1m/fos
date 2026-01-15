@@ -96,6 +96,13 @@ class VideosController extends GetxController {
         }
       }
 
+      print('📹 Total Videos Loaded: ${allVideos.length} (Approved: ${approvedVideos.length})');
+      for (var video in allVideos) {
+        final status = video['status'] ?? 'Unknown';
+        final thumbnailPath = video['thumbnail_path'] ?? 'N/A';
+        print('   - Video: ${video['file_path']} (Status: $status, Thumbnail: $thumbnailPath)');
+      }
+
       if (refresh || currentPage.value == 0) {
         // Performance: Store ALL videos in cache (no filters)
         _allVideos = List<Map<String, dynamic>>.from(allVideos);
@@ -541,6 +548,15 @@ class VideosController extends GetxController {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error reporting comment: $e');
       return false;
+    }
+  }
+
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allVideos = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
     }
   }
 

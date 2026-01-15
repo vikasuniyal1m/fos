@@ -8,6 +8,11 @@ import 'package:fruitsofspirit/controllers/profile_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/notifications_controller.dart';
+import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
@@ -851,6 +856,21 @@ class ProfileScreen extends GetView<ProfileController> {
 
       // Clear cache
       await CacheService.clearAllCache();
+
+      // Delete permanent controllers to prevent data leak between users
+      try {
+        Get.delete<HomeController>(force: true);
+        Get.delete<PrayersController>(force: true);
+        Get.delete<GroupsController>(force: true);
+        Get.delete<NotificationsController>(force: true);
+        Get.delete<ProfileController>(force: true);
+        Get.delete<FruitsController>(force: true);
+        Get.delete<BlogsController>(force: true);
+        Get.delete<VideosController>(force: true);
+        Get.delete<GalleryController>(force: true);
+      } catch (e) {
+        print('Error deleting controllers: $e');
+      }
 
       // Close dialog
       Get.back();

@@ -90,6 +90,10 @@ dependencies:
   
   # Audio Player for Voice Overs
   audioplayers: ^6.5.1
+  agora_rtc_engine: ^6.5.3
+
+
+
 
 dev_dependencies:
   flutter_test:
@@ -176,6 +180,7 @@ flutter:
     - assets/video.png
     - assets/happy.png
     - assets/prayer.png
+    - assets/themsong.mp4
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

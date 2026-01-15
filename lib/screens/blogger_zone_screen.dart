@@ -377,45 +377,49 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                 children: [
                   // Left: Likes count with icon - Only show if > 0
                   if (likeCount > 0)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.favorite,
-                          size: 18,
-                          color: AppTheme.iconscolor,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$likeCount',
-                          style: TextStyle(
-                            fontSize: 14,
+                    Expanded(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.favorite,
+                            size: 18,
                             color: AppTheme.iconscolor,
-                            fontWeight: FontWeight.normal,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Text(
+                            '$likeCount',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.iconscolor,
+                              fontWeight: FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   // Right: Comments count with icon - Only show if > 0
                   if (commentCount > 0)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.comment_outlined,
-                          size: 18,
-                          color: AppTheme.iconscolor,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$commentCount',
-                          style: TextStyle(
-                            fontSize: 14,
+                    Expanded(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.comment_outlined,
+                            size: 18,
                             color: AppTheme.iconscolor,
-                            fontWeight: FontWeight.normal,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Text(
+                            '$commentCount',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.iconscolor,
+                              fontWeight: FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                 ],
               ),
@@ -659,7 +663,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    padding: ResponsiveHelper.padding(context, all: 6),
+                    padding: ResponsiveHelper.padding(context, all: 1),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       shape: BoxShape.circle,
@@ -671,14 +675,19 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                     ),
                   ),
                   SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                  Text(
-                    'Send Request To Become a Blogger',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 0.3,
+                  Flexible(
+                    child: Text(
+                      'Request Blogger Access',
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],

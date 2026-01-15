@@ -342,13 +342,15 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
       final success = await controller.uploadPhoto(
         photoFile: _selectedPhoto!,
         fruitTag: _selectedFruitTag,
-        testimony: _testimonyController.text.trim().isEmpty 
-            ? null 
+        testimony: _testimonyController.text.trim().isEmpty
+            ? null
             : _testimonyController.text.trim(),
         feelingTags: _selectedFeelingTags.isEmpty ? null : _selectedFeelingTags.join(','),
         hashtags: _hashtags.isEmpty ? null : _hashtags.join(','),
         allowComments: _allowComments,
       );
+
+      print('📸 UploadPhoto returned success: $success');
 
       // Hide loading dialog
       if (Get.isDialogOpen ?? false) {
@@ -356,12 +358,13 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
       }
 
       if (success) {
+        print('📸 Entering success block');
         // Show success message
         if (mounted) {
           Get.snackbar(
             'Success',
-            controller.message.value.isNotEmpty 
-                ? controller.message.value 
+            controller.message.value.isNotEmpty
+                ? controller.message.value
                 : 'Photo uploaded successfully!',
             backgroundColor: Colors.green,
             colorText: Colors.white,
@@ -370,21 +373,23 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
             margin: const EdgeInsets.all(16),
           );
         }
-        
+
         // Navigate back to previous screen immediately
         if (mounted) {
+          print('📸 Navigating back');
           // Use Get.back() which works with GetX navigation
           Get.back();
         }
       } else {
+        print('📸 Entering error block');
         // Show error message
         if (mounted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               Get.snackbar(
                 'Error',
-                controller.message.value.isNotEmpty 
-                    ? controller.message.value 
+                controller.message.value.isNotEmpty
+                    ? controller.message.value
                     : 'Failed to upload photo. Please try again.',
                 backgroundColor: Colors.red,
                 colorText: Colors.white,
@@ -397,11 +402,12 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
         }
       }
     } catch (e) {
+      print('📸 Caught exception in _submitMoment: $e');
       // Hide loading if still showing
       if (Get.isDialogOpen ?? false) {
         Get.back();
       }
-      
+
       Get.snackbar(
         'Error',
         'Failed to upload photo: ${e.toString()}',

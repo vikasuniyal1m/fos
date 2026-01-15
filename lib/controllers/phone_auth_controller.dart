@@ -88,7 +88,7 @@ class PhoneAuthController extends GetxController {
       message.value = 'Authentication successful!';
       
       // Navigate to home
-      Get.offAllNamed(Routes.HOME);
+      Get.offAllNamed(Routes.DASHBOARD);
     } catch (e) {
       isLoading.value = false;
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';

@@ -3,6 +3,14 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/profile_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/prayers_controller.dart';
+import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/notifications_controller.dart';
+import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/blogs_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
+import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 
 /// Profile Controller
 /// Manages user profile data and operations
@@ -21,10 +29,19 @@ class ProfileController extends GetxController {
     _loadUserId();
   }
 
+  /// Set initial data from pre-loaded source
+  void setInitialData(Map<String, dynamic> data) {
+    if (data.isNotEmpty) {
+      profile.value = data;
+    }
+  }
+
   @override
   void onReady() {
     super.onReady();
-    loadProfile();
+    // Don't call loadProfile here if we expect DataLoadingService to handle it,
+    // or call it with showLoading: false to avoid flashing a loader.
+    loadProfile(showLoading: false);
   }
 
   /// Load user ID from storage
@@ -36,7 +53,7 @@ class ProfileController extends GetxController {
   }
 
   /// Load profile
-  Future<void> loadProfile() async {
+  Future<void> loadProfile({bool showLoading = true}) async {
     if (userId.value == 0) {
       await _loadUserId();
     }
@@ -46,7 +63,10 @@ class ProfileController extends GetxController {
       return;
     }
 
-    isLoading.value = true;
+    // Only show loading if requested and profile is empty
+    if (showLoading && profile.isEmpty) {
+      isLoading.value = true;
+    }
     message.value = '';
 
     try {
@@ -58,7 +78,9 @@ class ProfileController extends GetxController {
     } catch (e) {
       message.value = 'Error loading profile: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error loading profile: $e');
-      profile.value = {};
+      if (profile.isEmpty) {
+        profile.value = {};
+      }
     } finally {
       isLoading.value = false;
     }
@@ -131,6 +153,23 @@ class ProfileController extends GetxController {
       
       // Clear local storage and navigate to login screen
       await UserStorage.clear();
+
+      // Delete permanent controllers to prevent data leak between users
+      try {
+        Get.delete<HomeController>(force: true);
+        Get.delete<PrayersController>(force: true);
+        Get.delete<GroupsController>(force: true);
+        Get.delete<NotificationsController>(force: true);
+        Get.delete<FruitsController>(force: true);
+        Get.delete<BlogsController>(force: true);
+        Get.delete<VideosController>(force: true);
+        Get.delete<GalleryController>(force: true);
+        // Delete this controller last
+        Get.delete<ProfileController>(force: true);
+      } catch (e) {
+        print('Error deleting controllers: $e');
+      }
+
       Get.offAllNamed('/login');
       
       return true;
