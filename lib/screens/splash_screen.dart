@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/data_loading_service.dart';
+import 'package:fruitsofspirit/services/intro_service.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 
 import '../utils/app_theme.dart';
@@ -48,6 +49,10 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     try {
       _animationController.forward();
 
+      // Increment launch count
+      await IntroService.incrementLaunchCount();
+      debugPrint('DEBUG: App launch count = ${IntroService.getLaunchCount()}');
+
       // Minimum delay to show splash screen and allow user to read scripture
       // Total delay: 1200ms (animation) + 3000ms (reading time) = 4200ms
       await Future.delayed(const Duration(milliseconds: 1200));
@@ -71,45 +76,54 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         return false;
       });
 
+      debugPrint('DEBUG: isLoggedIn = $isLoggedIn');
+
       if (!mounted) return;
 
       if (isLoggedIn) {
-        // Navigate to home first, then load data in background
-        Get.offAllNamed(Routes.HOME);
-        // Load data in background without blocking navigation
-        Future(() => DataLoadingService.loadAllHomeData())
-            .catchError((error) {
-          debugPrint('⚠️ Error loading home data: $error');
-          // Don't block navigation if data loading fails
-        });
-      } else {
-        // User is not logged in, check if onboarding has been seen
-        final hasSeenOnboarding = await UserStorage.hasSeenOnboarding()
-            .timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {
-            debugPrint('⚠️ UserStorage.hasSeenOnboarding() timed out, defaulting to false');
-            return false;
-          },
-        )
-            .catchError((error) {
-          debugPrint('❌ Error checking onboarding status: $error');
-          return false;
-        });
+        debugPrint('➡️ Navigating to HOME');
+        
+        // Check if we have cached data to show instantly
+        final hasCache = await DataLoadingService.isHomeDataCached();
+        
+        if (hasCache) {
+          debugPrint('✅ Found cached data, navigating to home immediately');
+          // Trigger background refresh but don't wait for it
+          DataLoadingService.loadAllHomeData(preferCache: true).catchError((e) {
+            debugPrint('⚠️ Background data refresh failed: $e');
+          });
+          
+          if (!mounted) return;
+          Get.offAllNamed(Routes.DASHBOARD);
+          return;
+        }
+
+        // No cache found, show loading message while fetching critical data
+        if (mounted) {
+          setState(() {
+            _isLoadingData = true;
+            _loadingMessage = 'Loading your spiritual journey...';
+          });
+        }
+
+        // Wait for critical home data to load before navigating
+        try {
+          await DataLoadingService.loadAllHomeData(preferCache: false).timeout(
+            const Duration(seconds: 8),
+            onTimeout: () {
+              debugPrint('⚠️ Data loading timed out, continuing to home');
+              return {};
+            },
+          );
+        } catch (e) {
+          debugPrint('⚠️ Error pre-loading data: $e');
+        }
 
         if (!mounted) return;
-
-        debugPrint('📱 Onboarding status: hasSeenOnboarding = $hasSeenOnboarding');
-
-        if (hasSeenOnboarding) {
-          // User has seen onboarding, go to login page
-          debugPrint('➡️ Navigating to LOGIN (onboarding already seen)');
-          Get.offAllNamed(Routes.LOGIN);
-        } else {
-          // User hasn't seen onboarding, show onboarding first
-          debugPrint('➡️ Navigating to ONBOARDING (first time user)');
-          Get.offAllNamed(Routes.ONBOARDING);
-        }
+        Get.offAllNamed(Routes.DASHBOARD);
+      } else {
+        debugPrint('➡️ Navigating to LOGIN');
+        Get.offAllNamed(Routes.LOGIN);
       }
     } catch (e) {
       debugPrint('❌ Error in _initializeApp: $e');
