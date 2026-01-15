@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/translate_service.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
-import 'package:fruitsofspirit/services/api_service.dart';
+
 
 /// Translation Widget
 /// Provides translation functionality for content
@@ -77,7 +77,7 @@ class _TranslationWidgetState extends State<TranslationWidget> {
         'Translation Error',
         e.toString().replaceAll('Exception: ', ''),
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
+        backgroundColor: Colors.red.withValues(alpha: 0.8),
         colorText: Colors.white,
       );
     }
@@ -283,7 +283,7 @@ class TranslationButton extends StatelessWidget {
               'Translated',
               'Content translated to ${_getLanguageName(languageCode)}',
               snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.green.withOpacity(0.8),
+              backgroundColor: Colors.green.withValues(alpha: 0.8),
               colorText: Colors.white,
             );
           }
@@ -292,7 +292,7 @@ class TranslationButton extends StatelessWidget {
             'Translation Error',
             e.toString().replaceAll('Exception: ', ''),
             snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red.withOpacity(0.8),
+            backgroundColor: Colors.red.withValues(alpha: 0.8),
             colorText: Colors.white,
           );
         }
@@ -328,4 +328,3 @@ class TranslationButton extends StatelessWidget {
     return languages[code] ?? code;
   }
 }
-
