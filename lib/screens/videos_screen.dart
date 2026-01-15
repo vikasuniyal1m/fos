@@ -146,7 +146,6 @@ class _VideosScreenState extends State<VideosScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 3),
     );
   }
 
@@ -190,18 +189,16 @@ class _VideosScreenState extends State<VideosScreen> {
                     // Background Image
                     Positioned.fill(
                       child: thumbnailPath != null
-                          ? Image.network(
-                              baseUrl + thumbnailPath,
+                          ? CachedImage(
+                              imageUrl: baseUrl + thumbnailPath,
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Image.network(
-                                  ImageConfig.videoThumbnail,
-                                  fit: BoxFit.cover,
-                                );
-                              },
+                              errorWidget: CachedImage(
+                                imageUrl: ImageConfig.videoThumbnail,
+                                fit: BoxFit.cover,
+                              ),
                             )
-                          : Image.network(
-                              ImageConfig.videoThumbnail,
+                          : CachedImage(
+                              imageUrl: ImageConfig.videoThumbnail,
                               fit: BoxFit.cover,
                             ),
                     ),
