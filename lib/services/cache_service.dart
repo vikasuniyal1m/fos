@@ -60,6 +60,17 @@ class CacheService {
     }
   }
 
+  /// Cache map data
+  static Future<void> cacheMap(String key, Map<String, dynamic> data, {int expiryHours = _defaultExpiryHours}) async {
+    await cacheData(key, data, expiryHours: expiryHours);
+  }
+
+  /// Get cached map
+  static Future<Map<String, dynamic>> getCachedMap(String key) async {
+    final cached = await getCachedData(key);
+    return cached ?? {};
+  }
+
   /// Clear specific cache
   static Future<void> clearCache(String key) async {
     final prefs = await SharedPreferences.getInstance();
