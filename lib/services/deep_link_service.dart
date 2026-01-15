@@ -124,12 +124,12 @@ class DeepLinkService {
           break;
 
         default:
-          // Unknown path, go to home
-          Get.toNamed(Routes.HOME);
+          // Unknown path, go to dashboard
+          Get.toNamed(Routes.DASHBOARD);
       }
     } catch (e) {
       print('Link processing error: $e');
-      Get.toNamed(Routes.HOME);
+      Get.toNamed(Routes.DASHBOARD);
     }
   }
 
