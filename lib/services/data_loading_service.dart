@@ -5,7 +5,18 @@ import 'package:fruitsofspirit/services/videos_service.dart';
 import 'package:fruitsofspirit/services/gallery_service.dart';
 import 'package:fruitsofspirit/services/groups_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
+import 'package:fruitsofspirit/services/profile_service.dart';
+import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/cache_service.dart';
+import 'package:get/get.dart';
+import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/prayers_controller.dart';
+import 'package:fruitsofspirit/controllers/blogs_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
+import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/profile_controller.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
 
 /// Data Loading Service
 /// Handles initial data loading and caching for the app
@@ -18,55 +29,114 @@ class DataLoadingService {
   static const String _cacheKeyGalleryPhotos = 'home_gallery_photos';
   static const String _cacheKeyGroups = 'home_groups';
   static const String _cacheKeyEmojis = 'home_emojis';
+  static const String _cacheKeyProfile = 'user_profile';
 
   /// Load all home page data and cache it
   /// Returns a map with all loaded data
-  static Future<Map<String, dynamic>> loadAllHomeData() async {
+  /// If [preferCache] is true, it returns cached data instantly while refreshing in background
+  static Future<Map<String, dynamic>> loadAllHomeData({bool preferCache = true}) async {
     try {
-      print('🔄 Starting to load all home data...');
+      print('🔄 Starting to load all home data (preferCache: $preferCache)...');
       
-      // Load all data in parallel with timeout to prevent hanging
-      final results = await Future.wait([
-        _loadFruits().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
-        _loadPrayers().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
-        _loadBlogs().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
-        _loadVideos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
-        _loadLiveVideos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
-        _loadGalleryPhotos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
-        _loadGroups().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
-        _loadEmojis().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
-      ]);
+      final userId = await UserStorage.getUserId();
+      final isLoggedIn = await UserStorage.isLoggedIn();
+      
+      // If preferCache is true, check if we have enough cached data to show instantly
+      if (preferCache) {
+        final cachedData = await _getAllCachedData();
+        // Check if we have at least fruits in cache
+        final hasCriticalCache = (cachedData['fruits'] as List).isNotEmpty;
+        
+        if (hasCriticalCache) {
+          print('✅ Found critical home data in cache, returning instantly for fast startup');
+          
+          // Force refresh controllers with cached data immediately
+          _refreshControllers(cachedData);
+          
+          // Trigger refresh in background without awaiting it
+          _loadAllDataFromApi().then((freshData) {
+            print('✅ Background home data refresh completed');
+          }).catchError((e) {
+            print('⚠️ Background home data refresh failed: $e');
+          });
+          
+          return cachedData;
+        }
+      }
 
-      final data = {
-        'fruits': results[0],
-        'prayers': results[1],
-        'blogs': results[2],
-        'videos': results[3],
-        'liveVideos': results[4],
-        'galleryPhotos': results[5],
-        'groups': results[6],
-        'emojis': results[7],
-      };
-
-      // Cache all data
-      await _cacheAllData(data);
-
-      print('✅ All home data loaded and cached successfully!');
-      return data;
+      // If no cache or preferCache is false, we must load from API
+      // But for registered users (isLoggedIn), we want to make sure they get their data
+      print('🌐 No cache or preferCache=false, fetching from API...');
+      return await _loadAllDataFromApi();
     } catch (e) {
-      print('❌ Error loading home data: $e');
-      // Return empty data structure on error
-      return {
-        'fruits': <Map<String, dynamic>>[],
-        'prayers': <Map<String, dynamic>>[],
-        'blogs': <Map<String, dynamic>>[],
-        'videos': <Map<String, dynamic>>[],
-        'liveVideos': <Map<String, dynamic>>[],
-        'galleryPhotos': <Map<String, dynamic>>[],
-        'groups': <Map<String, dynamic>>[],
-        'emojis': <Map<String, dynamic>>[],
-      };
+      print('❌ Error in loadAllHomeData: $e');
+      return await _getAllCachedData(); // Fallback to cache on error
     }
+  }
+
+  /// Load all data from API
+  static Future<Map<String, dynamic>> _loadAllDataFromApi() async {
+    print('🌐 Fetching fresh home data from API...');
+    
+    // Load all data in parallel with timeout to prevent hanging
+    final results = await Future.wait([
+      _loadFruits().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadPrayers().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadBlogs().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadVideos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadLiveVideos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadGalleryPhotos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadGroups().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadEmojis().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadProfile().timeout(const Duration(seconds: 10), onTimeout: () => <String, dynamic>{}),
+    ]);
+
+    final data = {
+      'fruits': results[0],
+      'prayers': results[1],
+      'blogs': results[2],
+      'videos': results[3],
+      'liveVideos': results[4],
+      'galleryPhotos': results[5],
+      'groups': results[6],
+      'emojis': results[7],
+      'profile': results[8],
+    };
+
+    // Cache all data
+    await _cacheAllData(data);
+
+    // Force refresh data in GetX controllers if they are already initialized
+    _refreshControllers(data);
+
+    return data;
+  }
+
+  /// Get all data from cache
+  static Future<Map<String, dynamic>> _getAllCachedData() async {
+    final results = await Future.wait([
+      CacheService.getCachedList(_cacheKeyFruits),
+      CacheService.getCachedList(_cacheKeyPrayers),
+      CacheService.getCachedList(_cacheKeyBlogs),
+      CacheService.getCachedList(_cacheKeyVideos),
+      CacheService.getCachedList(_cacheKeyLiveVideos),
+      CacheService.getCachedList(_cacheKeyGalleryPhotos),
+      CacheService.getCachedList(_cacheKeyGroups),
+      CacheService.getCachedList(_cacheKeyEmojis),
+      CacheService.getCachedMap(_cacheKeyProfile),
+    ]);
+
+    return {
+      'fruits': results[0],
+      'prayers': results[1],
+      'blogs': results[2],
+      'videos': results[3],
+      'liveVideos': results[4],
+      'galleryPhotos': results[5],
+      'groups': results[6],
+      'emojis': results[7],
+      'profile': results[8],
+    };
   }
 
   /// Cache all loaded data
@@ -80,8 +150,24 @@ class DataLoadingService {
       CacheService.cacheList(_cacheKeyGalleryPhotos, data['galleryPhotos'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyGroups, data['groups'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyEmojis, data['emojis'] as List<Map<String, dynamic>>),
+      CacheService.cacheMap(_cacheKeyProfile, data['profile'] as Map<String, dynamic>),
     ]);
     print('💾 All data cached successfully!');
+  }
+
+  /// Load profile
+  static Future<Map<String, dynamic>> _loadProfile() async {
+    try {
+      final userId = await UserStorage.getUserId();
+      if (userId == null) return {};
+      
+      final profileData = await ProfileService.getProfile(userId);
+      print('✅ Loaded profile for user $userId');
+      return profileData;
+    } catch (e) {
+      print('❌ Error loading profile: $e');
+      return {};
+    }
   }
 
   /// Load fruits
@@ -239,6 +325,7 @@ class DataLoadingService {
       'galleryPhotos': await CacheService.getCachedList(_cacheKeyGalleryPhotos),
       'groups': await CacheService.getCachedList(_cacheKeyGroups),
       'emojis': await CacheService.getCachedList(_cacheKeyEmojis),
+      'profile': await CacheService.getCachedMap(_cacheKeyProfile),
     };
     return cached;
   }
@@ -250,6 +337,39 @@ class DataLoadingService {
     return cached['fruits']?.isNotEmpty == true ||
            cached['prayers']?.isNotEmpty == true ||
            cached['blogs']?.isNotEmpty == true;
+  }
+
+  /// Force refresh data in GetX controllers if they are already initialized
+  static void _refreshControllers(Map<String, dynamic> data) {
+    try {
+      if (Get.isRegistered<FruitsController>()) {
+        Get.find<FruitsController>().setInitialData(data['fruits']);
+      }
+      if (Get.isRegistered<PrayersController>()) {
+        Get.find<PrayersController>().setInitialData(data['prayers']);
+      }
+      if (Get.isRegistered<BlogsController>()) {
+        Get.find<BlogsController>().setInitialData(data['blogs']);
+      }
+      if (Get.isRegistered<VideosController>()) {
+        Get.find<VideosController>().setInitialData(data['videos']);
+      }
+      if (Get.isRegistered<GalleryController>()) {
+        Get.find<GalleryController>().setInitialData(data['galleryPhotos']);
+      }
+      if (Get.isRegistered<GroupsController>()) {
+        Get.find<GroupsController>().setInitialData(data['groups']);
+      }
+      if (Get.isRegistered<ProfileController>()) {
+        Get.find<ProfileController>().setInitialData(data['profile']);
+      }
+      // if (Get.isRegistered<HomeController>()) {
+      //   Get.find<HomeController>().setInitialData(data);
+      // }
+      print('🔄 Controllers refreshed with pre-loaded data');
+    } catch (e) {
+      print('⚠️ Error refreshing controllers: $e');
+    }
   }
 }
 
