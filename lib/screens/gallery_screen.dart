@@ -8,7 +8,7 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
-import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
+
 import 'package:fruitsofspirit/utils/app_theme.dart';
 
 /// Gallery Screen - Social Media Style
@@ -398,7 +398,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
             ],
           );
       }),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 4),
     );
   }
 
