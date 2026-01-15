@@ -348,5 +348,47 @@ class EmojisService {
       return [];
     }
   }
+
+  /// Get Others' Feelings
+  /// 
+  /// Parameters:
+  /// - userId: Current user ID (to exclude from list)
+  /// - limit: Limit number of results
+  /// 
+  /// Returns: List of others' feelings
+  static Future<List<Map<String, dynamic>>> getOthersFeelings({
+    int? userId,
+    int limit = 50,
+  }) async {
+    print('📡 EmojisService.getOthersFeelings called');
+    
+    final queryParams = <String, String>{
+      'get_others_feelings': 'true',
+      'limit': limit.toString(),
+    };
+
+    if (userId != null) {
+      queryParams['user_id'] = userId.toString();
+    }
+
+    try {
+      final response = await ApiService.get(
+        ApiConfig.emojis,
+        queryParameters: queryParams,
+      );
+
+      if (response['success'] == true && response['data'] != null) {
+        final othersFeelings = List<Map<String, dynamic>>.from(response['data']);
+        print('✅ Fetched ${othersFeelings.length} others\' feelings');
+        return othersFeelings;
+      } else {
+        print('⚠️ No others\' feelings found or API error: ${response['message']}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error getting others\' feelings: $e');
+      return [];
+    }
+  }
 }
 
