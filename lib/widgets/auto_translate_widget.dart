@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:fruitsofspirit/services/translate_service.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 

@@ -94,7 +94,7 @@ class HomeScreen extends GetView<HomeController> {
             ),
             barrierDismissible: false,
           );
-
+          
           // If user confirmed exit, exit the app
           if (shouldExit == true) {
             SystemNavigator.pop();
@@ -563,19 +563,12 @@ class HomeScreen extends GetView<HomeController> {
             ),
           );
 
-        }),
-
-
+      }),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
       ),
-    ),
-    // Intro Overlay
-    // Obx(() => controller.showIntroOverlay.value
-    //     ? Positioned.fill(
-    //         child: IntroVideoScreen(onClose: controller.closeIntroOverlay),
-    //       )
-    //     : const SizedBox.shrink()),
-    ],
-    );
+    )]);
+
+
   }
 
 
@@ -613,18 +606,18 @@ class HomeScreen extends GetView<HomeController> {
   static Widget buildEmojiDisplay(BuildContext context, Map<String, dynamic> emoji, {double? size}) {
     final emojiChar = emoji['emoji_char'] as String? ?? '';
     final emojiName = (emoji['name'] as String? ?? '').toLowerCase();
-
+    
     // Use provided size or default emoji size
     final imageSize = size ?? ResponsiveHelper.imageHeight(context, mobile: 40, tablet: 45, desktop: 50);
-
+    
     String? fullImageUrl;
-
+    
     // Priority 1: Use database image_url FIRST (most reliable source)
     // This is the direct path from database and should be used if available
     final imageUrl = emoji['image_url'] as String?;
     if (imageUrl != null && imageUrl.toString().trim().isNotEmpty) {
       fullImageUrl = imageUrl.toString().trim();
-
+      
       // If it's a relative path (starts with uploads/), convert to full URL
       if (fullImageUrl.startsWith('uploads/')) {
         fullImageUrl = 'https://fruitofthespirit.templateforwebsites.com/$fullImageUrl';
@@ -633,15 +626,15 @@ class HomeScreen extends GetView<HomeController> {
       }
       print('✅ buildEmojiDisplay: Using database image_url (Priority 1): $fullImageUrl');
     }
-
+    
     // Priority 2: Try to get fruit image from emoji character using new fruit reaction images
     // This works for actual emoji characters like 😊, ☮️, etc. (only if database image_url is not available)
     if (fullImageUrl == null && emojiChar.isNotEmpty) {
       // Check if emojiChar is an actual emoji character or a text string
       // Text strings like "goodness", "kindness" are longer and contain only letters
-      final isTextString = emojiChar.length > 3 ||
+      final isTextString = emojiChar.length > 3 || 
           (emojiChar.length > 1 && RegExp(r'^[a-zA-Z\s]+$').hasMatch(emojiChar));
-
+      
       if (isTextString) {
         // It's a text string like "goodness", "kindness", etc. - use name-based lookup first
         fullImageUrl = ImageConfig.getFruitReactionImageUrlByName(emojiChar, size: imageSize, variant: 1);
@@ -662,7 +655,7 @@ class HomeScreen extends GetView<HomeController> {
         }
       }
     }
-
+    
     // Priority 3: Try to get from fruit name if emoji character didn't work
     if (fullImageUrl == null && emojiName.isNotEmpty) {
       // Extract base fruit name from emoji name (e.g., "Emoji: goodness" -> "goodness")
@@ -677,18 +670,18 @@ class HomeScreen extends GetView<HomeController> {
       if (baseFruitName.contains(' ')) {
         baseFruitName = baseFruitName.split(' ')[0].trim();
       }
-
+      
       fullImageUrl = ImageConfig.getFruitReactionImageUrlByName(baseFruitName, size: imageSize, variant: 1);
       if (fullImageUrl != null) {
         print('✅ buildEmojiDisplay: Found fruit reaction image from name: $baseFruitName -> $fullImageUrl');
       }
     }
-
+    
     // If we have an image URL, show it (NO emoji character fallback)
     if (fullImageUrl != null && fullImageUrl.isNotEmpty) {
       // Replace spaces with %20 for URL encoding
       fullImageUrl = fullImageUrl.replaceAll(' ', '%20');
-
+      
       return CachedImage(
         imageUrl: fullImageUrl,
         height: size == null ? null : imageSize,
@@ -697,11 +690,11 @@ class HomeScreen extends GetView<HomeController> {
         errorWidget: _buildPlaceholderIcon(context, imageSize),
       );
     }
-
+    
     // Last resort: Show placeholder icon (NO emoji characters)
     return _buildPlaceholderIcon(context, imageSize);
   }
-
+  
   /// Build placeholder icon (replaces emoji character fallback)
   /// NO emoji characters shown - only icons or fruit images
   static Widget _buildPlaceholderIcon(BuildContext context, double size) {
@@ -734,7 +727,7 @@ class HomeScreen extends GetView<HomeController> {
       }
       return thumbnailPath;
     }
-
+    
     // Priority 2: Check thumbnail (legacy field)
     if (video['thumbnail'] != null && (video['thumbnail'] as String).isNotEmpty) {
       final thumbnail = video['thumbnail'] as String;
@@ -743,7 +736,7 @@ class HomeScreen extends GetView<HomeController> {
       }
       return thumbnail;
     }
-
+    
     // Priority 3: Check if file_path is an image (not a video)
     if (video['file_path'] != null) {
       final filePath = video['file_path'].toString();
@@ -759,7 +752,7 @@ class HomeScreen extends GetView<HomeController> {
         return filePath;
       }
     }
-
+    
     // Last resort: Return null to use video frame extraction
     return null;
   }
@@ -846,7 +839,7 @@ class HomeScreen extends GetView<HomeController> {
             },
             child: Padding(
               padding: ResponsiveHelper.padding(
-                context,
+                context, 
                 horizontal: ResponsiveHelper.isMobile(context) ? 4 : 6,
                 vertical: ResponsiveHelper.isMobile(context) ? 6 : 8,
               ),
@@ -891,8 +884,8 @@ class HomeScreen extends GetView<HomeController> {
                     ),
                     child: Text(
                       '${fruit['active_users'] ?? 0}',
-                      style: ResponsiveHelper.textStyle(
-                        context,
+              style: ResponsiveHelper.textStyle(
+                context,
                         fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
                         fontWeight: FontWeight.w600,
                         color: Colors.black,
@@ -1030,7 +1023,7 @@ class HomeScreen extends GetView<HomeController> {
                       ],
                     ),
                   ),
-                  // Three-dot menu - Responsive
+                  // Three-dot menu - Responsive with Report option
                   PopupMenuButton<String>(
                     icon: Icon(
                       Icons.more_vert,
@@ -1194,11 +1187,11 @@ class HomeScreen extends GetView<HomeController> {
       borderRadius: BorderRadius.zero,
       child: Container(
         constraints: BoxConstraints(
-          maxHeight: ResponsiveHelper.isMobile(context)
+          maxHeight: ResponsiveHelper.isMobile(context) 
               ? ResponsiveHelper.screenHeight(context) * 0.20  // Increased from 0.16 to accommodate spacing
               : ResponsiveHelper.isTablet(context)
-              ? ResponsiveHelper.screenHeight(context) * 0.22  // Increased from 0.18
-              : ResponsiveHelper.screenHeight(context) * 0.24,  // Increased from 0.20
+                  ? ResponsiveHelper.screenHeight(context) * 0.22  // Increased from 0.18
+                  : ResponsiveHelper.screenHeight(context) * 0.24,  // Increased from 0.20
         ),
         margin: ResponsiveHelper.safeMargin(
           context,
@@ -1238,184 +1231,184 @@ class HomeScreen extends GetView<HomeController> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // User Name Section - With proper spacing
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 8 : 10),
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 8 : 10), // Increased bottom padding for spacing before image
-                          ),
-                          child: Row(
-                            children: [
-                              // Profile Picture - Same size for all (consistent avatar)
-                              CircleAvatar(
-                                radius: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 14 : 16,
-                                backgroundColor: Colors.grey[200],
-                                backgroundImage: profilePhoto != null && profilePhoto.isNotEmpty && !profilePhoto.startsWith('assets/')
-                                    ? NetworkImage(profilePhoto.startsWith('http') ? profilePhoto : baseUrl + profilePhoto)
-                                    : null,
-                                child: profilePhoto == null || profilePhoto.isEmpty || profilePhoto.startsWith('assets/')
-                                    ? Icon(
-                                  Icons.person_rounded,
-                                  size: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 14 : 16,
-                                  color: const Color(0xFF5F4628),
-                                )
-                                    : null,
-                              ),
-                              SizedBox(width: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 4 : 6)),
-                              // Name only (no timestamp to save space)
-                              Expanded(
-                                child: Text(
-                                  author,
-                                  style: ResponsiveHelper.textStyle(
-                                    context,
-                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                ),
-                              ),
-                            ],
-                          ),
+            // User Name Section - With proper spacing
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 8 : 10),
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 8 : 10), // Increased bottom padding for spacing before image
+              ),
+              child: Row(
+                children: [
+                  // Profile Picture - Same size for all (consistent avatar)
+                  CircleAvatar(
+                    radius: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 14 : 16,
+                    backgroundColor: Colors.grey[200],
+                    backgroundImage: profilePhoto != null && profilePhoto.isNotEmpty && !profilePhoto.startsWith('assets/')
+                        ? NetworkImage(profilePhoto.startsWith('http') ? profilePhoto : baseUrl + profilePhoto)
+                        : null,
+                    child: profilePhoto == null || profilePhoto.isEmpty || profilePhoto.startsWith('assets/')
+                        ? Icon(
+                            Icons.person_rounded,
+                            size: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 14 : 16,
+                            color: const Color(0xFF5F4628),
+                          )
+                        : null,
+                  ),
+                  SizedBox(width: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 4 : 6)),
+                  // Name only (no timestamp to save space)
+                  Expanded(
+                    child: Text(
+                      author,
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Gap between profile picture and blog photo - More spacing
+            if (imageUrl != null && imageUrl.isNotEmpty) 
+              SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 8 : 10)),
+            // Photo at Top (if available) - Compact height
+            if (imageUrl != null && imageUrl.isNotEmpty) ...[
+              AspectRatio(
+                aspectRatio: ResponsiveHelper.isMobile(context) ? 2.0 : 1.9, // Wider aspect ratio = shorter height
+                child: ClipRRect(
+                  borderRadius: BorderRadius.zero,
+                  child: CachedImage(
+                    imageUrl: imageUrl,
+                    width: double.infinity,
+                    height: double.infinity,
+                    fit: BoxFit.cover,
+                    errorWidget: Container(
+                      width: double.infinity,
+                      height: double.infinity,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            const Color(0xFFFAF6EC),
+                            const Color(0xFF9F9467).withOpacity(0.3),
+                          ],
                         ),
-                        // Gap between profile picture and blog photo - More spacing
-                        if (imageUrl != null && imageUrl.isNotEmpty)
-                          SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 8 : 10)),
-                        // Photo at Top (if available) - Compact height
-                        if (imageUrl != null && imageUrl.isNotEmpty) ...[
-                          AspectRatio(
-                            aspectRatio: ResponsiveHelper.isMobile(context) ? 2.0 : 1.9, // Wider aspect ratio = shorter height
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.zero,
-                              child: CachedImage(
-                                imageUrl: imageUrl,
-                                width: double.infinity,
-                                height: double.infinity,
-                                fit: BoxFit.cover,
-                                errorWidget: Container(
-                                  width: double.infinity,
-                                  height: double.infinity,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        const Color(0xFFFAF6EC),
-                                        const Color(0xFF9F9467).withOpacity(0.3),
-                                      ],
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.article_rounded,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 22, desktop: 26),
-                                    color: const Color(0xFF9F9467),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                        // Text/Blog Content - With proper spacing
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12), // Increased top padding for spacing after image
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8), // Bottom padding for spacing before actions
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                title,
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black,
-                                ).copyWith(height: ResponsiveHelper.isMobile(context) ? 1.0 : 1.1),
-                                maxLines: ResponsiveHelper.isMobile(context) ? 1 : 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (!ResponsiveHelper.isMobile(context)) // Only show content on tablet/desktop
-                                SizedBox(height: ResponsiveHelper.spacing(context, 1)),
-                              if (!ResponsiveHelper.isMobile(context))
-                                Text(
-                                  AutoTranslateHelper.getTranslatedTextSync(
-                                    text: blog['content'] ?? blog['description'] ?? '',
-                                    sourceLanguage: blog['language'] as String?,
-                                  ),
-                                  style: ResponsiveHelper.textStyle(
-                                    context,
-                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
-                                    color: Colors.black,
-                                  ).copyWith(height: 1.1),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                            ],
-                          ),
+                      ),
+                      child: Icon(
+                        Icons.article_rounded,
+                        size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 22, desktop: 26),
+                        color: const Color(0xFF9F9467),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            // Text/Blog Content - With proper spacing
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12), // Increased top padding for spacing after image
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8), // Bottom padding for spacing before actions
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                    ).copyWith(height: ResponsiveHelper.isMobile(context) ? 1.0 : 1.1),
+                    maxLines: ResponsiveHelper.isMobile(context) ? 1 : 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (!ResponsiveHelper.isMobile(context)) // Only show content on tablet/desktop
+                    SizedBox(height: ResponsiveHelper.spacing(context, 1)),
+                  if (!ResponsiveHelper.isMobile(context))
+                    Text(
+                      AutoTranslateHelper.getTranslatedTextSync(
+                        text: blog['content'] ?? blog['description'] ?? '',
+                        sourceLanguage: blog['language'] as String?,
+                      ),
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
+                        color: Colors.black,
+                      ).copyWith(height: 1.1),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            // Bottom Actions - Likes and Comments with real counts
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8), // Top padding for spacing after content
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
+                ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8), // Bottom padding
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Left: Likes count with like icon (same as clickable icon)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.favorite_border_rounded,
+                        size: ResponsiveHelper.iconSize(context, mobile: 12, tablet: 13, desktop: 14),
+                        color: AppTheme.iconscolor,
+                      ),
+                      SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                      Text(
+                        '$likeCount',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
+                          color: AppTheme.iconscolor,
+                          fontWeight: FontWeight.w600,
                         ),
-                        // Bottom Actions - Likes and Comments with real counts
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8), // Top padding for spacing after content
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12),
-                            ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8), // Bottom padding
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              // Left: Likes count with like icon (same as clickable icon)
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.favorite_border_rounded,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 12, tablet: 13, desktop: 14),
-                                    color: AppTheme.iconscolor,
-                                  ),
-                                  SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                                  Text(
-                                    '$likeCount',
-                                    style: ResponsiveHelper.textStyle(
-                                      context,
-                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                                      color: AppTheme.iconscolor,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              // Right: Comments count with icon
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.comment_outlined,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 12, tablet: 13, desktop: 14),
-                                    color: AppTheme.iconscolor,
-                                  ),
-                                  SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                                  Text(
-                                    '$commentCount',
-                                    style: ResponsiveHelper.textStyle(
-                                      context,
-                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                                      color: Colors.grey[600],
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
+                      ),
+                    ],
+                  ),
+                  // Right: Comments count with icon
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.comment_outlined,
+                        size: ResponsiveHelper.iconSize(context, mobile: 12, tablet: 13, desktop: 14),
+                        color: AppTheme.iconscolor,
+                      ),
+                      SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                      Text(
+                        '$commentCount',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w600,
                         ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
                       ],
                     ),
                   ),
@@ -1471,63 +1464,63 @@ class HomeScreen extends GetView<HomeController> {
               children: [
                 imageUrl != null
                     ? CachedImage(
-                  imageUrl: imageUrl!,
-                  height: thumbnailHeight,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorWidget: videoUrl != null
-                      ? _VideoFrameThumbnail(
-                    videoUrl: videoUrl,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: thumbnailHeight,
-                  )
-                      : Container(
-                    height: thumbnailHeight,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppTheme.themeColor,
-                          AppTheme.primaryColor.withOpacity(0.3),
-                        ],
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.video_library_rounded,
-                      size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                      color: AppTheme.primaryColor,
-                    ),
-                  ),
-                )
+                        imageUrl: imageUrl!,
+                        height: thumbnailHeight,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorWidget: videoUrl != null
+                            ? _VideoFrameThumbnail(
+                                videoUrl: videoUrl,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: thumbnailHeight,
+                              )
+                            : Container(
+                                height: thumbnailHeight,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      AppTheme.themeColor,
+                                      AppTheme.primaryColor.withOpacity(0.3),
+                                    ],
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.video_library_rounded,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
+                                  color: AppTheme.primaryColor,
+                                ),
+                              ),
+                      )
                     : videoUrl != null
-                    ? _VideoFrameThumbnail(
-                  videoUrl: videoUrl,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: thumbnailHeight,
-                )
-                    : Container(
-                  height: thumbnailHeight,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppTheme.themeColor,
-                        AppTheme.primaryColor.withOpacity(0.3),
-                      ],
-                    ),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.video_library_rounded,
-                      size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                      color: AppTheme.primaryColor,
-                    ),
-                  ),
-                ),
+                        ? _VideoFrameThumbnail(
+                            videoUrl: videoUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: thumbnailHeight,
+                          )
+                        : Container(
+                            height: thumbnailHeight,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  AppTheme.themeColor,
+                                  AppTheme.primaryColor.withOpacity(0.3),
+                                ],
+                              ),
+                            ),
+                            child: Center(
+                              child: Icon(
+                                Icons.video_library_rounded,
+                                size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
+                                color: AppTheme.primaryColor,
+                              ),
+                            ),
+                          ),
                 Positioned.fill(
                   child: Center(
                     child: Container(
@@ -1614,8 +1607,8 @@ class HomeScreen extends GetView<HomeController> {
                           SizedBox(width: ResponsiveHelper.spacing(context, 4)),
                           Flexible(
                             child: Text(
-                              'Like',
-                              style: ResponsiveHelper.textStyle(context, fontSize: 14, color: AppTheme.iconscolor, fontWeight: FontWeight.w600),
+                            'Like',
+                            style: ResponsiveHelper.textStyle(context, fontSize: 14, color: AppTheme.iconscolor, fontWeight: FontWeight.w600),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -1643,8 +1636,8 @@ class HomeScreen extends GetView<HomeController> {
                           SizedBox(width: ResponsiveHelper.spacing(context, 4)),
                           Flexible(
                             child: Text(
-                              'Comment',
-                              style: ResponsiveHelper.textStyle(context, fontSize: 14, color: AppTheme.iconscolor, fontWeight: FontWeight.w600),
+                            'Comment',
+                            style: ResponsiveHelper.textStyle(context, fontSize: 14, color: AppTheme.iconscolor, fontWeight: FontWeight.w600),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -1920,7 +1913,7 @@ class HomeScreen extends GetView<HomeController> {
   // Build Videos Reels Carousel - Instagram Style (2 full + 10% of 3rd visible, swipeable)
   Widget _buildVideosReelsCarousel(BuildContext context, List<Map<String, dynamic>> videos) {
     if (videos.isEmpty) return const SizedBox.shrink();
-
+    
     // Calculate video width: 2 full videos + 10% of 3rd = 2.1 videos visible
     final screenWidth = MediaQuery.of(context).size.width;
     final horizontalPadding = ResponsiveHelper.spacing(context, 16) * 2; // Left + Right padding
@@ -1928,7 +1921,7 @@ class HomeScreen extends GetView<HomeController> {
     final availableWidth = screenWidth - horizontalPadding;
     final videoWidth = (availableWidth - spacingBetween) / 2.1; // 2 full + 10% of 3rd
     final videoHeight = videoWidth * 1.4; // Portrait aspect ratio
-
+    
     return Container(
       margin: ResponsiveHelper.padding(context, bottom: 20),
       child: Column(
@@ -2076,59 +2069,59 @@ class HomeScreen extends GetView<HomeController> {
             children: [
               imageUrl != null
                   ? CachedImage(
-                imageUrl: imageUrl!,
-                fit: BoxFit.cover,
-                errorWidget: videoUrl != null
-                    ? _VideoFrameThumbnail(
-                  videoUrl: videoUrl,
-                  fit: BoxFit.cover,
-                  width: width,
-                  height: height,
-                )
-                    : Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppTheme.themeColor,
-                        AppTheme.primaryColor.withOpacity(0.3),
-                      ],
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.video_library_rounded,
-                    size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
-                    color: AppTheme.primaryColor,
-                  ),
-                ),
-              )
+                      imageUrl: imageUrl!,
+                      fit: BoxFit.cover,
+                      errorWidget: videoUrl != null
+                          ? _VideoFrameThumbnail(
+                              videoUrl: videoUrl,
+                              fit: BoxFit.cover,
+                              width: width,
+                              height: height,
+                            )
+                          : Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    AppTheme.themeColor,
+                                    AppTheme.primaryColor.withOpacity(0.3),
+                                  ],
+                                ),
+                              ),
+                              child: Icon(
+                                Icons.video_library_rounded,
+                                size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
+                                color: AppTheme.primaryColor,
+                              ),
+                            ),
+                    )
                   : videoUrl != null
-                  ? _VideoFrameThumbnail(
-                videoUrl: videoUrl,
-                fit: BoxFit.cover,
-                width: width,
-                height: height,
-              )
-                  : Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppTheme.themeColor,
-                      AppTheme.primaryColor.withOpacity(0.3),
-                    ],
-                  ),
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.video_library_rounded,
-                    size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
-                    color: AppTheme.primaryColor,
-                  ),
-                ),
-              ),
+                      ? _VideoFrameThumbnail(
+                          videoUrl: videoUrl,
+                          fit: BoxFit.cover,
+                          width: width,
+                          height: height,
+                        )
+                      : Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                AppTheme.themeColor,
+                                AppTheme.primaryColor.withOpacity(0.3),
+                              ],
+                            ),
+                          ),
+                          child: Center(
+                            child: Icon(
+                              Icons.video_library_rounded,
+                              size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
+                              color: AppTheme.primaryColor,
+                            ),
+                          ),
+                        ),
               // LIVE Badge - Top Left
               if (isLive)
                 Positioned(
@@ -2179,30 +2172,30 @@ class HomeScreen extends GetView<HomeController> {
                 ),
               // Play Button Overlay - Center (Only for non-live videos)
               if (!isLive)
-                Positioned.fill(
-                  child: Center(
-                    child: Container(
-                      padding: ResponsiveHelper.padding(context, all: 14),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.95),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 15,
-                            spreadRadius: 0,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.play_circle_fill,
-                        color: const Color(0xFF8B4513),
-                        size: ResponsiveHelper.iconSize(context, mobile: 56, tablet: 64, desktop: 72),
-                      ),
+              Positioned.fill(
+                child: Center(
+                  child: Container(
+                    padding: ResponsiveHelper.padding(context, all: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.95),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 15,
+                          spreadRadius: 0,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      Icons.play_circle_fill,
+                      color: const Color(0xFF8B4513),
+                      size: ResponsiveHelper.iconSize(context, mobile: 56, tablet: 64, desktop: 72),
                     ),
                   ),
                 ),
+              ),
             ],
           ),
         ),
@@ -2259,65 +2252,65 @@ class HomeScreen extends GetView<HomeController> {
                 children: [
                   imageUrl != null
                       ? CachedImage(
-                    imageUrl: imageUrl!,
-                    width: videoWidth,
-                    height: videoHeight,
-                    fit: BoxFit.cover,
-                    errorWidget: videoUrl != null
-                        ? _VideoFrameThumbnail(
-                      videoUrl: videoUrl,
-                      fit: BoxFit.cover,
-                      width: videoWidth,
-                      height: videoHeight,
-                    )
-                        : Container(
-                      width: videoWidth,
-                      height: videoHeight,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppTheme.themeColor,
-                            AppTheme.primaryColor.withOpacity(0.3),
-                          ],
-                        ),
-                      ),
-                      child: Icon(
-                        Icons.video_library_rounded,
-                        size: ResponsiveHelper.iconSize(context, mobile: 50),
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                  )
+                          imageUrl: imageUrl!,
+                          width: videoWidth,
+                          height: videoHeight,
+                          fit: BoxFit.cover,
+                          errorWidget: videoUrl != null
+                              ? _VideoFrameThumbnail(
+                                  videoUrl: videoUrl,
+                                  fit: BoxFit.cover,
+                                  width: videoWidth,
+                                  height: videoHeight,
+                                )
+                              : Container(
+                                  width: videoWidth,
+                                  height: videoHeight,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        AppTheme.themeColor,
+                                        AppTheme.primaryColor.withOpacity(0.3),
+                                      ],
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.video_library_rounded,
+                                    size: ResponsiveHelper.iconSize(context, mobile: 50),
+                                    color: AppTheme.primaryColor,
+                                  ),
+                                ),
+                        )
                       : videoUrl != null
-                      ? _VideoFrameThumbnail(
-                    videoUrl: videoUrl,
-                    fit: BoxFit.cover,
-                    width: videoWidth,
-                    height: videoHeight,
-                  )
-                      : Container(
-                    width: videoWidth,
-                    height: videoHeight,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppTheme.themeColor,
-                          AppTheme.primaryColor.withOpacity(0.3),
-                        ],
-                      ),
-                    ),
-                    child: Center(
-                      child: Icon(
-                        Icons.video_library_rounded,
-                        size: ResponsiveHelper.iconSize(context, mobile: 50),
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                  ),
+                          ? _VideoFrameThumbnail(
+                              videoUrl: videoUrl,
+                              fit: BoxFit.cover,
+                              width: videoWidth,
+                              height: videoHeight,
+                            )
+                          : Container(
+                              width: videoWidth,
+                              height: videoHeight,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    AppTheme.themeColor,
+                                    AppTheme.primaryColor.withOpacity(0.3),
+                                  ],
+                                ),
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  Icons.video_library_rounded,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 50),
+                                  color: AppTheme.primaryColor,
+                                ),
+                              ),
+                            ),
                   // LIVE Badge - Top Left
                   if (isLive)
                     Positioned(
@@ -2368,35 +2361,35 @@ class HomeScreen extends GetView<HomeController> {
                     ),
                   // Play Button Overlay - Professional Design (Only for non-live videos)
                   if (!isLive)
-                    Positioned.fill(
-                      child: Center(
-                        child: Container(
-                          padding: ResponsiveHelper.padding(context, all: 12),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.white.withOpacity(0.95),
-                                Colors.white.withOpacity(0.9),
-                              ],
-                            ),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.15),
-                                blurRadius: 12,
-                                spreadRadius: 0,
-                                offset: const Offset(0, 4),
-                              ),
+                  Positioned.fill(
+                    child: Center(
+                      child: Container(
+                        padding: ResponsiveHelper.padding(context, all: 12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.white.withOpacity(0.95),
+                              Colors.white.withOpacity(0.9),
                             ],
                           ),
-                          child: Icon(
-                            Icons.play_circle_fill,
-                            color: const Color(0xFF4CAF50),
-                            size: ResponsiveHelper.iconSize(context, mobile: 48, tablet: 52, desktop: 56),
-                          ),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.15),
+                              blurRadius: 12,
+                              spreadRadius: 0,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.play_circle_fill,
+                          color: const Color(0xFF4CAF50),
+                          size: ResponsiveHelper.iconSize(context, mobile: 48, tablet: 52, desktop: 56),
                         ),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -2480,7 +2473,7 @@ class HomeScreen extends GetView<HomeController> {
   Widget _buildAppTitle(BuildContext context) {
     final isMobile = ResponsiveHelper.isMobile(context);
     final isTablet = ResponsiveHelper.isTablet(context);
-
+    
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -2696,7 +2689,7 @@ class HomeScreen extends GetView<HomeController> {
   /// NEW: Build Compact Quick Action Button with Image/Icon and Label
   Widget _buildNewQuickActionButton(BuildContext context, QuickAction action) {
     VoidCallback? onTap;
-
+    
     // Handle route navigation
     if (action.route == Routes.GROUPS) {
       onTap = () {
@@ -2764,44 +2757,44 @@ class HomeScreen extends GetView<HomeController> {
               // Icon/Image on Left
               action.imagePath != null
                   ? Image.asset(
-                action.imagePath!,
-                width: ResponsiveHelper.iconSize(
-                  context,
-                  mobile: 45,
-                  tablet: 50,
-                  desktop: 55,
-                ),
-                height: ResponsiveHelper.iconSize(
-                  context,
-                  mobile: 45,
-                  tablet: 50,
-                  desktop: 55,
-                ),
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  // Fallback to icon if image fails to load
-                  return Icon(
-                    action.icon,
-                    size: ResponsiveHelper.iconSize(
-                      context,
-                      mobile: 45,
-                      tablet: 50,
-                      desktop: 55,
-                    ),
-                    color: AppTheme.iconscolor,
-                  );
-                },
-              )
+                      action.imagePath!,
+                      width: ResponsiveHelper.iconSize(
+                        context,
+                        mobile: 45,
+                        tablet: 50,
+                        desktop: 55,
+                      ),
+                      height: ResponsiveHelper.iconSize(
+                        context,
+                        mobile: 45,
+                        tablet: 50,
+                        desktop: 55,
+                      ),
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        // Fallback to icon if image fails to load
+                        return Icon(
+                          action.icon,
+                          size: ResponsiveHelper.iconSize(
+                            context,
+                            mobile: 45,
+                            tablet: 50,
+                            desktop: 55,
+                          ),
+                          color: AppTheme.iconscolor,
+                        );
+                      },
+                    )
                   : Icon(
-                action.icon,
-                size: ResponsiveHelper.iconSize(
-                  context,
-                  mobile: 45,
-                  tablet: 50,
-                  desktop: 55,
-                ),
-                color: AppTheme.iconscolor,
-              ),
+                      action.icon,
+                      size: ResponsiveHelper.iconSize(
+                        context,
+                        mobile: 45,
+                        tablet: 50,
+                        desktop: 55,
+                      ),
+                      color: AppTheme.iconscolor,
+                    ),
               SizedBox(
                 width: ResponsiveHelper.spacing(context, 12),
               ),
@@ -2985,8 +2978,8 @@ class HomeScreen extends GetView<HomeController> {
         child: Tooltip(
           message: label,
           waitDuration: const Duration(milliseconds: 500),
-          child: InkWell(
-            onTap: onTap,
+        child: InkWell(
+          onTap: onTap,
             onLongPress: () {
               // Show tooltip on long press
               Get.snackbar(
@@ -3000,21 +2993,21 @@ class HomeScreen extends GetView<HomeController> {
               );
             },
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-            child: Container(
+          child: Container(
               height: ResponsiveHelper.safeHeight(context, mobile: 80, tablet: 90, desktop: 100),
               width: ResponsiveHelper.safeHeight(context, mobile: 80, tablet: 90, desktop: 100),
-              decoration: BoxDecoration(
-                color: Colors.white,
+            decoration: BoxDecoration(
+              color: Colors.white,
                 borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                boxShadow: [
-                  BoxShadow(
+              boxShadow: [
+                BoxShadow(
                     color: Colors.black.withOpacity(0.08),
                     blurRadius: 12,
-                    offset: const Offset(0, 4),
+                  offset: const Offset(0, 4),
                     spreadRadius: 0,
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
               child: Center(
                 child: ColorFiltered(
                   colorFilter: ColorFilter.mode(
@@ -3028,7 +3021,7 @@ class HomeScreen extends GetView<HomeController> {
                     fit: BoxFit.contain,
                   ),
                 ),
-              ),
+                ),
             ),
           ),
         ),
@@ -3090,7 +3083,7 @@ class HomeScreen extends GetView<HomeController> {
                       ],
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 20)),
-
+                    
                     // Stream Title
                     Text(
                       'Stream Title *',
@@ -3129,7 +3122,7 @@ class HomeScreen extends GetView<HomeController> {
                       ),
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-
+                    
                     // Description
                     Text(
                       'Description (Optional)',
@@ -3169,7 +3162,7 @@ class HomeScreen extends GetView<HomeController> {
                       ),
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-
+                    
                     // Fruit Tag
                     Text(
                       'Fruit Tag (Optional)',
@@ -3216,7 +3209,7 @@ class HomeScreen extends GetView<HomeController> {
                       },
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 24)),
-
+                    
                     // Action Buttons
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
@@ -3271,9 +3264,9 @@ class HomeScreen extends GetView<HomeController> {
 
                               titleController.dispose();
                               descriptionController.dispose();
-
+                              
                               Get.back();
-
+                              
                               // Show success with stream details
                               Get.dialog(
                                 Dialog(
@@ -3401,7 +3394,7 @@ class HomeScreen extends GetView<HomeController> {
                               setState(() {
                                 isLoading = false;
                               });
-
+                              
                               Get.snackbar(
                                 'Error',
                                 e.toString().replaceAll('Exception: ', ''),
@@ -3418,22 +3411,22 @@ class HomeScreen extends GetView<HomeController> {
                           ),
                           child: isLoading
                               ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
                               : Text(
-                            'Create Stream',
-                            style: ResponsiveHelper.textStyle(
-                              context,
-                              fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                                  'Create Stream',
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                         ),
                       ],
                     ),
@@ -3513,41 +3506,41 @@ class HomeScreen extends GetView<HomeController> {
           // Profile Photo or Avatar (hide if anonymous)
           isAnonymous
               ? CircleAvatar(
-            radius: 25,
-            backgroundColor: Colors.grey[300],
-            child: Icon(
-              Icons.person_outline,
-              color: Colors.grey[600],
-              size: 28,
-            ),
-          )
-              : (profilePhotoUrl != null
-              ? ClipOval(
-            child: CachedImage(
-              imageUrl: profilePhotoUrl,
-              width: ResponsiveHelper.iconSize(context, mobile: 50),
-              height: ResponsiveHelper.iconSize(context, mobile: 50),
-              fit: BoxFit.cover,
-              errorWidget: CircleAvatar(
-                radius: 25,
-                backgroundColor: const Color(0xFFFFD1DC), // Light pink background
-                child: Icon(
-                  Icons.person,
-                  color: Colors.black87,
-                  size: 28,
-                ),
+                  radius: 25,
+                  backgroundColor: Colors.grey[300],
+                  child: Icon(
+                    Icons.person_outline,
+                color: Colors.grey[600],
+                    size: 28,
               ),
-            ),
-          )
-              : CircleAvatar(
-            radius: 25,
-            backgroundColor: const Color(0xFFFFD1DC), // Light pink background
-            child: Icon(
-              Icons.person,
-              color: Colors.black87,
-              size: 28,
-            ),
-          )),
+                )
+              : (profilePhotoUrl != null
+                  ? ClipOval(
+                      child: CachedImage(
+                        imageUrl: profilePhotoUrl,
+                        width: ResponsiveHelper.iconSize(context, mobile: 50),
+                        height: ResponsiveHelper.iconSize(context, mobile: 50),
+                        fit: BoxFit.cover,
+                        errorWidget: CircleAvatar(
+                          radius: 25,
+                          backgroundColor: const Color(0xFFFFD1DC), // Light pink background
+                          child: Icon(
+                            Icons.person,
+                            color: Colors.black87,
+                            size: 28,
+                          ),
+                        ),
+                      ),
+                    )
+                  : CircleAvatar(
+                      radius: 25,
+                      backgroundColor: const Color(0xFFFFD1DC), // Light pink background
+                      child: Icon(
+                        Icons.person,
+                        color: Colors.black87,
+                        size: 28,
+                      ),
+                    )),
           SizedBox(width: ResponsiveHelper.spacing(context, 12)),
           Expanded(
             child: Column(
@@ -3584,9 +3577,9 @@ class HomeScreen extends GetView<HomeController> {
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                ),
-              ],
             ),
+          ],
+        ),
           ),
           SizedBox(width: ResponsiveHelper.spacing(context, 8)),
           // View All button
@@ -3667,41 +3660,52 @@ class HomeScreen extends GetView<HomeController> {
           }
         },
         child: Container(
-          padding: ResponsiveHelper.padding(context, all: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE3F2FD), // Light blue background for prayer card
-            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.blue.withOpacity(0.12),
-                spreadRadius: 1,
-                blurRadius: 6,
-                offset: Offset(0, ResponsiveHelper.spacing(context, 2)),
-              ),
-            ],
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Profile Photo or Avatar (hide if anonymous)
-              isAnonymous
-                  ? CircleAvatar(
-                radius: ResponsiveHelper.borderRadius(context, mobile: 20, tablet: 22, desktop: 25),
-                backgroundColor: Colors.grey[300],
-                child: Icon(
-                  Icons.person_outline,
-                  color: Colors.grey[600],
-                  size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
-                ),
-              )
-                  : (profilePhotoUrl != null
-                  ? ClipOval(
-                child: CachedImage(
-                  imageUrl: profilePhotoUrl,
-                  width: ResponsiveHelper.imageWidth(context, mobile: 40, tablet: 45, desktop: 50),
-                  height: ResponsiveHelper.imageHeight(context, mobile: 40, tablet: 45, desktop: 50),
-                  fit: BoxFit.cover,
-                  errorWidget: CircleAvatar(
+        padding: ResponsiveHelper.padding(context, all: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE3F2FD), // Light blue background for prayer card
+          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blue.withOpacity(0.12),
+              spreadRadius: 1,
+              blurRadius: 6,
+              offset: Offset(0, ResponsiveHelper.spacing(context, 2)),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Profile Photo or Avatar (hide if anonymous)
+            isAnonymous
+                ? CircleAvatar(
+                    radius: ResponsiveHelper.borderRadius(context, mobile: 20, tablet: 22, desktop: 25),
+                    backgroundColor: Colors.grey[300],
+                    child: Icon(
+                      Icons.person_outline,
+                      color: Colors.grey[600],
+                      size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
+                    ),
+                  )
+                : (profilePhotoUrl != null
+                ? ClipOval(
+                    child: CachedImage(
+                      imageUrl: profilePhotoUrl,
+                      width: ResponsiveHelper.imageWidth(context, mobile: 40, tablet: 45, desktop: 50),
+                      height: ResponsiveHelper.imageHeight(context, mobile: 40, tablet: 45, desktop: 50),
+                      fit: BoxFit.cover,
+                      errorWidget: CircleAvatar(
+                        radius: ResponsiveHelper.borderRadius(context, mobile: 20, tablet: 22, desktop: 25),
+                        backgroundColor: Colors.blueGrey,
+                        child: Icon(
+                          Icons.person,
+                          color: Colors.white,
+                          size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
+                        ),
+                      ),
+                    ),
+                  )
+                : CircleAvatar(
                     radius: ResponsiveHelper.borderRadius(context, mobile: 20, tablet: 22, desktop: 25),
                     backgroundColor: Colors.blueGrey,
                     child: Icon(
@@ -3709,89 +3713,78 @@ class HomeScreen extends GetView<HomeController> {
                       color: Colors.white,
                       size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
                     ),
-                  ),
-                ),
-              )
-                  : CircleAvatar(
-                radius: ResponsiveHelper.borderRadius(context, mobile: 20, tablet: 22, desktop: 25),
-                backgroundColor: Colors.blueGrey,
-                child: Icon(
-                  Icons.person,
-                  color: Colors.white,
-                  size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
-                ),
-              )),
-              SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // User Name (hide if anonymous)
-                    if (!isAnonymous && prayer['user_name'] != null)
-                      Text(
-                        prayer['user_name'],
-                        style: ResponsiveHelper.textStyle(
-                          context,
-                          fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 16, desktop: 18),
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[800],
-                        ),
-                      ),
-                    if (!isAnonymous && prayer['user_name'] != null)
-                      SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                    // Category
+                      )),
+            SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // User Name (hide if anonymous)
+                  if (!isAnonymous && prayer['user_name'] != null)
                     Text(
-                      prayer['category'] ?? 'Prayer Request',
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontWeight: FontWeight.bold,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 18, desktop: 20),
-                        color: const Color(0xFF8B4513),
-                      ),
-                    ),
-                    SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                    // Content (Auto-translated based on app language)
-                    Text(
-                      AutoTranslateHelper.getTranslatedTextSync(
-                        text: prayer['content'] ?? '',
-                        sourceLanguage: prayer['language'] as String?,
-                      ),
+                      prayer['user_name'],
                       style: ResponsiveHelper.textStyle(
                         context,
                         fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 16, desktop: 18),
-                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[800],
                       ),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    // Response Count (if available)
-                    if (prayer['response_count'] != null && (prayer['response_count'] as int) > 0)
-                      Padding(
-                        padding: ResponsiveHelper.padding(context,top: ResponsiveHelper.spacing(context, 6)),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.favorite,
-                              size: ResponsiveHelper.iconSize(context, mobile: 14, tablet: 16, desktop: 18),
-                              color: Colors.red[300],
+                  if (!isAnonymous && prayer['user_name'] != null)
+                    SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                  // Category
+                  Text(
+                    prayer['category'] ?? 'Prayer Request',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontWeight: FontWeight.bold,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 18, desktop: 20),
+                      color: const Color(0xFF8B4513),
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                  // Content (Auto-translated based on app language)
+                  Text(
+                    AutoTranslateHelper.getTranslatedTextSync(
+                      text: prayer['content'] ?? '',
+                      sourceLanguage: prayer['language'] as String?,
+                    ),
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                      color: Colors.grey[700],
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  // Response Count (if available)
+                  if (prayer['response_count'] != null && (prayer['response_count'] as int) > 0)
+                    Padding(
+                      padding: ResponsiveHelper.padding(context,top: ResponsiveHelper.spacing(context, 6)),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.favorite,
+                            size: ResponsiveHelper.iconSize(context, mobile: 14, tablet: 16, desktop: 18),
+                            color: Colors.red[300],
+                          ),
+                          SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                          Text(
+                            '${prayer['response_count']} responses',
+                            style: ResponsiveHelper.textStyle(
+                              context,
+                              fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 14, desktop: 16),
+                              color: Colors.grey[600],
                             ),
-                            SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                            Text(
-                              '${prayer['response_count']} responses',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 14, desktop: 16),
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
         ),
       ),
     );
@@ -3823,20 +3816,20 @@ class HomeScreen extends GetView<HomeController> {
             ),
             child: blog['image_url'] != null
                 ? LazyCachedImage(
-              imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${blog['image_url']}',
-              height: ResponsiveHelper.imageHeight(context, mobile: 120),
-              width: double.infinity,
-              fit: BoxFit.cover,
-              errorWidget: Container(
-                height: ResponsiveHelper.imageHeight(context, mobile: 120),
-                color: Colors.grey[300],
-                child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
-              ),
-            )
+                    imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${blog['image_url']}',
+                    height: ResponsiveHelper.imageHeight(context, mobile: 120),
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorWidget: Container(
+                      height: ResponsiveHelper.imageHeight(context, mobile: 120),
+                      color: Colors.grey[300],
+                      child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                    ),
+                  )
                 : Container(
-              height: ResponsiveHelper.imageHeight(context, mobile: 120),
-              color: Colors.grey[300],
-              child: Icon(Icons.article, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                    height: ResponsiveHelper.imageHeight(context, mobile: 120),
+                    color: Colors.grey[300],
+                    child: Icon(Icons.article, size: ResponsiveHelper.iconSize(context, mobile: 40)),
             ),
           ),
           Padding(
@@ -3901,21 +3894,21 @@ class HomeScreen extends GetView<HomeController> {
             ),
             child: photo['file_path'] != null
                 ? LazyCachedImage(
-              imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}',
-              height: ResponsiveHelper.imageHeight(context, mobile: 150),
-              width: double.infinity,
-              fit: BoxFit.cover,
-              errorWidget: Container(
-                height: ResponsiveHelper.imageHeight(context, mobile: 150),
-                color: Colors.grey[300],
-                child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
-              ),
-            )
+                    imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}',
+                    height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorWidget: Container(
+                      height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                      color: Colors.grey[300],
+                      child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                    ),
+                  )
                 : Container(
-              height: ResponsiveHelper.imageHeight(context, mobile: 150),
-              color: Colors.grey[300],
-              child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
-            ),
+                    height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                    color: Colors.grey[300],
+                    child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                  ),
           ),
           if (photo['fruit_tag'] != null)
             Padding(
@@ -3972,170 +3965,170 @@ class HomeScreen extends GetView<HomeController> {
         ),
         child: Stack(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 10, tablet: 12, desktop: 14)),
-              child: imageUrl != null
-                  ? LazyCachedImage(
-                imageUrl: imageUrl!,
-                height: cardHeight,
-                width: cardWidth,
-                fit: BoxFit.cover,
-                errorWidget: videoUrl != null
+          ClipRRect(
+            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 10, tablet: 12, desktop: 14)),
+            child: imageUrl != null
+                ? LazyCachedImage(
+                    imageUrl: imageUrl!,
+                    height: cardHeight,
+                    width: cardWidth,
+                    fit: BoxFit.cover,
+                    errorWidget: videoUrl != null
+                        ? _VideoFrameThumbnail(
+                            videoUrl: videoUrl,
+                            fit: BoxFit.cover,
+                            width: cardWidth,
+                            height: cardHeight,
+                          )
+                        : Container(
+                            height: cardHeight,
+                            width: cardWidth,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  AppTheme.themeColor,
+                                  AppTheme.primaryColor.withOpacity(0.3),
+                                ],
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.video_library_rounded,
+                              size: ResponsiveHelper.iconSize(context, mobile: 40, tablet: 45, desktop: 50),
+                              color: AppTheme.primaryColor,
+                            ),
+                          ),
+                  )
+                : videoUrl != null
                     ? _VideoFrameThumbnail(
-                  videoUrl: videoUrl,
-                  fit: BoxFit.cover,
-                  width: cardWidth,
-                  height: cardHeight,
-                )
+                        videoUrl: videoUrl,
+                        fit: BoxFit.cover,
+                        width: cardWidth,
+                        height: cardHeight,
+                      )
                     : Container(
-                  height: cardHeight,
-                  width: cardWidth,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppTheme.themeColor,
-                        AppTheme.primaryColor.withOpacity(0.3),
-                      ],
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.video_library_rounded,
-                    size: ResponsiveHelper.iconSize(context, mobile: 40, tablet: 45, desktop: 50),
-                    color: AppTheme.primaryColor,
-                  ),
-                ),
-              )
-                  : videoUrl != null
-                  ? _VideoFrameThumbnail(
-                videoUrl: videoUrl,
-                fit: BoxFit.cover,
-                width: cardWidth,
-                height: cardHeight,
-              )
-                  : Container(
-                height: cardHeight,
-                width: cardWidth,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppTheme.themeColor,
-                      AppTheme.primaryColor.withOpacity(0.3),
-                    ],
-                  ),
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.video_library_rounded,
-                    size: ResponsiveHelper.iconSize(context, mobile: 40, tablet: 45, desktop: 50),
-                    color: AppTheme.primaryColor,
-                  ),
-                ),
+                        height: cardHeight,
+                        width: cardWidth,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              AppTheme.themeColor,
+                              AppTheme.primaryColor.withOpacity(0.3),
+                            ],
+                          ),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.video_library_rounded,
+                            size: ResponsiveHelper.iconSize(context, mobile: 40, tablet: 45, desktop: 50),
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
+                      ),
+          ),
+          Positioned.fill(
+            child: Center(
+              child: Icon(
+                Icons.play_circle_fill,
+                color: Colors.white.withOpacity(0.8),
+                size: ResponsiveHelper.iconSize(context, mobile: 45, tablet: 55, desktop: 65),
               ),
             ),
-            Positioned.fill(
-              child: Center(
-                child: Icon(
-                  Icons.play_circle_fill,
-                  color: Colors.white.withOpacity(0.8),
-                  size: ResponsiveHelper.iconSize(context, mobile: 45, tablet: 55, desktop: 65),
-                ),
+          ),
+          // "Video" label top-left
+          Positioned(
+            top: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
+            left: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
+            child: Container(
+              padding: ResponsiveHelper.padding(context,
+                horizontal: ResponsiveHelper.isMobile(context) ? 6 : 8,
+                vertical: ResponsiveHelper.isMobile(context) ? 3 : 4,
               ),
-            ),
-            // "Video" label top-left
-            Positioned(
-              top: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
-              left: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
-              child: Container(
-                padding: ResponsiveHelper.padding(context,
-                  horizontal: ResponsiveHelper.isMobile(context) ? 6 : 8,
-                  vertical: ResponsiveHelper.isMobile(context) ? 3 : 4,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 6, tablet: 8, desktop: 10)),
-                ),
-                child: Text(
-                  'Video',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 6, tablet: 8, desktop: 10)),
               ),
-            ),
-            // "+ Kindness Moment" overlay bottom-left
-            Positioned(
-              bottom: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
-              left: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
-              child: Container(
-                padding: ResponsiveHelper.padding(context,
-                  horizontal: ResponsiveHelper.isMobile(context) ? 6 : 8,
-                  vertical: ResponsiveHelper.isMobile(context) ? 3 : 4,
-                ),
-                decoration: BoxDecoration(
+              child: Text(
+                'Video',
+                style: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 6, tablet: 8, desktop: 10)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
-                      height: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
-                      decoration: BoxDecoration(
-                        color: Colors.green,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.add,
-                        color: Colors.white,
-                        size: ResponsiveHelper.iconSize(context, mobile: 12, tablet: 14, desktop: 16),
-                      ),
-                    ),
-                    SizedBox(width: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 3 : 4)),
-                    Text(
-                      'Kindness Moment',
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
-                        color: Colors.black87,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-            // Small circular icon bottom-right
+          ),
+          // "+ Kindness Moment" overlay bottom-left
+          Positioned(
+            bottom: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
+            left: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
+            child: Container(
+              padding: ResponsiveHelper.padding(context,
+                horizontal: ResponsiveHelper.isMobile(context) ? 6 : 8,
+                vertical: ResponsiveHelper.isMobile(context) ? 3 : 4,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 6, tablet: 8, desktop: 10)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
+                    height: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
+                    decoration: BoxDecoration(
+                    color: Colors.green,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.add,
+                      color: Colors.white,
+                      size: ResponsiveHelper.iconSize(context, mobile: 12, tablet: 14, desktop: 16),
+                    ),
+                  ),
+                  SizedBox(width: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 3 : 4)),
+                  Text(
+                    'Kindness Moment',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Small circular icon bottom-right
             Positioned(
               bottom: ResponsiveHelper.spacing(context, 8),
               right: ResponsiveHelper.spacing(context, 8),
-              child: Container(
-                width: ResponsiveHelper.iconSize(context, mobile: 32),
-                height: ResponsiveHelper.iconSize(context, mobile: 32),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: const Color(0xFF8B4513).withOpacity(0.3),
-                    width: 1.5,
-                  ),
+            child: Container(
+              width: ResponsiveHelper.iconSize(context, mobile: 32),
+              height: ResponsiveHelper.iconSize(context, mobile: 32),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFF8B4513).withOpacity(0.3),
+                  width: 1.5,
                 ),
+              ),
                 child: Icon(
-                  Icons.favorite_border,
-                  size: 18,
-                  color: const Color(0xFF8B4513).withOpacity(0.6),
+                Icons.favorite_border,
+                size: 18,
+                color: const Color(0xFF8B4513).withOpacity(0.6),
                 ),
               ),
             ),
-          ],
-        ),
+        ],
+      ),
       ),
     );
   }
@@ -4221,9 +4214,9 @@ class HomeScreen extends GetView<HomeController> {
               ),
             ),
           ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
 
   }
 
@@ -4239,9 +4232,9 @@ class HomeScreen extends GetView<HomeController> {
             final blogsController = Get.find<BlogsController>();
             blogsController.filterUserId.value = 0;
             // Performance: Only refresh if needed
-            if (blogsController.blogs.isEmpty) {
-              blogsController.loadBlogs(refresh: true);
-            }
+          if (blogsController.blogs.isEmpty) {
+            blogsController.loadBlogs(refresh: true);
+          }
           } catch (e) {
             // Controller not found, will be created fresh
           }
@@ -4250,18 +4243,18 @@ class HomeScreen extends GetView<HomeController> {
       },
       child: Container(
         width: ResponsiveHelper.imageWidth(context, mobile: 280, tablet: 320, desktop: 360),
-        constraints: BoxConstraints(
+      constraints: BoxConstraints(
           minHeight: 90,
-        ),
+      ),
         padding: ResponsiveHelper.padding(context, all: 10),
         margin: EdgeInsets.zero,
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFF8E1),
-          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
             // Square thumbnail image on left
             Container(
               width: ResponsiveHelper.iconSize(context, mobile: 70, tablet: 80, desktop: 90),
@@ -4272,59 +4265,59 @@ class HomeScreen extends GetView<HomeController> {
               ),
               child: blog['image_url'] != null
                   ? ClipRRect(
-                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                child: LazyCachedImage(
-                  imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${blog['image_url']}',
-                  width: 70,
-                  height: 70,
-                  fit: BoxFit.cover,
-                  errorWidget: Container(
-                    width: 70,
-                    height: 70,
-                    color: const Color(0xFFE3F2FD),
-                    child: Icon(
-                      Icons.image,
-                      size: ResponsiveHelper.iconSize(context, mobile: 25),
-                      color: Colors.grey[400],
-                    ),
-                  ),
-                ),
-              )
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
+                      child: LazyCachedImage(
+                        imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${blog['image_url']}',
+                        width: 70,
+                        height: 70,
+                        fit: BoxFit.cover,
+                        errorWidget: Container(
+                          width: 70,
+                          height: 70,
+                          color: const Color(0xFFE3F2FD),
+            child: Icon(
+                            Icons.image,
+                            size: ResponsiveHelper.iconSize(context, mobile: 25),
+                            color: Colors.grey[400],
+                          ),
+                        ),
+                      ),
+                    )
                   : Container(
-                width: 70,
-                height: 70,
-                color: const Color(0xFFE3F2FD),
-                child: Icon(
-                  Icons.image,
-                  size: 25,
-                  color: Colors.grey[400],
-                ),
-              ),
+                      width: 70,
+                      height: 70,
+                      color: const Color(0xFFE3F2FD),
+                      child: Icon(
+                        Icons.image,
+                        size: 25,
+                        color: Colors.grey[400],
+                      ),
             ),
+          ),
             SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
                   // Title
-                  Text(
+                Text(
                     AutoTranslateHelper.getTranslatedTextSync(
                       text: blog['title'] ?? 'The Power of Forgiveness',
                       sourceLanguage: blog['language'] as String?,
                     ),
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.bold,
                       fontSize: 14,
                       color: Colors.black87,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
+                    maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                   SizedBox(height: ResponsiveHelper.spacing(context, 3)),
                   // AON tag with emoji
-                  Row(
-                    children: [
+                Row(
+                  children: [
                       Container(
                         padding: ResponsiveHelper.padding(context,
                           horizontal: 5,
@@ -4334,91 +4327,91 @@ class HomeScreen extends GetView<HomeController> {
                           color: Colors.orange[200],
                           borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 4)),
                         ),
-                        child: Text(
+                      child: Text(
                           blog['category'] ?? 'AON',
-                          style: ResponsiveHelper.textStyle(
-                            context,
+                        style: ResponsiveHelper.textStyle(
+                          context,
                             fontSize: 10,
                             color: Colors.orange[900],
                             fontWeight: FontWeight.w600,
-                          ),
                         ),
                       ),
+                    ),
                       SizedBox(width: ResponsiveHelper.spacing(context, 3)),
-                      Obx(() {
+                    Obx(() {
                         // Get first fruit from database - show image, not emoji text
-                        if (controller.emojis.isNotEmpty) {
-                          final emoji = controller.emojis[0];
-                          return SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: HomeScreen.buildEmojiDisplay(
-                              context,
-                              emoji,
-                              size: 20,
-                            ),
-                          );
-                        }
+                      if (controller.emojis.isNotEmpty) {
+                        final emoji = controller.emojis[0];
+                        return SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: HomeScreen.buildEmojiDisplay(
+                            context,
+                            emoji,
+                            size: 20,
+                          ),
+                        );
+                      }
                         return const SizedBox.shrink();
-                      }),
-                    ],
-                  ),
+                    }),
+                  ],
+                ),
                   SizedBox(height: ResponsiveHelper.spacing(context, 2)),
                   // Author name
                   Text(
                     '${blog['author_name'] ?? 'David Chen'}-Approved Blogger',
                     style: ResponsiveHelper.textStyle(
                       context,
-                      fontSize: 10,
+                            fontSize: 10,
                       color: Colors.grey[600],
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
+          ),
             // Emojis at bottom-right
             Column(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Obx(() {
+          Obx(() {
                   // Get fruits from database - show images, not emoji text
-                  if (controller.emojis.length >= 2) {
-                    final emoji1 = controller.emojis[0];
-                    final emoji2 = controller.emojis[1];
+            if (controller.emojis.length >= 2) {
+              final emoji1 = controller.emojis[0];
+              final emoji2 = controller.emojis[1];
 
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: HomeScreen.buildEmojiDisplay(
-                            context,
-                            emoji1,
-                            size: 24,
-                          ),
-                        ),
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: HomeScreen.buildEmojiDisplay(
+                        context,
+                        emoji1,
+                        size: 24,
+                      ),
+                    ),
                         SizedBox(height: ResponsiveHelper.spacing(context, 2)),
-                        SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: HomeScreen.buildEmojiDisplay(
-                            context,
-                            emoji2,
-                            size: 24,
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-                  return const SizedBox.shrink();
-                }),
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: HomeScreen.buildEmojiDisplay(
+                        context,
+                        emoji2,
+                        size: 24,
+                      ),
+                    ),
+                  ],
+                );
+            }
+            return const SizedBox.shrink();
+          }),
               ],
             ),
-          ],
-        ),
+        ],
+      ),
       ),
     );
   }
@@ -4433,145 +4426,145 @@ class HomeScreen extends GetView<HomeController> {
     ];
 
     return Container(
-        width: ResponsiveHelper.imageWidth(context, mobile: 240, tablet: 260, desktop: 280),
-        margin: ResponsiveHelper.padding(context, right: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
+      width: ResponsiveHelper.imageWidth(context, mobile: 240, tablet: 260, desktop: 280),
+      margin: ResponsiveHelper.padding(context, right: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            spreadRadius: 0,
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
           borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              spreadRadius: 0,
-              blurRadius: 12,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-            onTap: () {
-              // Check if this is a story or gallery photo
-              if (photo['id'] != null) {
-                if (photo['title'] != null || photo['content'] != null) {
-                  Get.toNamed(Routes.STORY_DETAILS, arguments: photo['id']);
-                } else {
-                  Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']);
-                }
-              } else {
-                Get.toNamed(Routes.STORIES);
-              }
-            },
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Story Image - Larger and more prominent
-                ClipRRect(
-                  borderRadius: BorderRadius.vertical(
-                    top: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                  ),
-                  child: Stack(
-                    children: [
-                      photo['file_path'] != null
-                          ? Builder(
-                        builder: (context) {
-                          final imageUrl = 'https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}';
-                          print('🖼️ Loading gallery image: ${photo['file_path']}');
-                          print('   Full URL: $imageUrl');
-                          return LazyCachedImage(
-                            imageUrl: imageUrl,
-                            height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 170, desktop: 190),
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            headers: {
-                              'Accept': 'image/*',
-                            },
-                            errorWidget: Container(
+      onTap: () {
+        // Check if this is a story or gallery photo
+        if (photo['id'] != null) {
+          if (photo['title'] != null || photo['content'] != null) {
+            Get.toNamed(Routes.STORY_DETAILS, arguments: photo['id']);
+          } else {
+            Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']);
+          }
+        } else {
+          Get.toNamed(Routes.STORIES);
+        }
+      },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Story Image - Larger and more prominent
+            ClipRRect(
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+              ),
+              child: Stack(
+                children: [
+                  photo['file_path'] != null
+                  ? Builder(
+                      builder: (context) {
+                        final imageUrl = 'https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}';
+                        print('🖼️ Loading gallery image: ${photo['file_path']}');
+                        print('   Full URL: $imageUrl');
+                        return LazyCachedImage(
+                          imageUrl: imageUrl,
                               height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 170, desktop: 190),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          headers: {
+                            'Accept': 'image/*',
+                          },
+                          errorWidget: Container(
+                                height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 170, desktop: 190),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
+                                  ),
                                 ),
-                              ),
-                              child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70), color: Colors.grey[600]),
-                            ),
-                          );
-                        },
-                      )
-                          : Container(
-                        height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 170, desktop: 190),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
+                                child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70), color: Colors.grey[600]),
                           ),
-                        ),
-                        child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70), color: Colors.grey[600]),
-                      ),
-                      // Gradient overlay at bottom for better text readability
-                      Positioned(
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        child: Container(
-                          height: ResponsiveHelper.spacing(context, 50),
+                        );
+                      },
+                    )
+                  : Container(
+                          height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 170, desktop: 190),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withOpacity(0.3),
-                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
                             ),
                           ),
+                          child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70), color: Colors.grey[600]),
+                    ),
+                  // Gradient overlay at bottom for better text readability
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      height: ResponsiveHelper.spacing(context, 50),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.3),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
-                // Content Section
-                Flexible(
-                  child: Padding(
-                    padding: ResponsiveHelper.padding(context, all: 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Story Title
-                        Text(
-                          index < storyTitles.length ? storyTitles[index] : photo['fruit_tag'] ?? 'Story',
-                          style: ResponsiveHelper.textStyle(
-                            context,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            color: Colors.black87,
-                            letterSpacing: 0.2,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                ],
+              ),
+            ),
+            // Content Section
+            Flexible(
+              child: Padding(
+                padding: ResponsiveHelper.padding(context, all: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Story Title
+                    Text(
+                        index < storyTitles.length ? storyTitles[index] : photo['fruit_tag'] ?? 'Story',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: Colors.black87,
+                        letterSpacing: 0.2,
                         ),
-                        SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                        // Story Text
-                        Flexible(
-                          child: Text(
-                            index < storyTexts.length ? storyTexts[index] : (photo['testimony'] ?? ''),
-                            style: ResponsiveHelper.textStyle(
-                              context,
-                              fontSize: 12,
-                              color: Colors.grey[700],
-                              height: 1.3,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                    // Story Text
+                    Flexible(
+                      child: Text(
+                        index < storyTexts.length ? storyTexts[index] : (photo['testimony'] ?? ''),
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: 12,
+                          color: Colors.grey[700],
+                          height: 1.3,
                         ),
-                        SizedBox(height: ResponsiveHelper.spacing(context, 6)),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    SizedBox(height: ResponsiveHelper.spacing(context, 6)),
                     // Likes Row
                     Container(
                       padding: ResponsiveHelper.padding(context, horizontal: 6, vertical: 3),

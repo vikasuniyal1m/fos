@@ -40,26 +40,26 @@ class DataLoadingService {
       
       final userId = await UserStorage.getUserId();
       final isLoggedIn = await UserStorage.isLoggedIn();
-      
+
       // If preferCache is true, check if we have enough cached data to show instantly
       if (preferCache) {
         final cachedData = await _getAllCachedData();
         // Check if we have at least fruits in cache
         final hasCriticalCache = (cachedData['fruits'] as List).isNotEmpty;
-        
+
         if (hasCriticalCache) {
           print('✅ Found critical home data in cache, returning instantly for fast startup');
-          
+
           // Force refresh controllers with cached data immediately
           _refreshControllers(cachedData);
-          
+
           // Trigger refresh in background without awaiting it
           _loadAllDataFromApi().then((freshData) {
             print('✅ Background home data refresh completed');
           }).catchError((e) {
             print('⚠️ Background home data refresh failed: $e');
           });
-          
+
           return cachedData;
         }
       }
@@ -77,7 +77,7 @@ class DataLoadingService {
   /// Load all data from API
   static Future<Map<String, dynamic>> _loadAllDataFromApi() async {
     print('🌐 Fetching fresh home data from API...');
-    
+
     // Load all data in parallel with timeout to prevent hanging
     final results = await Future.wait([
       _loadFruits().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
@@ -160,7 +160,7 @@ class DataLoadingService {
     try {
       final userId = await UserStorage.getUserId();
       if (userId == null) return {};
-      
+
       final profileData = await ProfileService.getProfile(userId);
       print('✅ Loaded profile for user $userId');
       return profileData;
@@ -363,9 +363,9 @@ class DataLoadingService {
       if (Get.isRegistered<ProfileController>()) {
         Get.find<ProfileController>().setInitialData(data['profile']);
       }
-      // if (Get.isRegistered<HomeController>()) {
-      //   Get.find<HomeController>().setInitialData(data);
-      // }
+      if (Get.isRegistered<HomeController>()) {
+        Get.find<HomeController>().setInitialData(data);
+      }
       print('🔄 Controllers refreshed with pre-loaded data');
     } catch (e) {
       print('⚠️ Error refreshing controllers: $e');

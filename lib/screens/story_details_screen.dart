@@ -6,8 +6,13 @@ import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/services/terms_service.dart';
+import 'package:fruitsofspirit/screens/terms_acceptance_screen.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/screens/report_content_screen.dart';
 
 /// Story Details Screen - Modern Social Media Style
 class StoryDetailsScreen extends StatefulWidget {
@@ -940,6 +945,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                             ],
                                           ),
                                         ),
+                                        _buildStoryOptions(context, story),
                                       ],
                                     ),
                                   ),
@@ -1440,18 +1446,11 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                 );
                               },
                             ),
-                                ],
-                              ),
-                            ),
-                            
-                            // Bottom spacing for comment input
-                            SizedBox(
-                              height: ResponsiveHelper.spacing(context, 80),
-                            ),
                           ],
                         ),
                       ),
-                    ),
+
+
                     
                     // Comment Input Bar - Enhanced Design
                     Container(
@@ -1558,12 +1557,12 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                         ),
                                         color: Colors.grey[600],
                                       ),
-                                      prefixIcon: Icon(
-                                        Icons.edit_note_rounded,
-                                        size: ResponsiveHelper.iconSize(context, mobile: 20),
-                                        color: userId > 0
-                                            ? const Color(0xFF8B4513).withOpacity(0.6)
-                                            : Colors.grey[400],
+                                      prefixIcon: IconButton(
+                                        icon: const Icon(
+                                          Icons.emoji_emotions_outlined,
+                                          color: Color(0xFF8B4513),
+                                        ),
+                                        onPressed: () => _showEmojiPicker(context, story['id'] as int),
                                       ),
                                       border: InputBorder.none,
                                 contentPadding: EdgeInsets.symmetric(
@@ -1644,6 +1643,10 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                         ),
                       ),
                     ),
+      ]
+                        )
+                    )
+                    )
                   ],
                 ),
     );
@@ -1826,11 +1829,23 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                   color: Colors.grey[600],
                                 ),
                               ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 8)),
+                              // Report Button - Only show for other users' comments
+                              if (this.userId != 0 && (comment['user_id'] != null && comment['user_id'].toString() != this.userId.toString()))
+                                InkWell(
+                                  onTap: () => _showReportDialog(context, comment),
+                                  child: Icon(
+                                    Icons.report_gmailerrorred_outlined,
+                                    size: ResponsiveHelper.iconSize(context, mobile: 14),
+                                    color: Colors.grey[400],
+                                  ),
+                                ),
                             ],
                           ),
                           SizedBox(height: ResponsiveHelper.spacing(context, 6)),
                           // Comment Text
-                  Text(
+                          FruitEmojiHelper.buildCommentText(
+                            context,
                     comment['content'] as String? ?? '',
                     style: ResponsiveHelper.textStyle(
                       context,
@@ -2574,6 +2589,166 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  void _showReportDialog(BuildContext context, Map<String, dynamic> comment) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Report Content'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Choose an action:'),
+            const SizedBox(height: 16),
+            if (comment['user_id'] != null && comment['user_id'].toString() != this.userId.toString()) ...[
+              ListTile(
+                leading: const Icon(Icons.report_outlined, color: Colors.orange),
+                title: const Text('Report Comment'),
+                onTap: () {
+                  Navigator.pop(context);
+                  final commentId = comment['id'] is int ? comment['id'] : int.parse(comment['id'].toString());
+                  Get.to(() => ReportContentScreen(
+                        contentType: 'story_comment',
+                        contentId: commentId,
+                      ));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.block, color: Colors.red),
+                title: const Text('Block User'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final userIdRaw = comment['user_id'];
+                  if (userIdRaw != null) {
+                    final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+                    if (userId == null) return;
+
+                    final userName = comment['user_name'] ?? 'this user';
+                    final confirmed = await Get.dialog<bool>(
+                      AlertDialog(
+                        title: Text('Block $userName?'),
+                        content: const Text('You will no longer see content from this user.'),
+                        actions: [
+                          TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                          TextButton(
+                              onPressed: () => Get.back(result: true),
+                              child: const Text('Block', style: TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true) {
+                      try {
+                        await UserBlockingService.blockUser(userId);
+                        Get.snackbar('Success', 'User blocked');
+                        _loadComments(story['id'] as int);
+                      } catch (e) {
+                        Get.snackbar('Error', 'Failed to block user');
+                      }
+                    }
+                  }
+                },
+              ),
+            ] else 
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('This is your own comment.', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStoryOptions(BuildContext context, Map<String, dynamic> story) {
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          final storyId = story['id'] is int ? story['id'] : int.parse(story['id'].toString());
+          Get.to(() => ReportContentScreen(
+                contentType: 'story',
+                contentId: storyId,
+              ));
+        } else if (value == 'block') {
+          final userIdRaw = story['user_id'] ?? story['created_by'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            if (this.userId == userId) {
+              Get.snackbar('Info', 'You cannot block yourself');
+              return;
+            }
+
+            final userName = story['user_name'] ?? 'this poster';
+            final confirmed = await Get.dialog<bool>(
+              AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Get.back(result: true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                await UserBlockingService.blockUser(userId);
+                Get.snackbar('Success', 'User blocked');
+                Get.back(); // Back to list
+              } catch (e) {
+                Get.snackbar('Error', 'Failed to block user');
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) {
+        final List<PopupMenuEntry<String>> items = [];
+        
+        final userIdRaw = story['user_id'] ?? story['created_by'];
+        final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+        
+        // Only show options if it's NOT the current user's story
+        if (posterId != null && posterId != this.userId) {
+          items.add(
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Text('Report Content'),
+                ],
+              ),
+            ),
+          );
+          items.add(
+            const PopupMenuItem(
+              value: 'block',
+              child: Row(
+                children: [
+                  Icon(Icons.block, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Text('Block User'),
+                ],
+              ),
+            ),
+          );
+        }
+        
+        return items;
+      },
     );
   }
 }

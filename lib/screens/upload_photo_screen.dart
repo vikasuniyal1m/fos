@@ -9,6 +9,11 @@ import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/utils/permission_manager.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../controllers/main_dashboard_controller.dart';
+import '../routes/app_pages.dart';
+import '../services/terms_service.dart';
+import '../services/user_storage.dart' as us;
+import 'terms_acceptance_screen.dart';
 
 /// New Moment Screen - Social Media Style
 /// Upload photo with Fruit tags, feeling tags, hashtags, and testimony
@@ -314,6 +319,18 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
   }
 
   Future<void> _submitMoment() async {
+    // Check for terms acceptance
+    final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
+    if (!hasAcceptedFactors) {
+      Get.to(() => TermsAcceptanceScreen(
+        onAccepted: () {
+          Get.back(); // Pop the terms screen
+          _submitMoment(); // Retry submission
+        },
+      ));
+      return;
+    }
+
     if (_selectedPhoto == null) {
       Get.snackbar(
         'Error',
@@ -342,15 +359,13 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
       final success = await controller.uploadPhoto(
         photoFile: _selectedPhoto!,
         fruitTag: _selectedFruitTag,
-        testimony: _testimonyController.text.trim().isEmpty
-            ? null
+        testimony: _testimonyController.text.trim().isEmpty 
+            ? null 
             : _testimonyController.text.trim(),
         feelingTags: _selectedFeelingTags.isEmpty ? null : _selectedFeelingTags.join(','),
         hashtags: _hashtags.isEmpty ? null : _hashtags.join(','),
         allowComments: _allowComments,
       );
-
-      print('📸 UploadPhoto returned success: $success');
 
       // Hide loading dialog
       if (Get.isDialogOpen ?? false) {
@@ -358,13 +373,12 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
       }
 
       if (success) {
-        print('📸 Entering success block');
         // Show success message
         if (mounted) {
           Get.snackbar(
             'Success',
-            controller.message.value.isNotEmpty
-                ? controller.message.value
+            controller.message.value.isNotEmpty 
+                ? controller.message.value 
                 : 'Photo uploaded successfully!',
             backgroundColor: Colors.green,
             colorText: Colors.white,
@@ -373,41 +387,53 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
             margin: const EdgeInsets.all(16),
           );
         }
-
+        
         // Navigate back to previous screen immediately
         if (mounted) {
-          print('📸 Navigating back');
-          // Use Get.back() which works with GetX navigation
+          if (Get.isRegistered<MainDashboardController>()) {
+            Get.find<MainDashboardController>().changeIndex(4);
+          }
           Get.back();
         }
       } else {
-        print('📸 Entering error block');
         // Show error message
         if (mounted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
+              final errorMsg = controller.message.value;
+              final isModeration = errorMsg.contains('community guidelines');
+
               Get.snackbar(
-                'Error',
-                controller.message.value.isNotEmpty
-                    ? controller.message.value
-                    : 'Failed to upload photo. Please try again.',
-                backgroundColor: Colors.red,
+                isModeration ? 'Community Standard' : 'Notice',
+                errorMsg.isNotEmpty 
+                    ? errorMsg 
+                    : 'Action could not be completed. Please try again.',
+                backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
                 colorText: Colors.white,
-                duration: const Duration(seconds: 3),
-                icon: const Icon(Icons.error, color: Colors.white),
+                icon: Icon(
+                  isModeration ? Icons.security_rounded : Icons.info_outline,
+                  color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                  size: 28,
+                ),
+                snackPosition: SnackPosition.BOTTOM,
+                duration: Duration(seconds: isModeration ? 5 : 3),
                 margin: const EdgeInsets.all(16),
+                borderRadius: 12,
+                mainButton: isModeration ? TextButton(
+                  onPressed: () => Get.toNamed(Routes.TERMS),
+                  child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
+                ) : null,
               );
             }
           });
         }
       }
     } catch (e) {
-      print('📸 Caught exception in _submitMoment: $e');
       // Hide loading if still showing
       if (Get.isDialogOpen ?? false) {
         Get.back();
       }
-
+      
       Get.snackbar(
         'Error',
         'Failed to upload photo: ${e.toString()}',

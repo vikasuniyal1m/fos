@@ -1,10 +1,13 @@
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/prayers_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/advanced_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:share_plus/share_plus.dart';
 
 /// Prayers Controller
@@ -100,6 +103,7 @@ class PrayersController extends GetxController {
       final prayersList = await PrayersService.getPrayers(
         status: filterUserId.value > 0 ? 'Pending,Approved' : 'Approved',        category: null, // Always load all prayers for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
@@ -145,7 +149,10 @@ class PrayersController extends GetxController {
     message.value = '';
 
     try {
-      final prayer = await PrayersService.getPrayerDetails(prayerId);
+      final prayer = await PrayersService.getPrayerDetails(
+        prayerId,
+        currentUserId: userId.value > 0 ? userId.value : null,
+      );
       selectedPrayer.value = prayer;
       
       // Load comments
@@ -419,6 +426,25 @@ class PrayersController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      
+      Get.snackbar(
+        'Community Guidelines',
+        moderationCheck['message'],
+        backgroundColor: const Color(0xFF5D4037),
+        colorText: Colors.white,
+        icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+        mainButton: TextButton(
+          onPressed: () => Get.toNamed(Routes.TERMS),
+          child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
+        ),
+      );
+      return false;
+    }
+
     isLoading.value = true;
     message.value = '';
 
@@ -461,6 +487,14 @@ class PrayersController extends GetxController {
 
     if (userId.value == 0) {
       message.value = 'Please login first';
+      return false;
+    }
+
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
       return false;
     }
 
@@ -818,6 +852,22 @@ class PrayersController extends GetxController {
       print('Error following user: $e');
       return false;
     }
+  }
+
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    Get.snackbar(
+      'Community Guidelines',
+      message,
+      backgroundColor: const Color(0xFF5D4037),
+      colorText: Colors.white,
+      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+      mainButton: TextButton(
+        onPressed: () => Get.toNamed(Routes.TERMS),
+        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
+      ),
+    );
   }
 }
 

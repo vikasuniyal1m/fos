@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/advanced_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Videos Controller
 /// Manages videos data and operations
@@ -50,6 +53,15 @@ class VideosController extends GetxController {
     loadLiveVideos();
   }
 
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allVideos = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
+    }
+  }
+
   /// Load user ID from storage
   Future<void> _loadUserId() async {
     final id = await UserStorage.getUserId();
@@ -73,6 +85,7 @@ class VideosController extends GetxController {
       final approvedVideos = await VideosService.getVideos(
         status: 'Approved',
         fruitTag: null, // Always load all videos for cache
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
@@ -156,7 +169,10 @@ class VideosController extends GetxController {
     message.value = '';
 
     try {
-      final video = await VideosService.getVideoDetails(videoId);
+      final video = await VideosService.getVideoDetails(
+        videoId,
+        currentUserId: userId.value > 0 ? userId.value : null,
+      );
       selectedVideo.value = video;
       
       // Load comments and emojis
@@ -433,6 +449,25 @@ class VideosController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content in title or description
+    if (title != null && title.isNotEmpty) {
+      final titleCheck = ContentModerationService.checkContent(title);
+      if (!titleCheck['isClean']) {
+        message.value = 'Title: ${titleCheck['message']}';
+        _showModerationSnackbar(titleCheck['message']);
+        return false;
+      }
+    }
+    
+    if (description != null && description.isNotEmpty) {
+      final descCheck = ContentModerationService.checkContent(description);
+      if (!descCheck['isClean']) {
+        message.value = 'Description: ${descCheck['message']}';
+        _showModerationSnackbar(descCheck['message']);
+        return false;
+      }
+    }
+
     isLoading.value = true;
     message.value = 'Uploading video...';
 
@@ -475,6 +510,14 @@ class VideosController extends GetxController {
 
     if (userId.value == 0) {
       message.value = 'Please login first';
+      return false;
+    }
+
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
       return false;
     }
 
@@ -548,15 +591,6 @@ class VideosController extends GetxController {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error reporting comment: $e');
       return false;
-    }
-  }
-
-  /// Set initial data from cache
-  void setInitialData(List<Map<String, dynamic>> data) {
-    if (data.isNotEmpty) {
-      _allVideos = List<Map<String, dynamic>>.from(data);
-      _isDataLoaded = true;
-      _applyClientSideFilter();
     }
   }
 
@@ -634,6 +668,21 @@ class VideosController extends GetxController {
       loadVideos(refresh: true),
       loadLiveVideos(),
     ]);
+  }
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    Get.snackbar(
+      'Community Guidelines',
+      message,
+      backgroundColor: const Color(0xFF5D4037),
+      colorText: Colors.white,
+      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+      mainButton: TextButton(
+        onPressed: () => Get.toNamed('/terms'), // Using string route if constant not imported
+        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
+      ),
+    );
   }
 }
 

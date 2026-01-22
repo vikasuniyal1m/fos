@@ -41,49 +41,11 @@ class HomeController extends GetxController {
   var emotionEmojis = <Map<String, dynamic>>[].obs; // Spiritual emotions only
   var userId = 0.obs;
   var userFeeling = Rxn<Map<String, dynamic>>(); // Current user's feeling (null if not recorded)
-  var othersFeelings = <Map<String, dynamic>>[].obs; // Others' feelings
-  var isLoadingOthersFeelings = false.obs;
   var userName = ''.obs; // Current user's name
   
-  // Pagination state for prayers
-  var hasMorePrayers = true.obs;
-  var prayerOffset = 0.obs;
-  var isPrayersLoading = false.obs;
-
-  // Pagination state for stories
-  var hasMoreStories = true.obs;
-  var storyOffset = 0.obs;
-  var isStoriesLoading = false.obs;
-  
-  static const int _storyPageLimit = 10;
-
-  // Pagination state for blogs
-  var hasMoreBlogs = true.obs;
-  var blogOffset = 0.obs;
-  var isBlogsLoading = false.obs;
-  
-  static const int _blogPageLimit = 10;
-
-  // Pagination state for videos
-  var hasMoreVideos = true.obs;
-  var videoOffset = 0.obs;
-  var isVideosLoading = false.obs;
-  
-  static const int _videoPageLimit = 10;
-
-  // Pagination state for gallery photos
-  var hasMoreGalleryPhotos = true.obs;
-  var galleryPhotoOffset = 0.obs;
-  var isGalleryPhotosLoading = false.obs;
-  
-  static const int _galleryPhotoPageLimit = 10;
-
-  // Pagination state for groups
-  var hasMoreGroups = true.obs;
-  var groupOffset = 0.obs;
-  var isGroupsLoading = false.obs;
-  
-  static const int _groupPageLimit = 10;
+  // Performance: Track if data is already loaded to prevent unnecessary reloads
+  var _isDataLoaded = false;
+  var _isLoading = false;
   
   // Performance: Track if emojis are already loaded
   var _isEmojisLoaded = false;
@@ -111,7 +73,7 @@ class HomeController extends GetxController {
 
     // Wait for a small delay to ensure home screen is rendered
     await Future.delayed(const Duration(milliseconds: 1000));
-    
+
     // Show intro overlay if not skipped permanently
     if (IntroService.shouldShowIntroOverlay()) {
       print('🎬 Showing Intro Overlay on Home Page');
@@ -405,8 +367,13 @@ class HomeController extends GetxController {
   Future<void> updateUserFeeling(String emoji, {Map<String, dynamic>? emojiData}) async {
     print('🍎 FRUIT ISSUE: updateUserFeeling called - emoji=$emoji, emojiData=${emojiData?['name'] ?? 'null'}');
     if (userId.value <= 0) {
-      print('🍎 FRUIT ISSUE: ⚠️ Cannot update feeling: userId is ${userId.value}');
-      return;
+      final id = await UserStorage.getUserId();
+      if (id != null) {
+        userId.value = id;
+      } else {
+        print('🍎 FRUIT ISSUE: ⚠️ Cannot update feeling: userId is still ${userId.value}');
+        return;
+      }
     }
     
     print('🍎 FRUIT ISSUE: 🔄 Updating user feeling with emoji: $emoji');
@@ -500,8 +467,13 @@ class HomeController extends GetxController {
       // This ensures UI updates even if emoji code is the same but details changed
       print('🍎 FRUIT ISSUE: 🔄 Updating UI - setting userFeeling.value to null first');
       userFeeling.value = null;
-      await Future.delayed(const Duration(milliseconds: 10));
+      print('🍎 FRUIT ISSUE: 🔄 Step 2.1: userFeeling set to null (rebuild triggered)');
+      
+      await Future.delayed(const Duration(milliseconds: 50)); // Slightly longer delay
+      
       userFeeling.value = Map<String, dynamic>.from(optimisticFeeling);
+      print('🍎 FRUIT ISSUE: ✅ Step 2.2: userFeeling updated with value: ${userFeeling.value?['emoji']}');
+      userFeeling.refresh(); // Force another refresh
       
       print('🍎 FRUIT ISSUE: ✅ User feeling updated instantly in UI with emoji: $emoji');
       print('🍎 FRUIT ISSUE: ✅ userFeeling.value emoji: ${userFeeling.value?['emoji']}');
@@ -531,8 +503,93 @@ class HomeController extends GetxController {
     }
   }
 
+  /// Set initial data from cache or external service
+  void setInitialData(Map<String, dynamic> data) {
+    if (data.isEmpty) return;
+
+    print('🏠 HomeController: Setting initial data from external source...');
+
+    if (data['fruits'] != null && (data['fruits'] as List).isNotEmpty) {
+      fruits.value = List<Map<String, dynamic>>.from(data['fruits']);
+    }
+    if (data['prayers'] != null && (data['prayers'] as List).isNotEmpty) {
+      prayers.value = List<Map<String, dynamic>>.from(data['prayers']);
+    }
+    if (data['blogs'] != null && (data['blogs'] as List).isNotEmpty) {
+      blogs.value = List<Map<String, dynamic>>.from(data['blogs']);
+    }
+    if (data['videos'] != null && (data['videos'] as List).isNotEmpty) {
+      videos.value = List<Map<String, dynamic>>.from(data['videos']);
+    }
+    if (data['liveVideos'] != null && (data['liveVideos'] as List).isNotEmpty) {
+      liveVideos.value = List<Map<String, dynamic>>.from(data['liveVideos']);
+    }
+    if (data['galleryPhotos'] != null && (data['galleryPhotos'] as List).isNotEmpty) {
+      galleryPhotos.value = List<Map<String, dynamic>>.from(data['galleryPhotos']);
+    }
+    if (data['stories'] != null && (data['stories'] as List).isNotEmpty) {
+      stories.value = List<Map<String, dynamic>>.from(data['stories']);
+    }
+    if (data['groups'] != null && (data['groups'] as List).isNotEmpty) {
+      groups.value = List<Map<String, dynamic>>.from(data['groups']);
+    }
+    if (data['emojis'] != null && (data['emojis'] as List).isNotEmpty) {
+      final emojisList = List<Map<String, dynamic>>.from(data['emojis']);
+      
+      // Categorize emojis
+      final mainFruitsList = <Map<String, dynamic>>[];
+      final allEmojisList = <Map<String, dynamic>>[];
+      final oppositeEmojisList = <Map<String, dynamic>>[];
+      final emotionEmojisList = <Map<String, dynamic>>[];
+      
+      for (var emoji in emojisList) {
+        final category = emoji['category'] as String? ?? '';
+        final name = (emoji['name'] as String? ?? '').toLowerCase();
+        allEmojisList.add(emoji);
+        
+        final fruitNames = ['goodness', 'joy', 'kindness', 'peace', 'patience', 'faithfulness', 'gentleness', 'meekness', 'self-control', 'self control', 'love'];
+        final hasFruitName = fruitNames.any((fruit) => name.contains(fruit));
+        
+        if (category.toLowerCase().contains('fruit') || category == 'Fruits' || (category.isEmpty && hasFruitName)) {
+          mainFruitsList.add(emoji);
+        } else if (category.toLowerCase().contains('opposite')) {
+          oppositeEmojisList.add(emoji);
+        } else if (category.toLowerCase().contains('emotion')) {
+          emotionEmojisList.add(emoji);
+        }
+      }
+      
+      emojis.value = mainFruitsList;
+      allEmojis.value = allEmojisList;
+      oppositeEmojis.value = oppositeEmojisList;
+      emotionEmojis.value = emotionEmojisList;
+      _isEmojisLoaded = true;
+    }
+
+    // Mark data as loaded to prevent redundant loads
+    _isDataLoaded = true;
+
+    // If we have some data, we can stop initial loading
+    if (fruits.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
+      isInitialLoading.value = false;
+      print('✅ HomeController: Initial loading finished (data populated via setInitialData)');
+    }
+    
+    // Refresh UI
+    fruits.refresh();
+    prayers.refresh();
+    blogs.refresh();
+  }
+
   /// Initialize data: load from cache first (instant), then refresh in background
   Future<void> _initializeData() async {
+    // If data already loaded externally (e.g. from SplashScreen via setInitialData), skip
+    if (_isDataLoaded && (fruits.isNotEmpty || prayers.isNotEmpty)) {
+      isInitialLoading.value = false;
+      print('🏠 HomeController: Data already loaded externally, skipping _initializeData');
+      return;
+    }
+
     isInitialLoading.value = true;
     message.value = '';
 
@@ -544,14 +601,20 @@ class HomeController extends GetxController {
       if (fruits.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
         isInitialLoading.value = false;
         print('✅ Data loaded from cache - showing instantly');
+        
+        // Then load fresh data from API in background (silent update)
+        loadHomeData().then((_) {
+          print('✅ Background data refresh completed');
+        }).catchError((e) {
+          print('⚠️ Background refresh error: $e');
+        });
+      } else {
+        // If NO cache, we MUST wait for the API to show something
+        print('🔄 No cache found, waiting for initial data load...');
+        await loadHomeData(showLoading: false);
+        isInitialLoading.value = false;
+        print('✅ Initial data load completed');
       }
-
-      // Then load fresh data from API in background (silent update)
-      loadHomeData().then((_) {
-        print('✅ Background data refresh completed');
-      }).catchError((e) {
-        print('⚠️ Background refresh error: $e');
-      });
     } catch (e) {
       message.value = 'Error loading data: ${e.toString()}';
       print('Error initializing home data: $e');
@@ -829,6 +892,7 @@ class HomeController extends GetxController {
     try {
       final prayersList = await PrayersService.getPrayers(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 50, // Increased limit to show more prayers
       );
       prayers.value = prayersList;
@@ -846,6 +910,7 @@ class HomeController extends GetxController {
     try {
       final blogsList = await BlogsService.getBlogs(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 5,
       );
       blogs.value = blogsList;
@@ -864,6 +929,7 @@ class HomeController extends GetxController {
       // Load approved videos
       final approvedVideos = await VideosService.getVideos(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 5,
       );
       
@@ -921,6 +987,7 @@ class HomeController extends GetxController {
     try {
       final storiesList = await StoriesService.getStories(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 100, // Load all approved stories
       );
       stories.value = storiesList;
@@ -963,10 +1030,11 @@ class HomeController extends GetxController {
         'user_name': 'Community',
       },
     ];
-
+    
     try {
       final photosList = await GalleryService.getPhotos(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 6,
       );
       
@@ -1047,7 +1115,7 @@ class HomeController extends GetxController {
     
     try {
       print('🔄 Loading all emojis from database...');
-
+      
       // Load all emojis from database
       var emojisList = await EmojisService.getEmojis(
         status: 'Active',
@@ -1055,7 +1123,7 @@ class HomeController extends GetxController {
         order: 'ASC',
       );
       print('✅ Loaded ${emojisList.length} emojis from database');
-
+      
       // Group emojis by category
       final mainFruitsList = <Map<String, dynamic>>[];
       final allEmojisList = <Map<String, dynamic>>[];
@@ -1079,7 +1147,7 @@ class HomeController extends GetxController {
         final hasFruitName = fruitNames.any((fruit) => name.contains(fruit));
         
         // Categorize emojis - check both category and name
-        if (category.toLowerCase().contains('fruit') ||
+        if (category.toLowerCase().contains('fruit') || 
             category == 'Fruits' || 
             (category.isEmpty && hasFruitName)) {
           mainFruitsList.add(emoji);
@@ -1109,7 +1177,7 @@ class HomeController extends GetxController {
       allEmojis.value = allEmojisList; // All emojis for reference
       oppositeEmojis.value = oppositeEmojisList; // Opposite emojis
       emotionEmojis.value = emotionEmojisList; // Emotion emojis
-
+      
       // Performance: Mark as loaded
       _isEmojisLoaded = true;
     } catch (e, stackTrace) {
@@ -1134,14 +1202,14 @@ class HomeController extends GetxController {
   List<Map<String, dynamic>> _createTemporaryFruitEmojis() {
     final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
     final emojisBaseUrl = '${baseUrl}uploads/emojis/';
-
+    
     // Map of spiritual fruits to physical fruit images from uploads/emojis folder
     // NOTE: This method is not currently used - fruits are loaded from database via loadEmojis()
     // All file names should come from database, not hardcoded here
     // IMPORTANT: Only show ONE variant per fruit in carousel to avoid confusion
     // User should see one unique image per fruit, not 3 variants of the same fruit
     final fruitMappings = <Map<String, String>>[];
-
+    
     // Love - Strawberry (using images/Strawberry.png as fallback since strawberry not in emojis folder)
     fruitMappings.add({
       'name': 'Love',
@@ -1150,7 +1218,7 @@ class HomeController extends GetxController {
       'image': '${baseUrl}uploads/images/Strawberry.png',
       'description': 'The strawberry is the fruit of love. Love\'s compatible physical fruit is as sweet as the spiritual fruit. Strawberries, not only look like a fruity heart-shaped valentine, they are filled with unusual phytonutrients that love to promote your health.',
     });
-
+    
     // Joy - Pineapple (from emojis folder - using first available variant)
     fruitMappings.add({
       'name': 'Joy',
@@ -1159,7 +1227,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Kindness_peach_128%20(1).png', // Using available emoji from folder
       'description': 'The pineapple is the fruit of joy. Joy\'s compatible physical fruit is as sweet as the spiritual fruit. Pineapples are filled with unusual phytonutrients that promote your health.',
     });
-
+    
     // Peace - Watermelon (from emojis folder)
     fruitMappings.add({
       'name': 'Peace',
@@ -1168,7 +1236,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Meekness_grapes_128%20(1).png', // Using available emoji from folder
       'description': 'The watermelon is the fruit of peace. Peace\'s compatible physical fruit is as sweet as the spiritual fruit. Watermelons are filled with unusual phytonutrients that promote your health.',
     });
-
+    
     // Patience - Lemon (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Patience',
@@ -1177,7 +1245,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Patience_lemon_128%20(1).png', // URL encode space and parentheses
       'description': 'The lemon is the fruit of patience. Patience\'s compatible physical fruit is as sweet as the spiritual fruit. Lemons are filled with unusual phytonutrients that promote your health.',
     });
-
+    
     // Kindness - Peach (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Kindness',
@@ -1186,7 +1254,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Kindness_peach_128%20(1).png', // URL encode space and parentheses
       'description': 'The peach is the fruit of kindness. Kindness\'s compatible physical fruit is as sweet as the spiritual fruit. Peaches are filled with unusual phytonutrients that promote your health.',
     });
-
+    
     // Goodness - Load from database (no hardcoded file names)
     // NOTE: This method is not currently used - fruits are loaded from database via loadEmojis()
     // fruitMappings.add({
@@ -1196,7 +1264,7 @@ class HomeController extends GetxController {
     //   'image': '${emojisBaseUrl}Goodness_banana_128%20(1).png', // REMOVED: Hardcoded file name
     //   'description': 'The banana is the fruit of goodness. Goodness\'s compatible physical fruit is as sweet as the spiritual fruit. Bananas are filled with unusual phytonutrients that promote your health.',
     // });
-
+    
     // Faithfulness - Cherry (not available, using goodness banana as fallback)
     fruitMappings.add({
       'name': 'Faithfulness',
@@ -1205,7 +1273,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Goodness_banana_128%20(1).png', // Using available emoji from folder
       'description': 'The cherry is the fruit of faithfulness. Faithfulness\'s compatible physical fruit is as sweet as the spiritual fruit. Cherries are filled with unusual phytonutrients that promote your health.',
     });
-
+    
     // Meekness/Gentleness - Grapes (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Meekness',
@@ -1214,7 +1282,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Meekness_grapes_128%20(1).png', // URL encode space and parentheses
       'description': 'The grape is the fruit of meekness. Meekness\'s compatible physical fruit is as sweet as the spiritual fruit. Grapes are filled with unusual phytonutrients that promote your health.',
     });
-
+    
     // Self-Control - Apple (not in emojis folder, using patience lemon as fallback)
     fruitMappings.add({
       'name': 'Self-Control',
@@ -1223,12 +1291,12 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Patience_lemon_128%20(1).png', // Using available emoji from folder
       'description': 'The apple is the fruit of self-control. Self-control\'s compatible physical fruit is as sweet as the spiritual fruit. Apples are filled with unusual phytonutrients that promote your health.',
     });
-
+    
     print('🍎 Created ${fruitMappings.length} unique fruit emojis (one per fruit):');
     for (var i = 0; i < fruitMappings.length; i++) {
       print('   ${i + 1}. ${fruitMappings[i]['name']} - ${fruitMappings[i]['code']} - ${fruitMappings[i]['image']}');
     }
-
+    
     // Convert to emoji format
     return fruitMappings.map((fruit) {
       return {

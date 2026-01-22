@@ -576,10 +576,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
               // Profile Picture - Now it scrolls because it's in the Stack inside SingleChildScrollView
               Positioned(
-                top: ResponsiveHelper.isMobile(context) 
-                    ? 120 
-                    : ResponsiveHelper.isTablet(context) 
-                        ? 130 
+                top: ResponsiveHelper.isMobile(context)
+                    ? 120
+                    : ResponsiveHelper.isTablet(context)
+                        ? 130
                         : 140, // Position for larger avatar
                 left: 0,
                 right: 0,
@@ -612,10 +612,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           ],
                         ),
                       child: CircleAvatar(
-                        radius: ResponsiveHelper.isMobile(context) 
-                            ? 60 
-                            : ResponsiveHelper.isTablet(context) 
-                                ? 70 
+                        radius: ResponsiveHelper.isMobile(context)
+                            ? 60
+                            : ResponsiveHelper.isTablet(context)
+                                ? 70
                                 : 80, // Larger size for better visibility
                         backgroundColor: Colors.grey[200],
                         backgroundImage: selectedImage != null
@@ -630,10 +630,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         child: selectedImage == null && (profilePhoto == null || profilePhoto.isEmpty)
                             ? Icon(
                                 Icons.person,
-                                size: ResponsiveHelper.isMobile(context) 
-                                    ? 60 
-                                    : ResponsiveHelper.isTablet(context) 
-                                        ? 70 
+                                size: ResponsiveHelper.isMobile(context)
+                                    ? 60
+                                    : ResponsiveHelper.isTablet(context)
+                                        ? 70
                                         : 80, // Match avatar size
                                 color: AppTheme.iconscolor,
                               )

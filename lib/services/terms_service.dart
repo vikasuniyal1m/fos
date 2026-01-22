@@ -1,8 +1,9 @@
 import '../config/api_config.dart';
 import 'api_service.dart';
+import 'user_storage.dart' as us;
 
 /// Terms & Conditions Service
-/// Handles fetching terms content from backend
+/// Handles fetching terms content from backend and local acceptance status
 class TermsService {
   /// Get Terms & Conditions Content
   /// 
@@ -17,6 +18,16 @@ class TermsService {
     } else {
       throw ApiException(response['message'] ?? 'Failed to fetch terms');
     }
+  }
+
+  /// Check if user has accepted UGC terms
+  static Future<bool> hasAcceptedTerms() async {
+    return await us.UserStorage.hasAcceptedUgcTerms();
+  }
+
+  /// Accept UGC terms
+  static Future<void> acceptTerms() async {
+    await us.UserStorage.setUgcTermsAccepted(true);
   }
 }
 

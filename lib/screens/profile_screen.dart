@@ -22,6 +22,7 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/permission_manager.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:fruitsofspirit/screens/blocked_users_screen.dart';
 
 /// Profile Screen
 /// Displays user profile information with professional UI
@@ -654,6 +655,15 @@ class ProfileScreen extends GetView<ProfileController> {
             'Update your profile information',
             null,
             () => Get.toNamed(Routes.EDIT_PROFILE),
+          ),
+          Divider(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
+          _buildSettingTile(
+            context,
+            Icons.block,
+            'Blocked Users',
+            'Manage users you\'ve blocked',
+            null,
+            () => Get.to(() => const BlockedUsersScreen()),
           ),
           Divider(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
           _buildSettingTile(

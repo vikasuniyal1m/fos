@@ -197,7 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         
                         // Re-initialize controllers
                         _reinitializeControllers();
-                        
+
                         if (mounted) {
                           Get.offAllNamed(Routes.DASHBOARD);
                         }

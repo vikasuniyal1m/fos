@@ -1,10 +1,13 @@
 import 'dart:io';
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/gallery_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Gallery Controller
 /// Manages gallery photos data and operations
@@ -698,6 +701,34 @@ class GalleryController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content
+    if (testimony != null && testimony.isNotEmpty) {
+      final check = ContentModerationService.checkContent(testimony);
+      if (!check['isClean']) {
+        message.value = 'Testimony: ${check['message']}';
+        _showModerationSnackbar(check['message']);
+        return false;
+      }
+    }
+
+    if (feelingTags != null && feelingTags.isNotEmpty) {
+      final check = ContentModerationService.checkContent(feelingTags);
+      if (!check['isClean']) {
+        message.value = 'Feeling Tags: ${check['message']}';
+        _showModerationSnackbar(check['message']);
+        return false;
+      }
+    }
+
+    if (hashtags != null && hashtags.isNotEmpty) {
+      final check = ContentModerationService.checkContent(hashtags);
+      if (!check['isClean']) {
+        message.value = 'Hashtags: ${check['message']}';
+        _showModerationSnackbar(check['message']);
+        return false;
+      }
+    }
+
     isLoading.value = true;
     message.value = 'Uploading photo...';
 
@@ -735,6 +766,14 @@ class GalleryController extends GetxController {
 
     if (userId.value == 0) {
       message.value = 'Please login first';
+      return false;
+    }
+
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
       return false;
     }
 
@@ -1107,6 +1146,22 @@ class GalleryController extends GetxController {
       print('Error toggling emoji reaction: $e');
       return false;
     }
+  }
+
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    Get.snackbar(
+      'Community Guidelines',
+      message,
+      backgroundColor: const Color(0xFF5D4037),
+      colorText: Colors.white,
+      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+      mainButton: TextButton(
+        onPressed: () => Get.toNamed('/terms'), // Using string route if constant not imported
+        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
+      ),
+    );
   }
 }
 

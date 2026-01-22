@@ -11,6 +11,11 @@ import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
+import '../controllers/main_dashboard_controller.dart';
+import '../routes/app_pages.dart';
+import '../services/terms_service.dart';
+import '../services/user_storage.dart' as us;
+import 'terms_acceptance_screen.dart';
 
 /// Upload Video Screen - Modern User-Friendly Design
 class UploadVideoScreen extends StatefulWidget {
@@ -234,8 +239,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         video: videoPath,
         thumbnailPath: thumbnailPath,
         imageFormat: ImageFormat.JPEG,
-        maxWidth: 720, // Set width for portrait aspect ratio
-        maxHeight: 1280, // Set height for portrait aspect ratio
+        maxWidth: 1280, // High quality thumbnail
         quality: 85,
         timeMs: 1000, // Extract frame at 1 second
       ).timeout(
@@ -285,6 +289,18 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
   }
 
   Future<void> _uploadVideo() async {
+    // Check for terms acceptance
+    final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
+    if (!hasAcceptedFactors) {
+      Get.to(() => TermsAcceptanceScreen(
+        onAccepted: () {
+          Get.back(); // Pop the terms screen
+          _uploadVideo(); // Retry submission
+        },
+      ));
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -342,49 +358,64 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
       _previewController = null;
       _isPlayingPreview = false;
       
-      // Show success message
-      Get.snackbar(
-        'Success',
-        controller.message.value.isNotEmpty 
-            ? controller.message.value 
-            : 'Video uploaded successfully!',
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 2),
-        icon: const Icon(Icons.check_circle, color: Colors.white),
-        margin: const EdgeInsets.all(16),
-      );
-      
-      // Navigate back immediately
+      // Show success message FIRST (before navigation)
       if (mounted) {
-        Navigator.of(context).pop();
-        
-        // Refresh videos on the previous screen
-        Future.delayed(const Duration(milliseconds: 100), () {
-          try {
-            controller.loadVideos(refresh: true, includePending: true);
-          } catch (e) {
-            print('Error refreshing videos: $e');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            Get.snackbar(
+              'Success',
+              controller.message.value.isNotEmpty 
+                  ? controller.message.value 
+                  : 'Video uploaded successfully!',
+              backgroundColor: Colors.green,
+              colorText: Colors.white,
+              snackPosition: SnackPosition.BOTTOM,
+              duration: const Duration(seconds: 2),
+              icon: const Icon(Icons.check_circle, color: Colors.white),
+              margin: const EdgeInsets.all(16),
+            );
           }
         });
+      }
+      
+      // Wait a bit for snackbar to show, then navigate
+      await Future.delayed(const Duration(milliseconds: 1000));
+      
+      // Navigate back
+      if (mounted) {
+        if (Get.isRegistered<MainDashboardController>()) {
+          Get.find<MainDashboardController>().changeIndex(3);
+        }
+        Get.back();
       }
     } else {
       // Show error message
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
+            final errorMsg = controller.message.value;
+            final isModeration = errorMsg.contains('community guidelines');
+
             Get.snackbar(
-              'Error',
-              controller.message.value.isNotEmpty 
-                  ? controller.message.value 
-                  : 'Failed to upload video. Please try again.',
-              backgroundColor: Colors.red,
+              isModeration ? 'Community Standard' : 'Notice',
+              errorMsg.isNotEmpty 
+                  ? errorMsg 
+                  : 'Action could not be completed. Please try again.',
+              backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
               colorText: Colors.white,
+              icon: Icon(
+                isModeration ? Icons.security_rounded : Icons.info_outline,
+                color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                size: 28,
+              ),
               snackPosition: SnackPosition.BOTTOM,
-              duration: const Duration(seconds: 3),
-              icon: const Icon(Icons.error, color: Colors.white),
+              duration: Duration(seconds: isModeration ? 5 : 3),
               margin: const EdgeInsets.all(16),
+              borderRadius: 12,
+              mainButton: isModeration ? TextButton(
+                onPressed: () => Get.toNamed(Routes.TERMS),
+                child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
+              ) : null,
             );
           }
         });
@@ -400,254 +431,231 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         showBackButton: true,
       ),
       body: Obx(() {
-        return SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: FadeTransition(
-            opacity: _fadeAnimation!,
-            child: SlideTransition(
-              position: _slideAnimation!,
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Video Selection Card
-                    Container(
+        // Ensure animations are initialized
+        if (_fadeAnimation == null || _slideAnimation == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _initializeAnimations();
+            }
+          });
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        return FadeTransition(
+          opacity: _fadeAnimation!,
+          child: SlideTransition(
+            position: _slideAnimation!,
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  // Video Selection Card - Takes most of the screen
+                  Expanded(
+                    flex: 3,
+                    child: Container(
                       width: double.infinity,
                       margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
                       child: _buildVideoSelectionCard(),
                     ),
-
-                    // Form Fields
-                    Padding(
+                  ),
+                  
+                  // Form Fields - Scrollable
+                  Container(
+                    constraints: BoxConstraints(
+                      maxHeight: ResponsiveHelper.screenHeight(context) * 0.45,
+                    ),
+                    child: SingleChildScrollView(
                       padding: EdgeInsets.symmetric(
                         horizontal: ResponsiveHelper.spacing(context, 16),
                         vertical: ResponsiveHelper.spacing(context, 12),
                       ),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                              // Title Input Card
-                              _buildInputCard(
-                                title: 'Video Title',
-                                isRequired: true,
-                                child: TextFormField(
-                                  controller: titleController,
-                                  validator: (value) {
-                                    if (value == null || value
-                                        .trim()
-                                        .isEmpty) {
-                                      return 'Please enter video title';
-                                    }
-                                    return null;
-                                  },
-                                  decoration: InputDecoration(
-                                    hintText: 'Enter a catchy title for your video',
-                                    prefixIcon: Icon(
-                                      Icons.title_rounded,
-                                      color: AppTheme.iconscolor.withValues(
-                                          alpha: 0.6),
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: Colors.grey.withOpacity(0.3)),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: Colors.grey.withOpacity(0.3)),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: AppTheme.iconscolor, width: 2),
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.grey[50],
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: ResponsiveHelper.spacing(
-                                          context, 16),
-                                      vertical: ResponsiveHelper.spacing(
-                                          context, 16),
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              SizedBox(height: ResponsiveHelper.spacing(
-                                  context, 20)),
-
-                              // Description Input Card
-                              _buildInputCard(
-                                title: 'Description',
-                                isRequired: false,
-                                child: TextFormField(
-                                  controller: descriptionController,
-                                  maxLines: 4,
-                                  decoration: InputDecoration(
-                                    hintText: 'Tell us about your video (optional)',
-                                    prefixIcon: Padding(
-                                      padding: EdgeInsets.only(
-                                        bottom: ResponsiveHelper.spacing(
-                                            context, 60),
-                                      ),
-                                      child: Icon(
-                                        Icons.description_rounded,
-                                        color: AppTheme.iconscolor.withValues(
-                                            alpha: 0.6),
-                                      ),
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: Colors.grey.withOpacity(0.3)),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: Colors.grey.withOpacity(0.3)),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: AppTheme.iconscolor, width: 2),
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.grey[50],
-                                    contentPadding: EdgeInsets.all(
-                                      ResponsiveHelper.spacing(context, 16),
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              SizedBox(height: ResponsiveHelper.spacing(
-                                  context, 20)),
-
-                              // Fruit Tag Selection Card
-                              _buildInputCard(
-                                title: 'Tag with Fruit',
-                                isRequired: false,
-                                child: DropdownButtonFormField<String>(
-                                  value: selectedFruitTag,
-                                  decoration: InputDecoration(
-                                    hintText: 'Select a fruit (optional)',
-                                    prefixIcon: Icon(
-                                      Icons.local_florist_rounded,
-                                      color: AppTheme.iconscolor.withValues(
-                                          alpha: 0.6),
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: Colors.grey.withOpacity(0.3)),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: Colors.grey.withOpacity(0.3)),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(
-                                            context, mobile: 16),
-                                      ),
-                                      borderSide: BorderSide(
-                                          color: AppTheme.iconscolor, width: 2),
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.grey[50],
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: ResponsiveHelper.spacing(
-                                          context, 16),
-                                      vertical: ResponsiveHelper.spacing(
-                                          context, 16),
-                                    ),
-                                  ),
-                                  items: _fruitsOfSpirit.map((fruit) {
-                                    return DropdownMenuItem(
-                                      value: fruit,
-                                      child: Row(
-                                        children: [
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            decoration: BoxDecoration(
-                                              color: AppTheme.iconscolor,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                          SizedBox(
-                                              width: ResponsiveHelper.spacing(
-                                                  context, 12)),
-                                          Text(
-                                            fruit,
-                                            style: ResponsiveHelper.textStyle(
-                                              context,
-                                              fontSize: ResponsiveHelper
-                                                  .fontSize(
-                                                  context, mobile: 15),
-                                              color: Colors.black,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (value) {
-                                    setState(() {
-                                      selectedFruitTag = value;
-                                    });
-                                  },
-                                ),
-                              ),
-
-                              SizedBox(height: ResponsiveHelper.spacing(
-                                  context, 32)),
-
-                              // Upload Button
-                              _buildUploadButton(),
-
-                              SizedBox(height: ResponsiveHelper.spacing(
-                                  context, 16)),
-                            ],
+                          // Title Input Card
+                          _buildInputCard(
+                    title: 'Video Title',
+                    isRequired: true,
+                    child: TextFormField(
+              controller: titleController,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Please enter video title';
+                        }
+                        return null;
+                      },
+              decoration: InputDecoration(
+                        hintText: 'Enter a catchy title for your video',
+                        prefixIcon: Icon(
+                          Icons.title_rounded,
+                          color: AppTheme.iconscolor.withOpacity(0.6),
+                        ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: AppTheme.iconscolor, width: 2),
+                ),
+                filled: true,
+                        fillColor: Colors.grey[50],
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: ResponsiveHelper.spacing(context, 16),
+                          vertical: ResponsiveHelper.spacing(context, 16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  SizedBox(height: ResponsiveHelper.spacing(context, 20)),
+                  
+                  // Description Input Card
+                  _buildInputCard(
+                    title: 'Description',
+                    isRequired: false,
+                    child: TextFormField(
+              controller: descriptionController,
+              maxLines: 4,
+              decoration: InputDecoration(
+                        hintText: 'Tell us about your video (optional)',
+                        prefixIcon: Padding(
+                          padding: EdgeInsets.only(
+                            bottom: ResponsiveHelper.spacing(context, 60),
+                          ),
+                          child: Icon(
+                            Icons.description_rounded,
+                            color: AppTheme.iconscolor.withOpacity(0.6),
                           ),
                         ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: AppTheme.iconscolor, width: 2),
+                ),
+                filled: true,
+                        fillColor: Colors.grey[50],
+                        contentPadding: EdgeInsets.all(
+                          ResponsiveHelper.spacing(context, 16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  SizedBox(height: ResponsiveHelper.spacing(context, 20)),
+                  
+                  // Fruit Tag Selection Card
+                  _buildInputCard(
+                    title: 'Tag with Fruit',
+                    isRequired: false,
+                    child: DropdownButtonFormField<String>(
+              value: selectedFruitTag,
+              decoration: InputDecoration(
+                        hintText: 'Select a fruit (optional)',
+                        prefixIcon: Icon(
+                          Icons.local_florist_rounded,
+                          color: AppTheme.iconscolor.withOpacity(0.6),
+                        ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(context, mobile: 16),
+                  ),
+                          borderSide: BorderSide(color: AppTheme.iconscolor, width: 2),
+                ),
+                filled: true,
+                        fillColor: Colors.grey[50],
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: ResponsiveHelper.spacing(context, 16),
+                          vertical: ResponsiveHelper.spacing(context, 16),
+                        ),
+                      ),
+                      items: _fruitsOfSpirit.map((fruit) {
+                        return DropdownMenuItem(
+                        value: fruit,
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.iconscolor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                              Text(
+                                fruit,
+                                style: ResponsiveHelper.textStyle(
+                                  context,
+                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 15),
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedFruitTag = value;
+                });
+              },
+            ),
+                  ),
+                  
+                  SizedBox(height: ResponsiveHelper.spacing(context, 32)),
+                  
+                        // Upload Button
+                        _buildUploadButton(),
+                        
+                        SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                       ],
                     ),
                   ),
                 ),
-              ),
-            );
-          }),
-        );
-      }
+              ],
+            ),
+          ),
+        ),
+      );
+      }),
+    );
+  }
 
   Widget _buildVideoSelectionCard() {
     return Container(
@@ -672,15 +680,15 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         ],
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: MainAxisSize.max,
         children: [
           // Header - Compact
           Padding(
             padding: EdgeInsets.only(
               left: ResponsiveHelper.spacing(context, 12),
               right: ResponsiveHelper.spacing(context, 12),
-              top: ResponsiveHelper.spacing(context, 12), // Increased slightly
-              bottom: ResponsiveHelper.spacing(context, 8), // Increased slightly
+              top: ResponsiveHelper.spacing(context, 2),
+              bottom: ResponsiveHelper.spacing(context, 1),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -710,17 +718,19 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
           ),
           Divider(height: 0.5, thickness: 0.5, color: Colors.grey[200]),
           
-          // Video Selection Area - Full Screen, Centered
-          Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: ResponsiveHelper.spacing(context, 8),
-              vertical: ResponsiveHelper.spacing(context, 12),
-            ),
-            child: GestureDetector(
-              onTap: _pickVideo,
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Container(
+          // Video Selection Area - Full Screen, Centered (Scrollable)
+          Expanded(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: ResponsiveHelper.spacing(context, 8),
+                  vertical: ResponsiveHelper.spacing(context, 2),
+                ),
+                child: GestureDetector(
+                  onTap: _pickVideo,
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Container(
                       width: double.infinity,
                       decoration: BoxDecoration(
                         gradient: selectedVideo != null
@@ -1023,10 +1033,13 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                     ),
                   ),
                 ),
+              ),
+
+    )
           )
         ],
-        ),
-      );
+      ),
+    );
   }
 
   Widget _buildInputCard({
@@ -1062,16 +1075,13 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
           children: [
             Row(
               children: [
-                Flexible(
-                  child: Text(
-                    title,
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+                Text(
+                  title,
+                  style: ResponsiveHelper.textStyle(
+                    context,
+                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
                   ),
                 ),
                 if (isRequired) ...[

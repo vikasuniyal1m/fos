@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/group_chat_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+
+import '../routes/app_pages.dart';
 
 /// Group Chat Controller
 /// Manages real-time chat messages
@@ -122,15 +126,21 @@ class GroupChatController extends GetxController {
       
       _currentOffset += filteredMessages.length;
       
-      // Force UI update - create new list instance
-      final currentMessages = List<Map<String, dynamic>>.from(messages);
-      messages.value = [];
-      await Future.delayed(const Duration(milliseconds: 10));
-      messages.value = currentMessages;
       messages.refresh();
 
       if (filteredMessages.isNotEmpty) {
-        lastMessageId = filteredMessages.first['id'] as int?;
+        // Find the newest message ID in the batch
+        final newestId = filteredMessages.map((m) {
+          final idValue = m['id'];
+          if (idValue is int) return idValue;
+          if (idValue is String) return int.tryParse(idValue) ?? 0;
+          return 0;
+        }).reduce((a, b) => a > b ? a : b);
+        
+        // Only update lastMessageId if it's the first load or if the new ID is larger
+        if (lastMessageId == null || newestId > lastMessageId!) {
+          lastMessageId = newestId;
+        }
       }
 
       hasMore.value = filteredMessages.length >= 50;
@@ -212,7 +222,12 @@ class GroupChatController extends GetxController {
       }).toList();
 
       // Get existing message IDs to avoid duplicates
-      final existingIds = messages.map((m) => m['id'] as int).toSet();
+      final existingIds = messages.map((m) {
+        final idVal = m['id'];
+        if (idVal is int) return idVal;
+        if (idVal is String) return int.tryParse(idVal) ?? 0;
+        return 0;
+      }).toSet();
       
       // Filter out messages that already exist
       final trulyNewMessages = newMessages.where((msg) {
@@ -226,7 +241,13 @@ class GroupChatController extends GetxController {
         messages.refresh(); // Update UI
         
         // Update lastMessageId to the newest message
-        final newestId = trulyNewMessages.map((m) => m['id'] as int).reduce((a, b) => a > b ? a : b);
+        final newestId = trulyNewMessages.map((m) {
+          final idVal = m['id'];
+          if (idVal is int) return idVal;
+          if (idVal is String) return int.tryParse(idVal) ?? 0;
+          return 0;
+        }).reduce((a, b) => a > b ? a : b);
+        
         if (newestId > (lastMessageId ?? 0)) {
           lastMessageId = newestId;
         }
@@ -244,6 +265,21 @@ class GroupChatController extends GetxController {
     File? file,
     String messageType = 'text',
   }) async {
+    // If text is a fruit emoji, automatically set messageType to 'emoji'
+    final textTrimmed = text.trim();
+    if (messageType == 'text' && textTrimmed.isNotEmpty) {
+      if (FruitEmojiHelper.isFruit(textTrimmed) || textTrimmed.length <= 2) {
+        // Checking for Unicode emojis as well
+        final emojiRegex = RegExp(
+          r'[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2764}\u{FE0F}]|[\u{2728}]|[\u{2B50}]',
+          unicode: true,
+        );
+        if (emojiRegex.hasMatch(textTrimmed) || FruitEmojiHelper.isFruit(textTrimmed)) {
+          messageType = 'emoji';
+        }
+      }
+    }
+
     if (userId.value == 0) {
       await _loadUserId();
     }
@@ -256,6 +292,43 @@ class GroupChatController extends GetxController {
     if (text.trim().isEmpty && file == null) {
       message.value = 'Message cannot be empty';
       return false;
+    }
+
+    // Check for inappropriate content (only for text messages)
+    if (text.trim().isNotEmpty) {
+      final moderationCheck = ContentModerationService.checkContent(text);
+      if (!moderationCheck['isClean']) {
+        message.value = moderationCheck['message'];
+        
+        // Show user-friendly error
+        Get.snackbar(
+          'Community Guidelines',
+          'Your message contains inappropriate content. Please revise and try again.',
+          backgroundColor: const Color(0xFF5D4037),
+          colorText: Colors.white,
+          icon: const Icon(
+            Icons.security_rounded,
+            color: Color(0xFFC79211),
+            size: 28,
+          ),
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 4),
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
+          mainButton: TextButton(
+            onPressed: () => Get.toNamed(Routes.TERMS),
+            child: const Text(
+              'VIEW TERMS',
+              style: TextStyle(
+                color: Color(0xFFC79211),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        );
+        
+        return false;
+      }
     }
 
     isSending.value = true;
@@ -285,13 +358,32 @@ class GroupChatController extends GetxController {
         sentMessage['message'] = '';
       }
       
-      // Add the newly sent message to the list
-      messages.add(sentMessage);
-      messages.refresh();
+      // Check if message already exists (prevent duplicates)
+      final sentMsgId = sentMessage['id'];
+      int? sentMessageId;
+      if (sentMsgId is int) {
+        sentMessageId = sentMsgId;
+      } else if (sentMsgId is String) {
+        sentMessageId = int.tryParse(sentMsgId);
+      }
       
-      // Update lastMessageId if this is the newest message
-      if (sentMessage['id'] != null && (sentMessage['id'] as int) > (lastMessageId ?? 0)) {
-        lastMessageId = sentMessage['id'] as int;
+      // Only add if message doesn't already exist
+      final existingIds = messages.map((m) {
+        final idVal = m['id'];
+        if (idVal is int) return idVal;
+        if (idVal is String) return int.tryParse(idVal) ?? 0;
+        return 0;
+      }).toSet();
+      
+      if (sentMessageId != null && !existingIds.contains(sentMessageId)) {
+        // Add the newly sent message to the list
+        messages.add(sentMessage);
+        messages.refresh();
+        
+        // Update lastMessageId if this is the newest message
+        if (sentMessageId > (lastMessageId ?? 0)) {
+          lastMessageId = sentMessageId;
+        }
       }
       
       // Check for any other new messages that might have arrived
@@ -299,13 +391,28 @@ class GroupChatController extends GetxController {
 
       return true;
     } catch (e) {
-      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      final errorMsg = e.toString().replaceAll('Exception: ', '');
+      final isModeration = errorMsg.contains('community guidelines');
+      message.value = 'Error: $errorMsg';
+      
       Get.snackbar(
-        'Error',
-        'Failed to send message: ${e.toString().replaceAll('Exception: ', '')}',
-        backgroundColor: Colors.red,
+        isModeration ? 'Community Standard' : 'Notice',
+        errorMsg,
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
         colorText: Colors.white,
-        duration: const Duration(seconds: 3),
+        icon: Icon(
+          isModeration ? Icons.security_rounded : Icons.info_outline,
+          color: isModeration ? const Color(0xFFC79211) : Colors.white,
+          size: 28,
+        ),
+        snackPosition: SnackPosition.BOTTOM,
+        duration: Duration(seconds: isModeration ? 5 : 3),
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
+        mainButton: isModeration ? TextButton(
+          onPressed: () => Get.toNamed(Routes.TERMS),
+          child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
+        ) : null,
       );
       return false;
     } finally {
@@ -368,7 +475,12 @@ class GroupChatController extends GetxController {
       }).toList();
 
       // Get existing message IDs
-      final existingIds = messages.map((m) => m['id'] as int).toSet();
+      final existingIds = messages.map((m) {
+        final idVal = m['id'];
+        if (idVal is int) return idVal;
+        if (idVal is String) return int.tryParse(idVal) ?? 0;
+        return 0;
+      }).toSet();
       
       // Add only truly new messages
       final trulyNewMessages = newMessages.where((msg) {
@@ -381,7 +493,13 @@ class GroupChatController extends GetxController {
         messages.refresh();
         
         // Update lastMessageId
-        final newestId = trulyNewMessages.map((m) => m['id'] as int).reduce((a, b) => a > b ? a : b);
+        final newestId = trulyNewMessages.map((m) {
+          final idVal = m['id'];
+          if (idVal is int) return idVal;
+          if (idVal is String) return int.tryParse(idVal) ?? 0;
+          return 0;
+        }).reduce((a, b) => a > b ? a : b);
+        
         if (newestId > (lastMessageId ?? 0)) {
           lastMessageId = newestId;
         }

@@ -318,7 +318,7 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                       final category = group['category'] as String? ?? '';
                       
                       if (category.isNotEmpty) {
-                        final jingleService = JingleService();
+                        final jingleService = Get.find<JingleService>();
                         // Start jingle first (non-blocking)
                         jingleService.startJingle(category);
                       }

@@ -15,7 +15,7 @@ abstract class Routes {
   static const PHONE_AUTH = _Paths.PHONE_AUTH;
   static const FORGOT_PASSWORD = _Paths.FORGOT_PASSWORD;
 
-  
+
   // Feature Routes
   static const FRUITS = _Paths.FRUITS;
   static const PRAYER_REQUESTS = _Paths.PRAYER_REQUESTS;

@@ -146,6 +146,7 @@ class _VideosScreenState extends State<VideosScreen> {
           ),
         ),
       ),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 3),
     );
   }
 
@@ -153,7 +154,7 @@ class _VideosScreenState extends State<VideosScreen> {
     final isPending = video['status'] == 'Pending' || video['status'] == 'pending';
     final filePath = video['file_path'] as String? ?? '';
     final thumbnailPath = video['thumbnail_path'] as String?;
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+
     
     return GestureDetector(
       onTap: () => Get.toNamed(
@@ -188,19 +189,20 @@ class _VideosScreenState extends State<VideosScreen> {
                   children: [
                     // Background Image
                     Positioned.fill(
-                      child: thumbnailPath != null
-                          ? CachedImage(
-                              imageUrl: baseUrl + thumbnailPath,
-                              fit: BoxFit.cover,
-                              errorWidget: CachedImage(
-                                imageUrl: ImageConfig.videoThumbnail,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : CachedImage(
-                              imageUrl: ImageConfig.videoThumbnail,
-                              fit: BoxFit.cover,
-                            ),
+                      child: CachedImage(
+                        imageUrl: _getThumbnailUrl(thumbnailPath),
+                        fit: BoxFit.cover,
+                        errorWidget: Image.network(
+                          ImageConfig.videoThumbnail,
+                          fit: BoxFit.cover,
+                        ),
+                        placeholder: Container(
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      ),
                     ),
                     // Pending Badge
                     if (isPending)
@@ -310,6 +312,17 @@ class _VideosScreenState extends State<VideosScreen> {
         ),
       ),
     );
+  }
+
+  String _getThumbnailUrl(String? path) {
+    if (path == null || path.isEmpty) return ImageConfig.videoThumbnail;
+    if (path.startsWith('http')) return path;
+    
+    // If path starts with /, remove it to avoid double slashes with baseUrl
+    // If path starts with 'uploads/', it is relative to domain
+    
+    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    return 'https://fruitofthespirit.templateforwebsites.com/$cleanPath';
   }
 }
 

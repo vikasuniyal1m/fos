@@ -19,6 +19,7 @@ class VideosService {
     String status = 'Approved',
     String? fruitTag,
     int? userId,
+    int? currentUserId,
     int limit = 20,
     int offset = 0,
   }) async {
@@ -30,6 +31,7 @@ class VideosService {
 
     if (fruitTag != null) queryParams['fruit_tag'] = fruitTag;
     if (userId != null) queryParams['user_id'] = userId.toString();
+    if (currentUserId != null) queryParams['current_user_id'] = currentUserId.toString();
 
     final response = await ApiService.get(
       ApiConfig.videos,
@@ -49,10 +51,15 @@ class VideosService {
   /// - videoId: Video ID
   /// 
   /// Returns: Video with comments
-  static Future<Map<String, dynamic>> getVideoDetails(int videoId) async {
+  static Future<Map<String, dynamic>> getVideoDetails(int videoId, {int? currentUserId}) async {
+    final queryParams = {'id': videoId.toString()};
+    if (currentUserId != null) {
+      queryParams['current_user_id'] = currentUserId.toString();
+    }
+    
     final response = await ApiService.get(
       ApiConfig.videos,
-      queryParameters: {'id': videoId.toString()},
+      queryParameters: queryParams,
     );
 
     if (response['success'] == true && response['data'] != null) {

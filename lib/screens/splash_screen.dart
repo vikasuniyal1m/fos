@@ -19,8 +19,7 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
-  bool _isLoadingData = false;
-  String _loadingMessage = 'Loading...';
+
 
   @override
   void initState() {
@@ -51,16 +50,21 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
       // Increment launch count
       await IntroService.incrementLaunchCount();
-      debugPrint('DEBUG: App launch count = ${IntroService.getLaunchCount()}');
+      final isFirstLaunch = IntroService.getLaunchCount() == 1;
+      debugPrint('DEBUG: App launch count = ${IntroService.getLaunchCount()}, isFirstLaunch = $isFirstLaunch');
 
       // Minimum delay to show splash screen and allow user to read scripture
       // Total delay: 1200ms (animation) + 3000ms (reading time) = 4200ms
       await Future.delayed(const Duration(milliseconds: 1200));
 
       // Additional delay for user to read scripture (3 seconds)
-      await Future.delayed(const Duration(seconds: 3));
+      if (isFirstLaunch) {
+        await Future.delayed(const Duration(seconds: 3));
+      }
 
-      if (!mounted) return;
+
+
+
 
       // Check if user is logged in with timeout to prevent hanging
       final isLoggedIn = await UserStorage.isLoggedIn()
@@ -82,42 +86,26 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
       if (isLoggedIn) {
         debugPrint('➡️ Navigating to HOME');
-        
+
         // Check if we have cached data to show instantly
         final hasCache = await DataLoadingService.isHomeDataCached();
-        
+
         if (hasCache) {
           debugPrint('✅ Found cached data, navigating to home immediately');
           // Trigger background refresh but don't wait for it
           DataLoadingService.loadAllHomeData(preferCache: true).catchError((e) {
             debugPrint('⚠️ Background data refresh failed: $e');
           });
-          
+
           if (!mounted) return;
           Get.offAllNamed(Routes.DASHBOARD);
           return;
         }
 
-        // No cache found, show loading message while fetching critical data
-        if (mounted) {
-          setState(() {
-            _isLoadingData = true;
-            _loadingMessage = 'Loading your spiritual journey...';
-          });
-        }
-
-        // Wait for critical home data to load before navigating
-        try {
-          await DataLoadingService.loadAllHomeData(preferCache: false).timeout(
-            const Duration(seconds: 8),
-            onTimeout: () {
-              debugPrint('⚠️ Data loading timed out, continuing to home');
-              return {};
-            },
-          );
-        } catch (e) {
-          debugPrint('⚠️ Error pre-loading data: $e');
-        }
+        // No cache found, trigger data loading in background and navigate immediately
+        DataLoadingService.loadAllHomeData(preferCache: false).catchError((e) {
+          debugPrint('⚠️ Background data loading failed after login/registration: $e');
+        });
 
         if (!mounted) return;
         Get.offAllNamed(Routes.DASHBOARD);
@@ -313,32 +301,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     // ============================================
                     // END OF SCRIPTURE SECTION
                     // ============================================
-                    if (_isLoadingData) ...[
-                      SizedBox(height: ResponsiveHelper.spacing(
-                          context,
-                          isTabletDevice ? 40 : 30  // More spacing for tablets
-                      )),
-                      CircularProgressIndicator(
-                        color: const Color(0xFF8B4513),
-                        strokeWidth: isTabletDevice ? 3.0 : 2.0,  // Thicker for tablets
-                      ),
-                      SizedBox(height: ResponsiveHelper.spacing(
-                          context,
-                          isTabletDevice ? 20 : 16  // More spacing for tablets
-                      )),
-                      Text(
-                        _loadingMessage,
-                        style: ResponsiveHelper.textStyle(
-                          context,
-                          fontSize: ResponsiveHelper.fontSize(
-                            context,
-                            mobile: 16,
-                            tablet: 18,  // Larger text for tablets
-                          ),
-                          color: const Color(0xFF8B4513),
-                        ),
-                      ),
-                    ],
+
                   ],
                 ),
               ),

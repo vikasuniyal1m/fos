@@ -27,6 +27,7 @@ import 'package:fruitsofspirit/screens/group_details_screen.dart';
 import 'package:fruitsofspirit/screens/group_chat_screen.dart';
 import 'package:fruitsofspirit/screens/create_group_screen.dart';
 import 'package:fruitsofspirit/screens/profile_screen.dart';
+import 'package:fruitsofspirit/bindings/profile_binding.dart';
 import 'package:fruitsofspirit/screens/edit_profile_screen.dart';
 import 'package:fruitsofspirit/screens/stories_screen.dart';
 import 'package:fruitsofspirit/screens/create_story_screen.dart';
@@ -45,7 +46,7 @@ part 'app_routes.dart';
 class AppPages {
   AppPages._();
 
-  static const INITIAL = Routes.SPLASH; 
+  static const INITIAL = Routes.SPLASH;
 
   static final routes = [
     GetPage(
@@ -56,9 +57,6 @@ class AppPages {
     GetPage(
       name: Routes.DASHBOARD,
       page: () => const MainDashboardScreen(),
-      binding: BindingsBuilder(() {
-        Get.lazyPut<MainDashboardController>(() => MainDashboardController());
-      }),
       transition: Transition.fadeIn,
     ),
     GetPage(
@@ -191,6 +189,7 @@ class AppPages {
     GetPage(
       name: Routes.PROFILE,
       page: () => const ProfileScreen(),
+      binding: ProfileBinding(),
       transition: Transition.fadeIn,
     ),
     GetPage(

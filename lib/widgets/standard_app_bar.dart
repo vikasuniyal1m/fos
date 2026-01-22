@@ -36,14 +36,14 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: ResponsiveHelper.isMobile(context) ? 4 : 8,
             offset: Offset(0, ResponsiveHelper.isMobile(context) ? 2 : 4),
           ),
         ],
         border: Border(
           bottom: BorderSide(
-            color: Colors.grey.withValues(alpha: 0.15),
+            color: Colors.grey.withOpacity(0.15),
             width: ResponsiveHelper.isMobile(context) ? 0.5 : 1,
           ),
         ),
@@ -125,12 +125,12 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                   color: Colors.white,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.8),
+                    color: Colors.white.withOpacity(0.8),
                     width: 2.0,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.grey.withValues(alpha: 0.3),
+                      color: Colors.grey.withOpacity(0.3),
                       blurRadius: 6,
                       offset: const Offset(0, 3),
                       spreadRadius: 1,
@@ -255,7 +255,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
     try {
       if (Get.isRegistered<ProfileController>()) {
         final profileController = Get.find<ProfileController>();
-        
+
         // Show loading overlay BEFORE navigating
         // This addresses the user's request to have loading before the screen opens
         Get.dialog(
@@ -276,10 +276,10 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
 
         // Load profile data (fresh from API)
         await profileController.loadProfile(showLoading: false);
-        
+
         // Close loading overlay
         Get.back();
-        
+
         // Go to profile screen - it will now have fresh data ready
         Get.toNamed(Routes.PROFILE);
       } else {
@@ -306,8 +306,8 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(30),
-        splashColor: Colors.grey.withValues(alpha: 0.1),
-        highlightColor: Colors.grey.withValues(alpha: 0.05),
+        splashColor: Colors.grey.withOpacity(0.1),
+        highlightColor: Colors.grey.withOpacity(0.05),
         child: Container(
           width: ResponsiveHelper.isMobile(context)
               ? 40.0
@@ -323,12 +323,12 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.8),
+              color: Colors.white.withOpacity(0.8),
               width: 2.0,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withValues(alpha: 0.3),
+                color: Colors.grey.withOpacity(0.3),
                 blurRadius: 6,
                 offset: const Offset(0, 3),
                 spreadRadius: 1,
@@ -381,7 +381,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF4CAF50).withValues(alpha: 0.5),
+                              color: const Color(0xFF4CAF50).withOpacity(0.5),
                               blurRadius: 4,
                               spreadRadius: 1,
                             ),
@@ -419,8 +419,8 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(30),
-        splashColor: Colors.grey.withValues(alpha: 0.1),
-        highlightColor: Colors.grey.withValues(alpha: 0.05),
+        splashColor: Colors.grey.withOpacity(0.1),
+        highlightColor: Colors.grey.withOpacity(0.05),
         child: Container(
           width: ResponsiveHelper.isMobile(context)
               ? 40.0
@@ -436,12 +436,12 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.8),
+              color: Colors.white.withOpacity(0.8),
               width: 2.0,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withValues(alpha: 0.3),
+                color: Colors.grey.withOpacity(0.3),
                 blurRadius: 6,
                 offset: const Offset(0, 3),
                 spreadRadius: 1,
@@ -494,7 +494,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF4CAF50).withValues(alpha: 0.5),
+                              color: const Color(0xFF4CAF50).withOpacity(0.5),
                               blurRadius: 4,
                               spreadRadius: 1,
                             ),

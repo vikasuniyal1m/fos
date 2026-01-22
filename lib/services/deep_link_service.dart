@@ -1,3 +1,4 @@
+import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:get/get.dart';
 import 'package:app_links/app_links.dart';
 import 'package:fruitsofspirit/routes/routes.dart';

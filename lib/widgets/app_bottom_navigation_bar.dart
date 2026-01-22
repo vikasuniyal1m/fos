@@ -135,7 +135,7 @@ class AppBottomNavigationBar extends StatelessWidget {
     // Calculate icon sizes - bigger sizes
     double iconSize;
     double activeIconSize;
-    
+
     if (ResponsiveHelper.isMobile(context)) {
       // Mobile: 36-40px (little bit smaller)
       iconSize = 37.0;
@@ -149,9 +149,9 @@ class AppBottomNavigationBar extends StatelessWidget {
       iconSize = 44.0;
       activeIconSize = 48.0;
     }
-    
+
     final themeColor = const Color(0xFF8B4513);
-    
+
     return SafeArea(
       top: false,
       child: Container(
@@ -182,7 +182,7 @@ class AppBottomNavigationBar extends StatelessWidget {
               icon: SizedBox(
                 width: iconSize,
                 height: iconSize,
-                child:Icon(
+                child: Icon(
                   Icons.home_outlined,
                   size: iconSize,
                   color: AppTheme.primaryColor,
@@ -203,7 +203,7 @@ class AppBottomNavigationBar extends StatelessWidget {
               activeIcon: SizedBox(
                 width: activeIconSize,
                 height: activeIconSize,
-                child:Icon(
+                child: Icon(
                   Icons.home,
                   size: iconSize,
                   color: AppTheme.primaryColor,
@@ -231,7 +231,7 @@ class AppBottomNavigationBar extends StatelessWidget {
                   Icons.apple,
                   size: activeIconSize,
                   color: AppTheme.primaryColor,
-                )/*Image.asset(
+                ) /*Image.asset(
                   'assets/happy.png',
                   width: iconSize,
                   height: iconSize,
@@ -252,7 +252,7 @@ class AppBottomNavigationBar extends StatelessWidget {
                   Icons.apple,
                   size: activeIconSize,
                   color: AppTheme.primaryColor,
-                )/*Image.asset(
+                ) /*Image.asset(
                   'assets/happy.png',
                   width: activeIconSize,
                   height: activeIconSize,
@@ -307,13 +307,13 @@ class AppBottomNavigationBar extends StatelessWidget {
             ),
             BottomNavigationBarItem(
               icon: SizedBox(
-                width: iconSize,
-                height: iconSize,
-                child: Icon(
-                  Icons.smart_display_outlined,
-                  size: iconSize,
-                  color: AppTheme.primaryColor,
-                )
+                  width: iconSize,
+                  height: iconSize,
+                  child: Icon(
+                    Icons.smart_display_outlined,
+                    size: iconSize,
+                    color: AppTheme.primaryColor,
+                  )
               ),
               activeIcon: SizedBox(
                 width: activeIconSize,
@@ -355,4 +355,3 @@ class AppBottomNavigationBar extends StatelessWidget {
 
 
 }
-

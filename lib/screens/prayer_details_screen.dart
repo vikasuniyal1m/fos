@@ -10,6 +10,7 @@ import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 
 /// Prayer Details Screen
 /// Professional, user-friendly design with attractive UI and Facebook-like comment threads
@@ -582,6 +583,10 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                               horizontal: 16,
                               vertical: 12,
                             ),
+                            prefixIcon: IconButton(
+                              icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFF8B4513)),
+                              onPressed: () => _showEmojiPicker(context, prayerId, controller),
+                            ),
                           ),
                           maxLines: null,
                           textInputAction: TextInputAction.newline,
@@ -809,7 +814,8 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text(
+                    FruitEmojiHelper.buildCommentText(
+                      context,
                       AutoTranslateHelper.getTranslatedTextSync(
                         text: content,
                         sourceLanguage: comment['language'] as String?,

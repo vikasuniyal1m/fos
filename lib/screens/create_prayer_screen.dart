@@ -9,6 +9,10 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 
 import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import '../controllers/main_dashboard_controller.dart';
+import '../services/terms_service.dart';
+import '../services/user_storage.dart' as us;
+import 'terms_acceptance_screen.dart';
 
 /// Create Prayer Request Screen
 /// Matches the "New Prayer" UI design from the image
@@ -56,7 +60,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   @override
   void initState() {
     super.initState();
-    
+
     // Safely find or initialize PrayersController
     try {
       prayersController = Get.find<PrayersController>();
@@ -70,7 +74,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     } catch (e) {
       groupsController = Get.put(GroupsController());
     }
-    
+
     _loadGroupMembers();
   }
   
@@ -138,6 +142,18 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   
   Future<void> _submitPrayer() async {
     if (_isSubmitting) return; // Prevent multiple submissions
+
+    // Check for terms acceptance
+    final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
+    if (!hasAcceptedFactors) {
+      Get.to(() => TermsAcceptanceScreen(
+        onAccepted: () {
+          Get.back(); // Pop the terms screen
+          _submitPrayer(); // Retry submission
+        },
+      ));
+      return;
+    }
     
     if (contentController.text.trim().isEmpty) {
       Get.snackbar(
@@ -223,8 +239,13 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
         prayersController.filterUserId.value = 0;
         prayersController.selectedCategory.value = '';
         
-        // Navigate to prayer requests screen
-        Get.offNamedUntil(Routes.PRAYER_REQUESTS, (route) => route.settings.name == Routes.DASHBOARD);
+        // Navigate to prayer requests tab in dashboard
+        if (Get.isRegistered<MainDashboardController>()) {
+          Get.find<MainDashboardController>().changeIndex(2);
+          Get.back();
+        } else {
+          Get.offNamedUntil(Routes.PRAYER_REQUESTS, (route) => route.settings.name == Routes.DASHBOARD);
+        }
         
         // Force refresh after navigation
         Future.delayed(const Duration(milliseconds: 300), () {
@@ -236,15 +257,29 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
+            final errorMsg = prayersController.message.value;
+            final isModeration = errorMsg.contains('community guidelines');
+            
             Get.snackbar(
-              'Error',
-              prayersController.message.value.isNotEmpty 
-                  ? prayersController.message.value 
-                  : 'Failed to create prayer request. Please try again.',
-              backgroundColor: Colors.red,
+              isModeration ? 'Community Standard' : 'Notice',
+              errorMsg.isNotEmpty 
+                  ? errorMsg 
+                  : 'Action could not be completed. Please try again.',
+              backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800], // Dark brown for moderation, grey for others
               colorText: Colors.white,
-              duration: const Duration(seconds: 3),
+              icon: Icon(
+                isModeration ? Icons.security_rounded : Icons.info_outline,
+                color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                size: 28,
+              ),
+              duration: Duration(seconds: isModeration ? 5 : 3),
               margin: const EdgeInsets.all(16),
+              borderRadius: 12,
+              snackPosition: SnackPosition.BOTTOM,
+              mainButton: isModeration ? TextButton(
+                onPressed: () => Get.toNamed(Routes.TERMS),
+                child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
+              ) : null,
             );
           }
         });

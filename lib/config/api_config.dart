@@ -29,6 +29,8 @@ class ApiConfig {
   static const String prayerReminders = '$baseUrl/prayer_reminders.php';
   static const String deleteAccount = '$baseUrl/profile.php'; // Account deletion endpoint
   static const String contact = '$baseUrl/contact.php'; // Contact information endpoint
+  static const String report = '$baseUrl/report.php';
+  static const String blockUser = '$baseUrl/block_user.php';
   
   // Request timeout
   static const Duration timeout = Duration(seconds: 30);

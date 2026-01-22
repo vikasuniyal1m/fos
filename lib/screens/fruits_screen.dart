@@ -16,6 +16,7 @@ import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 
+import '../controllers/main_dashboard_controller.dart';
 import '../utils/app_theme.dart';
 
 /// Fruits of the Spirit Screen
@@ -197,7 +198,6 @@ class _FruitsScreenState extends State<FruitsScreen> {
       }).toList();
       
       print('✅ Filtered to ${emojis.length} fruit emojis matching fruits from table');
-      
       // Store all variants first (for variant dialog)
       final allVariants = List<Map<String, dynamic>>.from(emojis);
       
@@ -948,8 +948,15 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                       print('✅ STEP 3: Skipping API reload - local storage has correct data');
                                       print('✅ UI should show the selected variant: ${variant['name']}');
                                       
-                                      // Navigate to home page after fruit selection
-                                      Get.offNamedUntil(Routes.HOME, (route) => false);
+                                      // Navigate to dashboard after fruit selection to show bottom nav
+                                      if (Get.isRegistered<MainDashboardController>()) {
+                                        Get.find<MainDashboardController>().changeIndex(0);
+                                        if (Get.currentRoute != Routes.DASHBOARD) {
+                                          Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
+                                        }
+                                      } else {
+                                        Get.offAllNamed(Routes.DASHBOARD);
+                                      }
                                       
                                       // Show success message
                                       Get.snackbar(
@@ -977,8 +984,15 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                         Navigator.of(context).pop();
                                       }
                                       
-                                      // Navigate to home page after fruit selection (even on error)
-                                      Get.offNamedUntil(Routes.HOME, (route) => false);
+                                      // Navigate to dashboard after fruit selection (even on error) to show bottom nav
+                                      if (Get.isRegistered<MainDashboardController>()) {
+                                        Get.find<MainDashboardController>().changeIndex(0);
+                                        if (Get.currentRoute != Routes.DASHBOARD) {
+                                          Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
+                                        }
+                                      } else {
+                                        Get.offAllNamed(Routes.DASHBOARD);
+                                      }
                                       
                                       // Show warning message
                                       Get.snackbar(

@@ -8,6 +8,8 @@ import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
+import 'package:fruitsofspirit/controllers/main_dashboard_controller.dart';
+import 'package:fruitsofspirit/services/jingle_service.dart';
 
 class InitialBinding extends Bindings {
   @override
@@ -23,5 +25,9 @@ class InitialBinding extends Bindings {
     Get.put(BlogsController(), permanent: true);
     Get.put(VideosController(), permanent: true);
     Get.put(GalleryController(), permanent: true);
+    Get.put(MainDashboardController(), permanent: true);
+
+    // Voice Over Service
+    Get.put(JingleService(), permanent: true);
   }
 }

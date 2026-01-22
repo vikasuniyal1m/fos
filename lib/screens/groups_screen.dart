@@ -84,7 +84,7 @@ class GroupsScreen extends GetView<GroupsController> {
 
               if (controller.groups.isEmpty) {
                 return Center(
-                  child: Padding(
+                  child: SingleChildScrollView( // Added SingleChildScrollView
                     padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 24)),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -446,7 +446,7 @@ class GroupsScreen extends GetView<GroupsController> {
 
                               // Load group details
                               await controller.loadGroupDetails(group['id'] as int);
-                              
+
                               // Dismiss loading indicator
                               Get.back(); // Dismiss the dialog
 
@@ -455,7 +455,7 @@ class GroupsScreen extends GetView<GroupsController> {
                                 final category = group['category'] as String? ?? '';
                                 print('🔊 Group category: $category');
                                 if (category.isNotEmpty) {
-                                  final jingleService = JingleService();
+                                final jingleService = Get.find<JingleService>();
                                   // Pre-load the jingle specifically for this category
                                   jingleService.startJingle(category);
                                 }
@@ -466,8 +466,8 @@ class GroupsScreen extends GetView<GroupsController> {
                                 WidgetsBinding.instance.addPostFrameCallback((_) {
                                   Get.snackbar(
                                     'Error',
-                                    controller.message.value.isNotEmpty 
-                                        ? controller.message.value 
+                                    controller.message.value.isNotEmpty
+                                        ? controller.message.value
                                         : 'Failed to load group details. Please try again.',
                                     backgroundColor: Colors.red,
                                     colorText: Colors.white,

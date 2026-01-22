@@ -25,7 +25,7 @@ import 'bindings/InitialBinding.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Force the app to stay in portrait mode.
   // Only the Intro Video Overlay is allowed to rotate.
   await SystemChrome.setPreferredOrientations([
@@ -63,7 +63,8 @@ Future<void> _initializeDependencies() async {
   await HiveCacheService.init();
 
   // Pre-initialize Jingle Service (starts pre-caching)
-  JingleService().initialize();
+  // Get.put will automatically call onInit() which calls initialize()
+  Get.put(JingleService(), permanent: true);
 
   // Initialize Easy Localization
   await EasyLocalization.ensureInitialized();
