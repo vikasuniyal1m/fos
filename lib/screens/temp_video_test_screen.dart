@@ -43,10 +43,16 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
         setState(() {
           _isInitialized = true;
         });
+
+        debugPrint("Controller starting playing");
         _controller.play();
+        debugPrint("Controller started playing ${_controller}");
+
       });
 
     _controller.addListener(() async {
+      debugPrint("Controller started listner ${_controller}");
+
       if (_controller.value.position == _controller.value.duration) {
         // Video finished playing
         await IntroService.incrementVideoPlayCount();
@@ -151,13 +157,14 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Colors.black,
       body: Container(
       color: Colors.black.withOpacity(0.7),
       child: Stack(
         children: [
           // Video Player with instant black screen during rotation
           Positioned.fill(
+
             child: ClipRect(
               child: _isRotating
                   ? Container(color: Colors.black) // Instant black screen
@@ -209,7 +216,7 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
               ),
             ),
           Positioned(
-            top: 40,
+            top: 80,
             right: 20,
             child: TextButton(
               onPressed: () async {

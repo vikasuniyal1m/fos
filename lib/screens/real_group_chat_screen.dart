@@ -124,7 +124,14 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
         title: const Text('Voice Over Option', style: TextStyle(fontWeight: FontWeight.bold)),
         content: const Text('You\'ve heard this voice over 3 times. Would you like to disable it for this group? \n\n(You can change this anytime from the menu.)'),
         actions: [
-          TextButton(onPressed: () => Get.back(), child: const Text('Keep it')),
+          TextButton(onPressed: (){
+            final dialogContext = Get.overlayContext;
+            if (dialogContext != null) {
+              Navigator.of(dialogContext, rootNavigator: true).pop();
+            } else if (context.mounted) {
+              Navigator.of(context, rootNavigator: true).pop();
+            }
+          }, child: const Text('Keep it')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8B4513), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
             onPressed: () async {
@@ -179,7 +186,14 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Get.back(),
+            onPressed: (){
+              final dialogContext = Get.overlayContext;
+              if (dialogContext != null) {
+                Navigator.of(dialogContext, rootNavigator: true).pop();
+              } else if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop();
+              }
+            },
             child: const Text("CANCEL"),
           ),
           ElevatedButton(
@@ -228,7 +242,14 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  _buildOldStyleRoundButton(context, icon: Icons.arrow_back_rounded, onTap: () => Get.back()),
+                  // Use Navigator pop to avoid GetX snackbar close crash on back
+                  _buildOldStyleRoundButton(
+                    context,
+                    icon: Icons.arrow_back_rounded,
+                    onTap: () {
+                      Navigator.of(context).maybePop();
+                    },
+                  ),
                   const SizedBox(width: 12),
                   CircleAvatar(
                     radius: 20,

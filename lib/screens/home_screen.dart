@@ -734,6 +734,7 @@ class HomeScreen extends GetView<HomeController> {
       if (!thumbnail.startsWith('http')) {
         return 'https://fruitofthespirit.templateforwebsites.com/$thumbnail';
       }
+
       return thumbnail;
     }
     
@@ -749,6 +750,7 @@ class HomeScreen extends GetView<HomeController> {
         if (!filePath.startsWith('http')) {
           return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
         }
+
         return filePath;
       }
     }
@@ -772,6 +774,7 @@ class HomeScreen extends GetView<HomeController> {
           if (filePath.startsWith('http')) {
             return filePath;
           }
+
           return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
         }
       }

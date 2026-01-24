@@ -195,7 +195,10 @@ class GroupChatScreen extends StatelessWidget {
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => Get.back(),
+                          // Use Navigator pop to avoid GetX snackbar close crash on back
+                          onTap: () {
+                            Navigator.of(context).maybePop();
+                          },
                           borderRadius: BorderRadius.circular(30),
                           child: Container(
                             width: ResponsiveHelper.isMobile(context)
