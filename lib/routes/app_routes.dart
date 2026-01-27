@@ -14,6 +14,7 @@ abstract class Routes {
   static const CREATE_ACCOUNT = _Paths.CREATE_ACCOUNT;
   static const PHONE_AUTH = _Paths.PHONE_AUTH;
   static const FORGOT_PASSWORD = _Paths.FORGOT_PASSWORD;
+  static const RESET_PASSWORD = _Paths.RESET_PASSWORD;
 
 
   // Feature Routes
@@ -61,6 +62,7 @@ abstract class _Paths {
   static const CREATE_ACCOUNT = '/create-account';
   static const PHONE_AUTH = '/phone-auth';
   static const FORGOT_PASSWORD = '/forgot-password';
+  static const RESET_PASSWORD = '/reset-password';
   
   // Feature Paths
   static const FRUITS = '/fruits';
