@@ -28,7 +28,8 @@ class BloggerZoneScreen extends GetView<BlogsController> {
 
     return Scaffold(
         backgroundColor: Colors.white,
-      appBar: const StandardAppBar(),
+      appBar: const StandardAppBar(        showBackButton: true,
+      ),
       body: Obx(() {
         // Show request button for non-bloggers
         if (controller.userRole.value != 'Blogger') {
@@ -466,7 +467,9 @@ class BloggerZoneScreen extends GetView<BlogsController> {
     return SingleChildScrollView(
       padding: ResponsiveHelper.padding(context, all: 20),
       child: Column(
+
         children: [
+
           SizedBox(height: ResponsiveHelper.spacing(context, 40)),
           Container(
             padding: ResponsiveHelper.padding(context, all: 28),
@@ -500,7 +503,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
             ),
           ),
           SizedBox(height: ResponsiveHelper.spacing(context, 18)),
-            
+
             // Show pending request message if applicable
             if (hasPendingRequest) ...[
               Container(
@@ -777,7 +780,14 @@ class BloggerZoneScreen extends GetView<BlogsController> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Get.back(),
+              onPressed: (){
+                final dialogContext = Get.overlayContext;
+                if (dialogContext != null) {
+                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                } else if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+              },
               child: Text(
                 'Cancel',
                 style: ResponsiveHelper.textStyle(
@@ -789,7 +799,13 @@ class BloggerZoneScreen extends GetView<BlogsController> {
             ),
             ElevatedButton(
               onPressed: () async {
-                Get.back();
+                final dialogContext = Get.overlayContext;
+                if (dialogContext != null) {
+                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                } else if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+                print("Done");
                 final success = await controller.requestBloggerAccess();
                 if (success) {
                   Get.snackbar(

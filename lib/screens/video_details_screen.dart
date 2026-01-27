@@ -2518,7 +2518,12 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
 
                   return InkWell(
                     onTap: isValidEmoji ? () async {
-                      Get.back();
+                      final dialogContext = Get.overlayContext;
+                      if (dialogContext != null) {
+                        Navigator.of(dialogContext, rootNavigator: true).pop();
+                      } else if (context.mounted) {
+                        Navigator.of(context, rootNavigator: true).pop();
+                      }
                       final success = await controller.addEmojiReaction(videoId, emojiChar!);
                       if (success) {
                         Get.snackbar(

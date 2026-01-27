@@ -199,7 +199,14 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
           ElevatedButton(
             onPressed: () async {
               await TermsService.acceptTerms();
-              Get.back(); // Close dialog
+              final dialogContext = Get.overlayContext;
+              if (dialogContext != null) {
+                Navigator.of(dialogContext, rootNavigator: true).pop();
+              } else if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop();
+              }
+              print("Action calling");
+              // Close dialog
               action(); // Perform action
             },
             style: ElevatedButton.styleFrom(
@@ -297,8 +304,11 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
           ),
         ),
       ),
-      body: Column(
-        children: [
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Column(
+          children: [
           Expanded(
             child: Obx(() {
               final groupMessages = controller.messages.where((msg) => msg['group_id'].toString() == widget.groupId.toString()).toList();
@@ -363,7 +373,8 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
             }),
           ),
           _buildMessageInput(context),
-        ],
+          ],
+        ),
       ),
     );
   }

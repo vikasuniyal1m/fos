@@ -121,7 +121,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: StandardAppBar(
-        showBackButton: false,
+        showBackButton: true,
         rightActions: [
           StandardAppBar.buildActionIcon(
             context,

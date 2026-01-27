@@ -179,7 +179,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return Scaffold(
       backgroundColor: AppTheme.themeColor, // Match home page beige background
       appBar: StandardAppBar(
-        showBackButton: false,
+        showBackButton: true,
         rightActions: [], // No icons in app bar
       ),
       body: Column(

@@ -2711,7 +2711,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: () => Get.back(),
+                  onPressed: (){
+                    final dialogContext = Get.overlayContext;
+                    if (dialogContext != null) {
+                      Navigator.of(dialogContext, rootNavigator: true).pop();
+                    } else if (context.mounted) {
+                      Navigator.of(context, rootNavigator: true).pop();
+                    }
+                  },
                 ),
               ],
             ),

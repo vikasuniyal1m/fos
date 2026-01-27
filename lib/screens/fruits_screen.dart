@@ -22,7 +22,11 @@ import '../utils/app_theme.dart';
 /// Fruits of the Spirit Screen
 /// Displays all 9 fruits with selection functionality
 class FruitsScreen extends StatefulWidget {
-  const FruitsScreen({Key? key}) : super(key: key);
+  /// If this screen is used as a root tab inside an `IndexedStack`,
+  /// we should NOT show the back button.
+  final bool isRootTab;
+
+  const FruitsScreen({Key? key, this.isRootTab = false}) : super(key: key);
 
   @override
   State<FruitsScreen> createState() => _FruitsScreenState();
@@ -637,6 +641,7 @@ class _FruitsScreenState extends State<FruitsScreen> {
       allFruitVariants: allFruitVariants,
       buildHighQualityImage: _buildHighQualityImage,
       buildEmojiFallback: _buildEmojiFallback,
+      isRootTab: widget.isRootTab,
     );
   }
 }
@@ -1200,6 +1205,7 @@ class _FruitsScreenContent extends StatefulWidget {
   final List<Map<String, dynamic>> allFruitVariants;
   final Widget Function(BuildContext, Map<String, dynamic>, double) buildHighQualityImage;
   final Widget Function(BuildContext, String, double) buildEmojiFallback;
+  final bool isRootTab;
 
   const _FruitsScreenContent({
     Key? key,
@@ -1214,6 +1220,7 @@ class _FruitsScreenContent extends StatefulWidget {
     required this.allFruitVariants,
     required this.buildHighQualityImage,
     required this.buildEmojiFallback,
+    this.isRootTab = false,
   }) : super(key: key);
 
   @override
@@ -1224,6 +1231,26 @@ class _FruitsScreenContentState extends State<_FruitsScreenContent> {
 
   @override
   Widget build(BuildContext context) {
+    final args = Get.arguments;
+    final bool? showBackFromArgs = (args is Map && args['showBackButton'] is bool)
+        ? (args['showBackButton'] as bool)
+        : null;
+    final bool showBackFromQuickAction = args is Map && args['fromQuickAction'] == true;
+
+    final bool showBackFromQueryParams =
+        Get.parameters['showBackButton'] == 'true' ||
+            Get.parameters['fromQuickAction'] == 'true';
+
+    // Only show back if this Fruits page is NOT the root-tab instance.
+    // For pushed routes (Get.toNamed / Navigator.push), `Navigator.canPop` will be true.
+    final bool showBackFromNavigation = Navigator.of(context).canPop();
+
+    final bool showBackButton = !widget.isRootTab &&
+        (showBackFromArgs ??
+            showBackFromQuickAction ||
+            showBackFromQueryParams ||
+            showBackFromNavigation);
+
     // Professional responsive design for tablets/iPads
     final isTabletDevice = ResponsiveHelper.isTablet(context);
     final double? maxContentWidthValue = isTabletDevice 
@@ -1232,9 +1259,7 @@ class _FruitsScreenContentState extends State<_FruitsScreenContent> {
     
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: const StandardAppBar(
-        showBackButton: false,
-      ),
+      appBar: StandardAppBar(showBackButton: showBackButton),
       body: Builder(
         builder: (context) {
           if (widget.isLoadingEmojis && widget.fruitEmojis.isEmpty) {

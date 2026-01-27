@@ -310,7 +310,14 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                 color: AppTheme.iconscolor,
                 size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
               ),
-              onPressed: () => Get.back(),
+              onPressed: (){
+                final dialogContext = Get.overlayContext;
+                if (dialogContext != null) {
+                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                } else if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+              },
             ),
           ),
         title: Row(

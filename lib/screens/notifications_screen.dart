@@ -33,7 +33,7 @@ class NotificationsScreen extends GetView<NotificationsController> {
           ),
         ),
         child: Obx(() => StandardAppBar(
-          showBackButton: false,
+          showBackButton: true,
           rightActions: [
             StandardAppBar.buildActionIcon(
               context,

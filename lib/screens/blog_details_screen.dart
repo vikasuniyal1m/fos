@@ -207,7 +207,14 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
               color: AppTheme.iconscolor,
               size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
             ),
-            onPressed: () => Get.back(),
+            onPressed: (){
+              final dialogContext = Get.overlayContext;
+              if (dialogContext != null) {
+                Navigator.of(dialogContext, rootNavigator: true).pop();
+              } else if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop();
+              }
+            },
           ),
           title: Text(
             'Blog Post',
@@ -2507,7 +2514,14 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                 ),
                 IconButton(
                   icon: Icon(Icons.close, color: AppTheme.iconscolor),
-                  onPressed: () => Get.back(),
+                  onPressed: (){
+                    final dialogContext = Get.overlayContext;
+                    if (dialogContext != null) {
+                      Navigator.of(dialogContext, rootNavigator: true).pop();
+                    } else if (context.mounted) {
+                      Navigator.of(context, rootNavigator: true).pop();
+                    }
+                  },
                 ),
               ],
             ),
@@ -2594,7 +2608,12 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                           // Wait a bit for snackbar to show, then close dialog
                           await Future.delayed(const Duration(milliseconds: 300));
                           if (mounted && Navigator.canPop(context)) {
-                            Get.back();
+                            final dialogContext = Get.overlayContext;
+                            if (dialogContext != null) {
+                              Navigator.of(dialogContext, rootNavigator: true).pop();
+                            } else if (context.mounted) {
+                              Navigator.of(context, rootNavigator: true).pop();
+                            }
                           }
                         } : null,
                         borderRadius: BorderRadius.circular(12),

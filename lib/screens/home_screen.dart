@@ -806,6 +806,7 @@ class HomeScreen extends GetView<HomeController> {
 
     return GestureDetector(
       onTap: () {
+
         // Reload user feeling when coming back from fruits screen
         Get.toNamed(Routes.FRUITS)?.then((_) {
           // Refresh user feeling when returning from fruits screen
@@ -2701,6 +2702,15 @@ class HomeScreen extends GetView<HomeController> {
         }
         Get.toNamed(action.route);
       };
+    } else if (action.route == Routes.FRUITS) {
+      // When opening Fruits from Quick Actions, show back button on the target screen
+      onTap = () => Get.toNamed(
+            action.route,
+            arguments: const {
+              'showBackButton': true,
+              'fromQuickAction': true,
+            },
+          );
     } else if (action.route == Routes.BLOGGER_ZONE) {
       onTap = () {
         try {
@@ -2733,7 +2743,7 @@ class HomeScreen extends GetView<HomeController> {
           padding: ResponsiveHelper.padding(
             context,
             horizontal: 14,
-            vertical: ResponsiveHelper.isMobile(context) ? 16 : 18,
+            vertical: ResponsiveHelper.isMobile(context) ? MediaQuery.of(context).size.height*0.01 : 18,
           ),
           decoration: BoxDecoration(
             color: Colors.white, // White background
@@ -7186,7 +7196,9 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
           child: InkWell(
             onTap: () {
               // Navigate to fruits screen instead of showing dialog
-              Get.toNamed(Routes.FRUITS);
+              Get.toNamed(
+                Routes.FRUITS
+              );
             },
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12, tablet: 14, desktop: 16)),
             child: Container(

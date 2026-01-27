@@ -115,7 +115,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: const StandardAppBar(showBackButton: false),
+      appBar: const StandardAppBar(showBackButton: true),
       body: Obx(() {
         if (controller.isLoading.value && controller.selectedPrayer.isEmpty) {
           return Center(
@@ -2294,7 +2294,14 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: () => Get.back(),
+                  onPressed: (){
+                    final dialogContext = Get.overlayContext;
+                    if (dialogContext != null) {
+                      Navigator.of(dialogContext, rootNavigator: true).pop();
+                    } else if (context.mounted) {
+                      Navigator.of(context, rootNavigator: true).pop();
+                    }
+                  },
                 ),
               ],
             ),
@@ -2388,7 +2395,12 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                           // Wait a bit for snackbar to show, then close dialog
                           await Future.delayed(const Duration(milliseconds: 300));
                           if (mounted && Navigator.canPop(context)) {
-                            Get.back();
+                            final dialogContext = Get.overlayContext;
+                            if (dialogContext != null) {
+                              Navigator.of(dialogContext, rootNavigator: true).pop();
+                            } else if (context.mounted) {
+                              Navigator.of(context, rootNavigator: true).pop();
+                            }
                           }
                         } : null,
                         borderRadius: BorderRadius.circular(12),

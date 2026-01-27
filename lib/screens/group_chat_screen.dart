@@ -253,73 +253,77 @@ class GroupChatScreen extends StatelessWidget {
           ),
         ),
       ),
-      body: Obx(() {
-        if (postsController.isLoading.value && postsController.posts.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: const Color(0xFF8B4513),
-            ),
-          );
-        }
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Obx(() {
+          if (postsController.isLoading.value && postsController.posts.isEmpty) {
+            return Center(
+              child: CircularProgressIndicator(
+                color: const Color(0xFF8B4513),
+              ),
+            );
+          }
 
-        if (postsController.posts.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.chat_bubble_outline,
-                  size: ResponsiveHelper.iconSize(context, mobile: 64),
-                  color: Colors.grey,
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                Text(
-                  'No posts yet',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+          if (postsController.posts.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.chat_bubble_outline,
+                    size: ResponsiveHelper.iconSize(context, mobile: 64),
                     color: Colors.grey,
                   ),
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 8)),
-                Text(
-                  'Be the first to share something!',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        return RefreshIndicator(
-          onRefresh: () => postsController.refresh(),
-          color: const Color(0xFF8B4513),
-          child: ListView.builder(
-            padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
-            itemCount: postsController.posts.length + (postsController.hasMore.value ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index >= postsController.posts.length) {
-                // Load more
-                postsController.loadMore();
-                return Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-                    child: CircularProgressIndicator(
-                      color: const Color(0xFF8B4513),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                  Text(
+                    'No posts yet',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                      color: Colors.grey,
                     ),
                   ),
-                );
-              }
-              
-              return _buildPostCard(context, postsController, postsController.posts[index]);
-            },
-          ),
-        );
-      }),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                  Text(
+                    'Be the first to share something!',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return RefreshIndicator(
+            onRefresh: () => postsController.refresh(),
+            color: const Color(0xFF8B4513),
+            child: ListView.builder(
+              padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
+              itemCount: postsController.posts.length + (postsController.hasMore.value ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= postsController.posts.length) {
+                  // Load more
+                  postsController.loadMore();
+                  return Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+                      child: CircularProgressIndicator(
+                        color: const Color(0xFF8B4513),
+                      ),
+                    ),
+                  );
+                }
+                
+                return _buildPostCard(context, postsController, postsController.posts[index]);
+              },
+            ),
+          );
+        }),
+      ),
       floatingActionButton: Obx(() {
         final isBlogger = postsController.userRole.value == 'Blogger';
         final isActive = postsController.userStatus.value == 'Active';

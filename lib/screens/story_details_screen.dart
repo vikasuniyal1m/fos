@@ -531,6 +531,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
           ResponsiveHelper.appBarHeight(context),
         ),
         child: AppBar(
+
           backgroundColor: isTestimony ? const Color(0xFFFAF6EC) : Colors.white,
           elevation: 0,
           leading: Container(
@@ -2525,7 +2526,14 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: () => Get.back(),
+                  onPressed: (){
+                    final dialogContext = Get.overlayContext;
+                    if (dialogContext != null) {
+                      Navigator.of(dialogContext, rootNavigator: true).pop();
+                    } else if (context.mounted) {
+                      Navigator.of(context, rootNavigator: true).pop();
+                    }
+                  },
                 ),
               ],
             ),
@@ -2568,7 +2576,12 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                           color: Colors.transparent,
                           child: InkWell(
                             onTap: isValidEmoji ? () async {
-                              Get.back();
+                              final dialogContext = Get.overlayContext;
+                              if (dialogContext != null) {
+                                Navigator.of(dialogContext, rootNavigator: true).pop();
+                              } else if (context.mounted) {
+                                Navigator.of(context, rootNavigator: true).pop();
+                              }
                               await _addEmojiReaction(storyId, emoji!);
                             } : null,
                             borderRadius: BorderRadius.circular(12),

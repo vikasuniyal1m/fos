@@ -65,7 +65,7 @@ class ProfileScreen extends GetView<ProfileController> {
     return Scaffold(
       backgroundColor: AppTheme.themeColor,
       appBar: StandardAppBar(
-        showBackButton: false,
+        showBackButton: true,
       ),
       body: Obx(() {
         if (controller.isLoading.value && controller.profile.isEmpty) {

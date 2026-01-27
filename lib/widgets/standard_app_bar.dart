@@ -108,7 +108,14 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
           Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: () => Get.back(),
+              onTap: (){
+                final dialogContext = Get.overlayContext;
+                if (dialogContext != null) {
+                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                } else if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+              },
               borderRadius: BorderRadius.circular(30),
               child: Container(
                 width: ResponsiveHelper.isMobile(context)
