@@ -34,6 +34,8 @@ class ApiConfig {
   
   // Request timeout
   static const Duration timeout = Duration(seconds: 30);
+  static const Duration mediaTimeout = Duration(minutes: 5);
+
   
   // Headers
   static Map<String, String> get headers => {
