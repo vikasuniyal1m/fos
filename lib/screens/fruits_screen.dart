@@ -847,6 +847,68 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                         child: InkWell(
                           onTap: () async {
                             print('🖱️ Variant tapped: ${variant['name']}');
+
+                            // 1. Show Loading Dialog immediately
+                            Get.dialog(
+                              Center(
+                                child: Container(
+                                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 24)),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.2),
+                                        blurRadius: 20,
+                                        spreadRadius: 5,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        height: ResponsiveHelper.spacing(context, 40),
+                                        width: ResponsiveHelper.spacing(context, 40),
+                                        child: CircularProgressIndicator(
+                                          valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF8B4513)),
+                                          strokeWidth: 3,
+                                        ),
+                                      ),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, 20)),
+                                      Text(
+                                        'Updating feeling...',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: const Color(0xFF8B4513),
+                                          letterSpacing: 0.5,
+                                        ).copyWith(
+                                          decoration: TextDecoration.none, // Isse lines hat jayengi
+                                        ),
+                                      ),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                                      Text(
+
+                                        'Please wait a moment',
+                                        style: ResponsiveHelper.textStyle(
+
+
+                                          context,
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ).copyWith(
+                                          decoration: TextDecoration.none, // Isse lines hat jayengi
+                                        ),
+
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              barrierDismissible: false,
+                            );
                             // Record usage
                             try {
                               final userId = await UserStorage.getUserId();
