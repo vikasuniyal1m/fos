@@ -216,42 +216,47 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            Get.snackbar(
-              'Request Submitted',
-              'Your request has been sent to admin for sharing your prayer. You can check your prayer request status in the profile section.',
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
-              duration: const Duration(seconds: 4),
-              margin: const EdgeInsets.all(16),
-              icon: const Icon(Icons.check_circle, color: Colors.white),
-              snackPosition: SnackPosition.BOTTOM,
-            );
-          }
-        });
+        Get.snackbar(
+          'Request Submitted',
+          'Your prayer request has been submitted successfully.',
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 2),
+          margin: const EdgeInsets.all(16),
+          icon: const Icon(Icons.check_circle, color: Colors.white),
+          snackPosition: SnackPosition.BOTTOM,
+        );
       }
-      
-      // Wait for snackbar to show, then navigate to prayer requests screen
-      await Future.delayed(const Duration(milliseconds: 1500));
-      
-      // Navigate to prayer requests screen and refresh
-      if (mounted) {
         // Reset filter to show all prayers
         prayersController.filterUserId.value = 0;
         prayersController.selectedCategory.value = '';
-        
-        // Navigate to prayer requests tab in dashboard
-        if (Get.isRegistered<MainDashboardController>()) {
-          Get.find<MainDashboardController>().changeIndex(2);
-          Get.back();
-        } else {
-          Get.offNamedUntil(Routes.PRAYER_REQUESTS, (route) => route.settings.name == Routes.DASHBOARD);
+
+             // Force refresh (fire and forget)
+      Future.delayed(const Duration(milliseconds: 100), () {
+        try {
+            if (Get.isRegistered<PrayersController>()) {
+                Get.find<PrayersController>().loadPrayers(refresh: true);
+            }
+        } catch (e) {
+            print('Error refreshing prayers: $e');
         }
+      });
         
-        // Force refresh after navigation
-        Future.delayed(const Duration(milliseconds: 300), () {
-          prayersController.loadPrayers(refresh: true);
-        });
+          // Update Dashboard Tab Logic if available
+      if (Get.isRegistered<MainDashboardController>()) {
+        try {
+          Get.find<MainDashboardController>().changeIndex(2); // Switch to Prayer Requests tab
+        } catch (e) {
+          print('Error changing dashboard index: $e');
+        }
       }
+      
+      // Wait briefly for snackbar
+      await Future.delayed(const Duration(milliseconds: 1500));
+      
+      // STRONG NAVIGATION: Clear stack until Dashboard
+      // This is the most reliable way to "go back" to a main tab
+      Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
     } else {
       // Show error message
       if (mounted) {
