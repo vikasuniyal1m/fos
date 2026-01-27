@@ -164,9 +164,22 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       } else {
         // Regular user - save and go to home
         await UserStorage.saveUser(user);
-        if (mounted) {
+        // Re-initialize controllers
+        InitialBinding().dependencies();
+        
+         if (mounted) {
+          Get.snackbar(
+            'Success',
+            'Your account has been created successfully',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: AppTheme.iconscolor,
+            colorText: Colors.black,
+            duration: const Duration(seconds: 2),
+            icon: const Icon(Icons.check_circle, color: Colors.white),
+          );
           Get.offAllNamed(Routes.DASHBOARD);
         }
+        
       }
     } on ApiException catch (e) {
       // Log server error to console (for debugging)
