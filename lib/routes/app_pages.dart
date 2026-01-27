@@ -40,6 +40,7 @@ import 'package:fruitsofspirit/screens/fruit_details_screen.dart';
 import 'package:fruitsofspirit/screens/fruits_variant_01_screen.dart';
 import 'package:fruitsofspirit/screens/prayer_reminders_screen.dart';
 import 'package:fruitsofspirit/screens/live_screen.dart';
+import 'package:fruitsofspirit/screens/reset_password_screen.dart';
 
 part 'app_routes.dart';
 
@@ -82,6 +83,11 @@ class AppPages {
     GetPage(
       name: Routes.FORGOT_PASSWORD,
       page: () => const ForgotPasswordScreen(),
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.RESET_PASSWORD,
+      page: () => const ResetPasswordScreen(),
       transition: Transition.fadeIn,
     ),
 
