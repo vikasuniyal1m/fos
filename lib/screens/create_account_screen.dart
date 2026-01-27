@@ -831,6 +831,26 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       if (email.isEmpty && phone.isEmpty) {
                         return 'Please enter email or phone';
                       }
+
+                        if (phone.isNotEmpty) {
+                        if (!phone.startsWith('+')) {
+                          return 'Start with country code (e.g. +1)';
+                        }
+                        
+                        // Remove '+' for digit counting
+                        final digitsOnly = phone.replaceAll(RegExp(r'[^0-9]'), '');
+                        
+                        // Check if total digits are enough (Country Code + 10 digits)
+                        // Minimum valid length is usually 11 digits (1 digit CC + 10 digit number)
+                        if (digitsOnly.length < 11) {
+                          return 'Enter valid number (Country Code + 10 digits)';
+                        }
+                        
+                        if (!RegExp(r'^\+[0-9]+$').hasMatch(phone)) {
+                          return 'Only numbers and + allowed';
+                        }
+                      }
+                      
                       if (email.isNotEmpty && !GetUtils.isEmail(email)) {
                         return 'Please enter a valid email';
                       }
