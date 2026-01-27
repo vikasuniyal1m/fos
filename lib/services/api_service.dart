@@ -414,7 +414,7 @@ class ApiService {
       }
 
       print('🌐 Sending multipart request...');
-      final streamedResponse = await request.send().timeout(ApiConfig.timeout);
+      final streamedResponse = await request.send().timeout(ApiConfig.mediaTimeout);
       print('🌐 Request sent, waiting for response...');
       
       final response = await http.Response.fromStream(streamedResponse);
