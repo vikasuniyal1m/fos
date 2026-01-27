@@ -339,6 +339,25 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       await UserStorage.saveUser(user);
 
       if (mounted) {
+               // Show success message
+        Get.snackbar(
+          'Login Successful',
+          'Successfully logged in with Apple',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green.withOpacity(0.9),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
+          icon: Icon(
+            Icons.check_circle_outline,
+            color: Colors.white,
+            size: ResponsiveHelper.iconSize(context, mobile: 24),
+          ),
+        );
+
+        // Re-initialize dependencies to ensure all controllers are ready
+        InitialBinding().dependencies();
         Get.offAllNamed(Routes.DASHBOARD);
       }
     } on SignInWithAppleAuthorizationException catch (e) {
