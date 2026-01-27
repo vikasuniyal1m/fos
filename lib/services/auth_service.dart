@@ -232,6 +232,7 @@ class AuthService {
       'google_id': googleId,
       'email': email,
       'name': name,
+      'role': 'User',
     };
 
     if (profilePicture != null) {
