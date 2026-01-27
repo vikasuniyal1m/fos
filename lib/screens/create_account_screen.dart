@@ -9,7 +9,10 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:fruitsofspirit/services/auth_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
-import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/services/intro_service.dart';
+
+import '../utils/app_theme.dart';
 
 class CreateAccountScreen extends StatefulWidget {
   const CreateAccountScreen({Key? key}) : super(key: key);
@@ -162,7 +165,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         // Regular user - save and go to home
         await UserStorage.saveUser(user);
         if (mounted) {
-          Get.offAllNamed(Routes.HOME);
+          Get.offAllNamed(Routes.DASHBOARD);
         }
       }
     } on ApiException catch (e) {
@@ -336,7 +339,26 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       await UserStorage.saveUser(user);
 
       if (mounted) {
-        Get.offAllNamed(Routes.HOME);
+               // Show success message
+        Get.snackbar(
+          'Login Successful',
+          'Successfully logged in with Apple',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green.withOpacity(0.9),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
+          icon: Icon(
+            Icons.check_circle_outline,
+            color: Colors.white,
+            size: ResponsiveHelper.iconSize(context, mobile: 24),
+          ),
+        );
+
+        // Re-initialize dependencies to ensure all controllers are ready
+        InitialBinding().dependencies();
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on SignInWithAppleAuthorizationException catch (e) {
       // Handle Apple Sign In specific errors
@@ -528,8 +550,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       print('✅ User data saved');
 
       if (mounted) {
-        print('🏠 Navigating to home...');
-        Get.offAllNamed(Routes.HOME);
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {
       if (mounted) {
@@ -772,7 +793,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.person, color: Color(0xFFC79211)),
+                      prefixIcon: const Icon(Icons.person, color: AppTheme.iconscolor),
                       hintText: "Full Name",
                       filled: true,
                       fillColor: Colors.white,
@@ -786,7 +807,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -810,13 +831,33 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       if (email.isEmpty && phone.isEmpty) {
                         return 'Please enter email or phone';
                       }
+
+                        if (phone.isNotEmpty) {
+                        if (!phone.startsWith('+')) {
+                          return 'Start with country code (e.g. +1)';
+                        }
+                        
+                        // Remove '+' for digit counting
+                        final digitsOnly = phone.replaceAll(RegExp(r'[^0-9]'), '');
+                        
+                        // Check if total digits are enough (Country Code + 10 digits)
+                        // Minimum valid length is usually 11 digits (1 digit CC + 10 digit number)
+                        if (digitsOnly.length < 11) {
+                          return 'Enter valid number (Country Code + 10 digits)';
+                        }
+                        
+                        if (!RegExp(r'^\+[0-9]+$').hasMatch(phone)) {
+                          return 'Only numbers and + allowed';
+                        }
+                      }
+                      
                       if (email.isNotEmpty && !GetUtils.isEmail(email)) {
                         return 'Please enter a valid email';
                       }
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.email, color: Color(0xFFC79211)),
+                      prefixIcon: const Icon(Icons.email, color: AppTheme.iconscolor),
                       hintText: "Email (Optional if phone provided)",
                       filled: true,
                       fillColor: Colors.white,
@@ -830,7 +871,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -857,7 +898,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.phone, color: Color(0xFFC79211)),
+                      prefixIcon: const Icon(Icons.phone, color: AppTheme.iconscolor),
                       hintText: "Phone (Optional if email provided)",
                       filled: true,
                       fillColor: Colors.white,
@@ -871,7 +912,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -899,14 +940,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.lock, color: Color(0xFFC79211)),
+                      prefixIcon:  Icon(Icons.lock, color: AppTheme.iconscolor),
                       hintText: "Password",
                       filled: true,
                       fillColor: Colors.white,
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          color: const Color(0xFFC79211),
+                          color:  AppTheme.iconscolor,
                         ),
                         onPressed: () {
                           setState(() {
@@ -916,15 +957,15 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -953,14 +994,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     },
                     onFieldSubmitted: (_) => _createAccount(),
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.lock, color: Color(0xFFC79211)),
+                      prefixIcon: const Icon(Icons.lock, color: AppTheme.iconscolor),
                       hintText: "Confirm Password",
                       filled: true,
                       fillColor: Colors.white,
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          color: const Color(0xFFC79211),
+                          color: AppTheme.iconscolor,
                         ),
                         onPressed: () {
                           setState(() {
@@ -970,15 +1011,15 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -1005,7 +1046,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.person_outline, color: Color(0xFFC79211)),
+                      prefixIcon: const Icon(Icons.person_outline, color: AppTheme.iconscolor),
                       labelText: "Select Role",
                       hintText: "Choose your role",
                       filled: true,
@@ -1013,15 +1054,15 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       contentPadding: ResponsiveHelper.safePadding(context, all: 12),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -1107,7 +1148,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                           _agreeToTerms = newValue ?? false;
                         });
                       },
-                      activeColor: const Color(0xFFC79211),
+                      activeColor: AppTheme.iconscolor,
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                     Expanded(
@@ -1128,7 +1169,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                             child: Text(
                               "Terms And Conditions",
                               style: TextStyle(
-                                color: const Color(0xFF5C4033),
+                                color: Colors.black,
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
                                 fontWeight: FontWeight.bold,
                                 fontFamily: 'MontserratAlternates',

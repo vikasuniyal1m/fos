@@ -15,6 +15,9 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/screens/report_content_screen.dart';
 import 'dart:async';
 
 /// Video Details Screen - Modern Social Media Style
@@ -42,6 +45,8 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   bool _hasVideoError = false;
   String? _videoError;
   bool _showControls = true;
+  bool _isFullScreen = false;
+  double _videoAspectRatio = 16 / 9;
   Timer? _controlsTimer;
   late AnimationController _fadeAnimationController;
   late Animation<double> _fadeAnimation;
@@ -132,9 +137,10 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       setState(() {
         _isVideoInitialized = true;
         _hasVideoError = false;
+        _videoAspectRatio = _videoController!.value.aspectRatio;
       });
       
-      print('✅ Video initialized successfully');
+      print('✅ Video initialized successfully with AspectRatio: $_videoAspectRatio');
     } catch (e) {
       print('❌ Error initializing video: $e');
       setState(() {
@@ -175,6 +181,17 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         }
       });
     } else if (_videoController != null && _videoController!.value.isInitialized) {
+      // Update aspect ratio if it changes
+      if (_videoController!.value.aspectRatio != _videoAspectRatio) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _videoAspectRatio = _videoController!.value.aspectRatio;
+            });
+          }
+        });
+      }
+      
       // Update UI when video state changes - defer to avoid build phase issues
       if (mounted) {
         SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -194,6 +211,18 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         _videoController!.play();
       }
       _toggleControls();
+    }
+  }
+
+  void _toggleFullScreen() {
+    setState(() {
+      _isFullScreen = !_isFullScreen;
+    });
+
+    if (_isFullScreen) {
+      // Logic for entering full screen (orientation change)
+      // This is often handled by the system or a plugin, 
+      // but we ensure our UI reacts gracefully.
     }
   }
 
@@ -412,8 +441,9 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                   Positioned(
                     left: ResponsiveHelper.spacing(context, 12),
                     bottom: ResponsiveHelper.spacing(context, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    right: ResponsiveHelper.spacing(context, 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         // Duration
                         Container(
@@ -437,6 +467,16 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                               color: Colors.white,
                               fontWeight: FontWeight.w500,
                             ),
+                          ),
+                        ),
+                        
+                        // Full Screen Button
+                        GestureDetector(
+                          onTap: _toggleFullScreen,
+                          child: Icon(
+                            _isFullScreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                            color: Colors.white,
+                            size: ResponsiveHelper.iconSize(context, mobile: 24),
                           ),
                         ),
                       ],
@@ -710,8 +750,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                   children: [
                     // Video Player Area
                     AspectRatio(
-                      aspectRatio: 16 / 9,
+                      aspectRatio: (MediaQuery.of(context).orientation == Orientation.landscape && _isFullScreen)
+                          ? MediaQuery.of(context).size.aspectRatio
+                          : (MediaQuery.of(context).orientation == Orientation.landscape) ? 21 / 9 : 16 / 9,
                       child: Container(
+                        width: double.infinity,
                         color: Colors.black,
                         child: isLiveVideo
                             ? LiveVideoPlayer(
@@ -1106,6 +1149,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                                     ],
                                   ),
                                 ),
+                                _buildVideoOptions(context, video),
                               ],
                             ),
                           ),
@@ -1277,16 +1321,18 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
                                 color: Colors.grey[600],
                               ),
-                              prefixIcon: Icon(
-                                Icons.edit_note_rounded,
-                                size: ResponsiveHelper.iconSize(context, mobile: 20),
-                                color: const Color(0xFF8B4513).withOpacity(0.6),
-                              ),
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: ResponsiveHelper.spacing(context, 16),
-                                vertical: ResponsiveHelper.spacing(context, 12),
-                              ),
+                                prefixIcon: IconButton(
+                                  icon: const Icon(
+                                    Icons.emoji_emotions_outlined,
+                                    color: Color(0xFF8B4513),
+                                  ),
+                                  onPressed: () => _showEmojiPicker(context, videoId, controller),
+                                ),
+                                border: InputBorder.none,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: ResponsiveHelper.spacing(context, 16),
+                                  vertical: ResponsiveHelper.spacing(context, 12),
+                                ),
                             ),
                             enabled: userId > 0,
                             maxLines: null,
@@ -1453,7 +1499,8 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 4)),
                     // Comment Content
-                    Text(
+                    FruitEmojiHelper.buildCommentText(
+                      context,
                       content,
                       style: ResponsiveHelper.textStyle(
                         context,
@@ -1589,6 +1636,19 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                   ),
                 ),
               ],
+              const Spacer(),
+              // Report Button
+              InkWell(
+                onTap: () => _showReportDialog(context, comment),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.flag_outlined,
+                    size: ResponsiveHelper.iconSize(context, mobile: 16),
+                    color: Colors.grey[400],
+                  ),
+                ),
+              ),
             ],
           ),
 
@@ -2503,6 +2563,165 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
           ],
         ),
       ),
+    );
+  }
+
+  void _showReportDialog(BuildContext context, Map<String, dynamic> comment) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Report Content'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Choose an action:'),
+            const SizedBox(height: 16),
+            if (comment['user_id'] != null && comment['user_id'].toString() != this.userId.toString()) ...[
+              ListTile(
+                leading: const Icon(Icons.report_outlined, color: Colors.orange),
+                title: const Text('Report Comment'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Get.to(() => ReportContentScreen(
+                        contentType: 'video_comment',
+                        contentId: comment['id'] is int ? comment['id'] : int.parse(comment['id'].toString()),
+                      ));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.block, color: Colors.red),
+                title: const Text('Block User'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final userIdRaw = comment['user_id'];
+                  if (userIdRaw != null) {
+                    final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+                    if (userId == null) return;
+                    
+                    final String userName = comment['user_name'] ?? 'this user';
+
+                    final confirmed = await Get.dialog<bool>(
+                      AlertDialog(
+                        title: Text('Block $userName?'),
+                        content: const Text('You will no longer see content from this user.'),
+                        actions: [
+                          TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                          TextButton(
+                              onPressed: () => Get.back(result: true),
+                              child: const Text('Block', style: TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true) {
+                      try {
+                        await UserBlockingService.blockUser(userId);
+                        Get.snackbar('Success', 'User blocked');
+                        _loadComments(controller.selectedVideo['id']);
+                      } catch (e) {
+                        Get.snackbar('Error', 'Failed to block user');
+                      }
+                    }
+                  }
+                },
+              ),
+            ] else 
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('This is your own comment.', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideoOptions(BuildContext context, Map<String, dynamic> video) {
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          Get.to(() => ReportContentScreen(
+                contentType: 'video',
+                contentId: video['id'] is int ? video['id'] : int.parse(video['id'].toString()),
+              ));
+        } else if (value == 'block') {
+          final userIdRaw = video['user_id'] ?? video['created_by'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            if (this.userId == userId) {
+              Get.snackbar('Info', 'You cannot block yourself');
+              return;
+            }
+
+            final userName = video['user_name'] ?? 'this poster';
+            final confirmed = await Get.dialog<bool>(
+              AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Get.back(result: true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                await UserBlockingService.blockUser(userId);
+                Get.snackbar('Success', 'User blocked');
+                Get.back(); // Back to list
+              } catch (e) {
+                Get.snackbar('Error', 'Failed to block user');
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) {
+        final List<PopupMenuEntry<String>> items = [];
+        
+        final userIdRaw = video['user_id'] ?? video['created_by'];
+        final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+        
+        // Only show options if it's NOT the current user's video
+        if (posterId != null && posterId != this.userId) {
+          items.add(
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Text('Report Content'),
+                ],
+              ),
+            ),
+          );
+          items.add(
+            const PopupMenuItem(
+              value: 'block',
+              child: Row(
+                children: [
+                  Icon(Icons.block, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Text('Block User'),
+                ],
+              ),
+            ),
+          );
+        }
+        
+        return items;
+      },
     );
   }
 }

@@ -393,8 +393,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                               });
                               
                               // Wait a bit for snackbar to show, then navigate
-                              Future.delayed(const Duration(milliseconds: 800), () async {
-                                if (mounted && Navigator.canPop(context)) {
+                              Future.delayed(const Duration(milliseconds: 1000), () async {
+                                if (mounted) {
                                   Get.back();
                                 }
                               });

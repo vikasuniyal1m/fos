@@ -6,9 +6,13 @@ import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/users_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
-import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
+
 import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import '../controllers/main_dashboard_controller.dart';
+import '../services/terms_service.dart';
+import '../services/user_storage.dart' as us;
+import 'terms_acceptance_screen.dart';
 
 /// Create Prayer Request Screen
 /// Matches the "New Prayer" UI design from the image
@@ -56,12 +60,21 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   @override
   void initState() {
     super.initState();
-    prayersController = Get.find<PrayersController>();
+
+    // Safely find or initialize PrayersController
+    try {
+      prayersController = Get.find<PrayersController>();
+    } catch (e) {
+      prayersController = Get.put(PrayersController());
+    }
+
+    // Safely find or initialize GroupsController
     try {
       groupsController = Get.find<GroupsController>();
     } catch (e) {
       groupsController = Get.put(GroupsController());
     }
+
     _loadGroupMembers();
   }
   
@@ -129,6 +142,18 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   
   Future<void> _submitPrayer() async {
     if (_isSubmitting) return; // Prevent multiple submissions
+
+    // Check for terms acceptance
+    final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
+    if (!hasAcceptedFactors) {
+      Get.to(() => TermsAcceptanceScreen(
+        onAccepted: () {
+          Get.back(); // Pop the terms screen
+          _submitPrayer(); // Retry submission
+        },
+      ));
+      return;
+    }
     
     if (contentController.text.trim().isEmpty) {
       Get.snackbar(
@@ -191,51 +216,75 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            Get.snackbar(
-              'Request Submitted',
-              'Your request has been sent to admin for sharing your prayer. You can check your prayer request status in the profile section.',
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
-              duration: const Duration(seconds: 4),
-              margin: const EdgeInsets.all(16),
-              icon: const Icon(Icons.check_circle, color: Colors.white),
-              snackPosition: SnackPosition.BOTTOM,
-            );
-          }
-        });
+        Get.snackbar(
+          'Request Submitted',
+          'Your prayer request has been submitted successfully.',
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 2),
+          margin: const EdgeInsets.all(16),
+          icon: const Icon(Icons.check_circle, color: Colors.white),
+          snackPosition: SnackPosition.BOTTOM,
+        );
       }
-      
-      // Wait for snackbar to show, then navigate to prayer requests screen
-      await Future.delayed(const Duration(milliseconds: 1500));
-      
-      // Navigate to prayer requests screen and refresh
-      if (mounted) {
         // Reset filter to show all prayers
         prayersController.filterUserId.value = 0;
         prayersController.selectedCategory.value = '';
+
+             // Force refresh (fire and forget)
+      Future.delayed(const Duration(milliseconds: 100), () {
+        try {
+            if (Get.isRegistered<PrayersController>()) {
+                Get.find<PrayersController>().loadPrayers(refresh: true);
+            }
+        } catch (e) {
+            print('Error refreshing prayers: $e');
+        }
+      });
         
-        // Navigate to prayer requests screen
-        Get.offNamedUntil(Routes.PRAYER_REQUESTS, (route) => route.settings.name == Routes.HOME);
-        
-        // Force refresh after navigation
-        Future.delayed(const Duration(milliseconds: 300), () {
-          prayersController.loadPrayers(refresh: true);
-        });
+          // Update Dashboard Tab Logic if available
+      if (Get.isRegistered<MainDashboardController>()) {
+        try {
+          Get.find<MainDashboardController>().changeIndex(2); // Switch to Prayer Requests tab
+        } catch (e) {
+          print('Error changing dashboard index: $e');
+        }
       }
+      
+      // Wait briefly for snackbar
+      await Future.delayed(const Duration(milliseconds: 1500));
+      
+      // STRONG NAVIGATION: Clear stack until Dashboard
+      // This is the most reliable way to "go back" to a main tab
+      Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
     } else {
       // Show error message
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
+            final errorMsg = prayersController.message.value;
+            final isModeration = errorMsg.contains('community guidelines');
+            
             Get.snackbar(
-              'Error',
-              prayersController.message.value.isNotEmpty 
-                  ? prayersController.message.value 
-                  : 'Failed to create prayer request. Please try again.',
-              backgroundColor: Colors.red,
+              isModeration ? 'Community Standard' : 'Notice',
+              errorMsg.isNotEmpty 
+                  ? errorMsg 
+                  : 'Action could not be completed. Please try again.',
+              backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800], // Dark brown for moderation, grey for others
               colorText: Colors.white,
-              duration: const Duration(seconds: 3),
+              icon: Icon(
+                isModeration ? Icons.security_rounded : Icons.info_outline,
+                color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                size: 28,
+              ),
+              duration: Duration(seconds: isModeration ? 5 : 3),
               margin: const EdgeInsets.all(16),
+              borderRadius: 12,
+              snackPosition: SnackPosition.BOTTOM,
+              mainButton: isModeration ? TextButton(
+                onPressed: () => Get.toNamed(Routes.TERMS),
+                child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
+              ) : null,
             );
           }
         });
@@ -629,7 +678,6 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 2),
     );
   }
   

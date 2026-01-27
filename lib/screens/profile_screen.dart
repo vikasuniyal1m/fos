@@ -8,6 +8,11 @@ import 'package:fruitsofspirit/controllers/profile_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/notifications_controller.dart';
+import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
@@ -17,6 +22,7 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/permission_manager.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:fruitsofspirit/screens/blocked_users_screen.dart';
 
 /// Profile Screen
 /// Displays user profile information with professional UI
@@ -653,6 +659,15 @@ class ProfileScreen extends GetView<ProfileController> {
           Divider(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
           _buildSettingTile(
             context,
+            Icons.block,
+            'Blocked Users',
+            'Manage users you\'ve blocked',
+            null,
+            () => Get.to(() => const BlockedUsersScreen()),
+          ),
+          Divider(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
+          _buildSettingTile(
+            context,
             Icons.logout,
             'Logout',
             'Sign out from your account',
@@ -851,6 +866,21 @@ class ProfileScreen extends GetView<ProfileController> {
 
       // Clear cache
       await CacheService.clearAllCache();
+
+      // Delete permanent controllers to prevent data leak between users
+      try {
+        Get.delete<HomeController>(force: true);
+        Get.delete<PrayersController>(force: true);
+        Get.delete<GroupsController>(force: true);
+        Get.delete<NotificationsController>(force: true);
+        Get.delete<ProfileController>(force: true);
+        Get.delete<FruitsController>(force: true);
+        Get.delete<BlogsController>(force: true);
+        Get.delete<VideosController>(force: true);
+        Get.delete<GalleryController>(force: true);
+      } catch (e) {
+        print('Error deleting controllers: $e');
+      }
 
       // Close dialog
       Get.back();

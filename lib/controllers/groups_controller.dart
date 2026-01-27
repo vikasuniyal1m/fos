@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/groups_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/services/jingle_service.dart';
 
 /// Groups Controller
 /// Manages groups data and operations
@@ -90,6 +91,16 @@ class GroupsController extends GetxController {
       _applyClientSideFilter();
     }
     loadUserGroups();
+    print('DEBUG: GroupsController.onReady - selectedCategory.value before jingle check: "${selectedCategory.value}"');
+    // New code to start jingle
+    if (selectedCategory.value.isNotEmpty) {
+      print('DEBUG: GroupsController.onReady - Calling startJingle with selectedCategory: "${selectedCategory.value}"');
+      Get.find<JingleService>().startJingle(selectedCategory.value);
+    } else {
+      print('DEBUG: GroupsController.onReady - selectedCategory is empty, calling startJingle with default "Prayer"');
+      Get.find<JingleService>().startJingle('Prayer');
+    }
+    print('DEBUG: GroupsController.onReady - Jingle start logic completed.');
   }
 
   /// Load user ID from storage
@@ -426,6 +437,15 @@ class GroupsController extends GetxController {
     }
     
     return isMemberResult;
+  }
+
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allGroups = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
+    }
   }
 
   /// Apply client-side filter instantly (no API call)

@@ -5,19 +5,25 @@ import 'package:fruitsofspirit/controllers/group_chat_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
-import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
 import 'package:fruitsofspirit/services/groups_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:intl/intl.dart';
 import 'dart:io';
+import '../services/terms_service.dart';
+import '../services/user_storage.dart' as us;
+import 'terms_acceptance_screen.dart';
 
-/// Real Group Chat Screen - App Theme Style
-/// Shows real-time chat messages with app theme colors
+import 'package:fruitsofspirit/screens/report_content_screen.dart' as rcs;
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import '../utils/app_theme.dart';
+
 class RealGroupChatScreen extends StatefulWidget {
   final int groupId;
   final String groupName;
-  
+
   const RealGroupChatScreen({
     Key? key,
     required this.groupId,
@@ -33,29 +39,37 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
   final TextEditingController messageController = TextEditingController();
   final ScrollController scrollController = ScrollController();
   final ImagePicker _picker = ImagePicker();
+  final JingleService _jingleService = Get.find<JingleService>();
+
   var availableEmojis = <Map<String, dynamic>>[].obs;
   var isLoadingEmojis = true.obs;
-  int? groupOwnerId; // Group owner/creator ID
-  String? groupCategory; // Group category for jingle
-  final JingleService _jingleService = JingleService();
+  var jingleStatus = <String, dynamic>{}.obs;
+
+  int? groupOwnerId;
+  String? groupCategory;
+  String? groupImage;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Don't play jingle here - it's already played before navigation
-      // Just load group info for owner check
-      _loadGroupOwner();
+      _loadGroupData();
       controller.loadMessages(widget.groupId, refresh: true);
       _loadEmojis();
     });
-    
-    // Auto-scroll to bottom when new messages arrive (only for current group)
+
+    // Automatically show disable dialog when jingle finishes for the 3rd time
+    ever(_jingleService.lastFinishedCategory, (String category) {
+      if (category == groupCategory && category.isNotEmpty) {
+        _loadJingleStatus();
+      }
+    });
+
     controller.messages.listen((_) {
       Future.delayed(const Duration(milliseconds: 100), () {
         if (scrollController.hasClients) {
           scrollController.animateTo(
-            scrollController.position.maxScrollExtent,
+            0, // Scroll to bottom (0 offset in reverse ListView)
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOut,
           );
@@ -63,40 +77,38 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
       });
     });
   }
-  
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Don't reload automatically - polling will handle new messages
-    // Only load if this is the first time or group changed
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+
+  Future<void> _loadGroupData() async {
+    try {
+      final details = await GroupsService.getGroupDetails(widget.groupId);
       if (mounted) {
-        // Only load if messages are empty or group changed
-        if (controller.messages.isEmpty || controller.currentGroupId != widget.groupId) {
-          controller.loadMessages(widget.groupId, refresh: true);
-        }
+        setState(() {
+          groupOwnerId = details['created_by'] as int?;
+          groupCategory = details['category'] as String?;
+          groupImage = details['group_image'] as String? ?? details['image_url'] as String?;
+        });
+        _loadJingleStatus();
       }
-    });
+    } catch (e) {
+      print('Error loading group data: $e');
+    }
   }
-  
-  @override
-  void didUpdateWidget(RealGroupChatScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // If group changed, reload messages
-    if (oldWidget.groupId != widget.groupId) {
-      controller.loadMessages(widget.groupId, refresh: true);
+
+  Future<void> _loadJingleStatus() async {
+    if (groupCategory == null || groupCategory!.isEmpty) return;
+    final status = await _jingleService.getJingleStatus(groupCategory!);
+    jingleStatus.value = status;
+
+    // Show dialog if play count reached 3 and not disabled yet
+    if (status['shouldShowOption'] == true && !(status['isDisabled'] ?? false)) {
+      _showDisableJingleDialog(groupCategory!);
     }
   }
 
   Future<void> _loadEmojis() async {
     try {
       isLoadingEmojis.value = true;
-      final emojis = await EmojisService.getEmojis(
-        status: 'Active',
-        sortBy: 'image_url',
-        order: 'ASC',
-      );
-      availableEmojis.value = emojis;
+      availableEmojis.value = await EmojisService.getEmojis(status: 'Active', sortBy: 'image_url', order: 'ASC');
     } catch (e) {
       availableEmojis.value = [];
     } finally {
@@ -104,138 +116,92 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     }
   }
 
-  /// Load group category and play jingle
-  Future<void> _loadGroupCategoryAndPlayJingle() async {
-    try {
-      // Try to get group info from GroupsController first
-      try {
-        final groupsController = Get.find<GroupsController>();
-        final selectedGroup = groupsController.selectedGroup;
-        if (selectedGroup != null && selectedGroup['id'] == widget.groupId) {
-          groupOwnerId = selectedGroup['created_by'] as int?;
-          groupCategory = selectedGroup['category'] as String?;
-          
-          // Play jingle if category is available
-          if (groupCategory != null && groupCategory!.isNotEmpty) {
-            await _playJingleForCategory(groupCategory!);
-          }
-          return;
-        }
-      } catch (e) {
-        // GroupsController not found, continue
-      }
-      
-      // If not found in controller, fetch from API
-      try {
-        final groupDetails = await GroupsService.getGroupDetails(widget.groupId);
-        groupOwnerId = groupDetails['created_by'] as int?;
-        groupCategory = groupDetails['category'] as String?;
-        
-        // Play jingle if category is available
-        if (groupCategory != null && groupCategory!.isNotEmpty) {
-          await _playJingleForCategory(groupCategory!);
-        }
-      } catch (e) {
-        print('⚠️ Error loading group details: $e');
-      }
-    } catch (e) {
-      print('⚠️ Error loading group category: $e');
-    }
-  }
-
-  /// Play jingle for category and show disable option if needed
-  /// This is called when page loads (not used anymore since we play before navigation)
-  Future<void> _playJingleForCategory(String category) async {
-    // This method is kept for backward compatibility but not actively used
-    // Jingle is now played before navigation in groups_screen.dart
-    print('⚠️ _playJingleForCategory called but jingle should be played before navigation');
-  }
-
-  /// Show dialog to disable jingle
   void _showDisableJingleDialog(String category) {
+    if (Get.isDialogOpen ?? false) return; // Prevent duplicate dialogs
     Get.dialog(
       AlertDialog(
-        title: Text(
-          'Disable Voice Over?',
-          style: ResponsiveHelper.textStyle(
-            context,
-            fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-            fontWeight: FontWeight.bold,
-            color: Colors.black,
-          ),
-        ),
-        content: Text(
-          'You\'ve heard this voice over 3 times. Would you like to disable it for this category?',
-          style: ResponsiveHelper.textStyle(
-            context,
-            fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 16, desktop: 18),
-            color: Colors.black87,
-          ),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Voice Over Option', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text('You\'ve heard this voice over 3 times. Would you like to disable it for this group? \n\n(You can change this anytime from the menu.)'),
         actions: [
-          TextButton(
-            onPressed: () {
-              Get.back();
-            },
-            child: Text(
-              'Keep Playing',
-              style: ResponsiveHelper.textStyle(
-                context,
-                fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                color: Colors.grey[600],
-              ),
-            ),
-          ),
-          TextButton(
+          TextButton(onPressed: () => Get.back(), child: const Text('Keep it')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8B4513), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
             onPressed: () async {
               await _jingleService.disableJingle(category);
+              await _jingleService.stopJingle();
               Get.back();
-              Get.snackbar(
-                'Voice Over Disabled',
-                'Voice over for $category has been disabled. You can enable it again in settings.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.green,
-                colorText: Colors.white,
-                duration: const Duration(seconds: 2),
-              );
+              _loadJingleStatus();
             },
-            child: Text(
-              'Disable',
-              style: ResponsiveHelper.textStyle(
-                context,
-                fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                color: Colors.red,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            child: const Text('Disable', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
-      barrierDismissible: true,
     );
   }
 
-  Future<void> _loadGroupOwner() async {
+  Future<void> _toggleJingle() async {
+    if (groupCategory == null) return;
+    final isDisabled = jingleStatus['isDisabled'] ?? false;
+    if (isDisabled) {
+      await _jingleService.enableJingle(groupCategory!);
+      Get.snackbar('Voice Enabled', 'Voice over will play when you enter.', snackPosition: SnackPosition.BOTTOM);
+    } else {
+      await _jingleService.disableJingle(groupCategory!);
+      await _jingleService.stopJingle();
+      Get.snackbar('Voice Disabled', 'Voice over turned off.', snackPosition: SnackPosition.BOTTOM);
+    }
+    _loadJingleStatus();
+  }
+
+  Future<void> _runWithTermsCheck(Function action) async {
     try {
-      // Try to get group info from GroupsController
-      try {
-        final groupsController = Get.find<GroupsController>();
-        final selectedGroup = groupsController.selectedGroup;
-        if (selectedGroup != null && selectedGroup['id'] == widget.groupId) {
-          groupOwnerId = selectedGroup['created_by'] as int?;
-          return;
-        }
-      } catch (e) {
-        // GroupsController not found, continue
+      final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
+      if (hasAcceptedFactors) {
+        action();
+      } else {
+        _showUgcTermsDialog(action);
       }
     } catch (e) {
-      // Error loading group owner
+      print('Error checking terms: $e');
+      // If check fails, default to showing dialog as safe fallback
+      _showUgcTermsDialog(action);
     }
+  }
+
+  void _showUgcTermsDialog(Function action) {
+    Get.dialog(
+      AlertDialog(
+        title: const Text("Community Guidelines"),
+        content: const Text(
+          "To keep our community safe, please agree to our terms. "
+          "Hate speech, bullying, or inappropriate content is strictly prohibited."
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text("CANCEL"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await TermsService.acceptTerms();
+              Get.back(); // Close dialog
+              action(); // Perform action
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("I AGREE"),
+          ),
+        ],
+      ),
+      barrierDismissible: false,
+    );
   }
 
   @override
   void dispose() {
-    // Stop polling when screen is disposed
     controller.stopPolling();
     messageController.dispose();
     scrollController.dispose();
@@ -244,177 +210,66 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+
     return Scaffold(
-      backgroundColor: Colors.white, // App theme background
+      backgroundColor: AppTheme.themeColor,
       appBar: PreferredSize(
-        preferredSize: Size.fromHeight(
-          ResponsiveHelper.safeHeight(
-            context,
-            mobile: 70,
-            tablet: 120,
-            desktop: 90,
-          ),
-        ),
+        preferredSize: Size.fromHeight(ResponsiveHelper.safeHeight(context, mobile: 70, tablet: 120, desktop: 90)),
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: ResponsiveHelper.isMobile(context) ? 4 : 8,
-                offset: Offset(0, ResponsiveHelper.isMobile(context) ? 2 : 4),
-              ),
-            ],
-            border: Border(
-              bottom: BorderSide(
-                color: Colors.grey.withOpacity(0.15),
-                width: ResponsiveHelper.isMobile(context) ? 0.5 : 1,
-              ),
-            ),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+            border: Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.15), width: 0.5)),
           ),
           child: SafeArea(
             bottom: false,
             child: Padding(
-              padding: ResponsiveHelper.padding(
-                context,
-                horizontal: ResponsiveHelper.isMobile(context)
-                    ? ResponsiveHelper.spacing(context, 16)
-                    : ResponsiveHelper.isTablet(context)
-                        ? ResponsiveHelper.spacing(context, 24)
-                        : ResponsiveHelper.spacing(context, 32),
-                vertical: ResponsiveHelper.isMobile(context)
-                    ? ResponsiveHelper.spacing(context, 12)
-                    : ResponsiveHelper.isTablet(context)
-                        ? ResponsiveHelper.spacing(context, 14)
-                        : ResponsiveHelper.spacing(context, 16),
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  // Back button
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => Get.back(),
-                      borderRadius: BorderRadius.circular(30),
-                      child: Container(
-                        width: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,
-                        height: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Colors.grey[50]!,
-                              Colors.grey[100]!,
-                            ],
-                          ),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.grey.withOpacity(0.2),
-                            width: 1.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Icon(
-                          Icons.arrow_back_rounded,
-                          color: const Color(0xFF5F4628),
-                          size: ResponsiveHelper.isMobile(context) ? 20.0 : ResponsiveHelper.isTablet(context) ? 22.0 : 24.0,
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                  // Group avatar
+                  _buildOldStyleRoundButton(context, icon: Icons.arrow_back_rounded, onTap: () => Get.back()),
+                  const SizedBox(width: 12),
                   CircleAvatar(
-                    radius: ResponsiveHelper.isMobile(context) ? 20 : 24,
+                    radius: 20,
                     backgroundColor: const Color(0xFF8B4513).withOpacity(0.1),
-                    child: Icon(
-                      Icons.group,
-                      color: const Color(0xFF8B4513),
-                      size: ResponsiveHelper.isMobile(context) ? 24 : 28,
-                    ),
+                    backgroundImage: groupImage != null && groupImage!.isNotEmpty
+                        ? NetworkImage(groupImage!.startsWith('http') ? groupImage! : baseUrl + groupImage!)
+                        : null,
+                    child: groupImage == null || groupImage!.isEmpty
+                        ? const Icon(Icons.group, color: Color(0xFF8B4513), size: 24)
+                        : null,
                   ),
-                  SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                  // Group name and member count
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          widget.groupName,
-                          style: ResponsiveHelper.textStyle(
-                            context,
-                            fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 18, desktop: 20),
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFF5F4628),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        Text(widget.groupName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5F4628)), maxLines: 1, overflow: TextOverflow.ellipsis),
                         Obx(() {
-                          // Count unique users in current group messages
-                          final groupMessages = controller.messages.where((m) {
-                            final msgGroupId = m['group_id'] as int?;
-                            return msgGroupId == widget.groupId;
-                          }).toList();
-                          
-                          final memberCount = groupMessages
-                              .map((m) => m['user_id'])
-                              .toSet()
-                              .length;
-                          return Text(
-                            '$memberCount members',
-                            style: ResponsiveHelper.textStyle(
-                              context,
-                              fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
-                              color: Colors.grey[600],
-                            ),
-                          );
+                          final count = controller.messages.where((m) => m['group_id'].toString() == widget.groupId.toString()).map((m) => m['user_id']).toSet().length;
+                          return Text('$count members', style: TextStyle(fontSize: 12, color: Colors.grey[600]));
                         }),
                       ],
                     ),
                   ),
-                  // More options
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () {
-                        // Group info menu
-                      },
-                      borderRadius: BorderRadius.circular(30),
-                      child: Container(
-                        width: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,
-                        height: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Colors.grey[50]!,
-                              Colors.grey[100]!,
-                            ],
-                          ),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.grey.withOpacity(0.2),
-                            width: 1.5,
-                          ),
+                  Obx(() {
+                    if (!(jingleStatus['shouldShowOption'] ?? false)) return const SizedBox.shrink();
+                    final isDisabled = jingleStatus['isDisabled'] ?? false;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildOldStyleRoundButton(
+                          context,
+                          icon: isDisabled ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                          onTap: _toggleJingle
                         ),
-                        child: Icon(
-                          Icons.more_vert,
-                          color: const Color(0xFF5F4628),
-                          size: ResponsiveHelper.isMobile(context) ? 20.0 : ResponsiveHelper.isTablet(context) ? 22.0 : 24.0,
-                        ),
-                      ),
-                    ),
-                  ),
+                        const SizedBox(width: 8),
+                      ],
+                    );
+                  }),
+                  _buildMoreMenu(context),
                 ],
               ),
             ),
@@ -423,1050 +278,434 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
       ),
       body: Column(
         children: [
-          // Messages List
           Expanded(
             child: Obx(() {
-              // Access messages to ensure Obx tracks changes
-              final allMessages = controller.messages;
-              
-              // Filter messages by current group_id
-              // IMPORTANT: Always show messages for current group, even if group_id is missing (backward compatibility)
-              final groupMessages = allMessages.where((msg) {
-                final msgGroupId = msg['group_id'];
-                // Convert to int for comparison (handle both int and String types)
-                int? msgGroupIdInt;
-                if (msgGroupId is int) {
-                  msgGroupIdInt = msgGroupId;
-                } else if (msgGroupId is String) {
-                  msgGroupIdInt = int.tryParse(msgGroupId);
-                } else if (msgGroupId != null) {
-                  msgGroupIdInt = int.tryParse(msgGroupId.toString());
-                }
-                
-                // If group_id is null or matches current group, include it
-                final matches = msgGroupIdInt == null || msgGroupIdInt == widget.groupId;
-                if (matches) {
-                  // Ensure message has group_id set as int
-                  if (msgGroupIdInt == null || msgGroupIdInt != widget.groupId) {
-                    msg['group_id'] = widget.groupId;
-                  }
-                }
-                return matches;
-              }).toList();
-              
+              final groupMessages = controller.messages.where((msg) => msg['group_id'].toString() == widget.groupId.toString()).toList();
               if (controller.isLoading.value && groupMessages.isEmpty) {
-                return Center(
-                  child: CircularProgressIndicator(
-                    color: const Color(0xFF8B4513),
-                  ),
-                );
+                return const Center(child: CircularProgressIndicator(color: Color(0xFF8B4513)));
               }
-
               if (groupMessages.isEmpty) {
-                
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.chat_bubble_outline,
-                        size: 64,
-                        color: Colors.grey[400],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No messages yet',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Start the conversation!',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[500],
-                        ),
-                      ),
-                      if (controller.messages.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Text(
-                          'Debug: ${controller.messages.length} messages loaded\nbut none match group ${widget.groupId}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.red[300],
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ],
-                  ),
-                );
+                return Center(child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    Text('No messages yet', style: TextStyle(color: Colors.grey[600])),
+                  ],
+                ));
               }
-              
-              // First, sort all messages chronologically (oldest to newest) by created_at
-              final sortedMessages = List<Map<String, dynamic>>.from(groupMessages);
-              sortedMessages.sort((a, b) {
-                String aTime = a['created_at'] as String? ?? '';
-                String bTime = b['created_at'] as String? ?? '';
-                try {
-                  final aDate = DateTime.parse(aTime);
-                  final bDate = DateTime.parse(bTime);
-                  return aDate.compareTo(bDate); // Ascending order (oldest first)
-                } catch (e) {
-                  return 0; // If parsing fails, keep original order
-                }
-              });
-              
-              // Group consecutive messages from the same user (WhatsApp style)
-              final groupedMessages = _groupConsecutiveMessages(sortedMessages);
-              
-              return RefreshIndicator(
-                onRefresh: () async {
-                  await controller.refresh();
-                  // Force UI rebuild after refresh
-                  setState(() {});
-                },
-                color: const Color(0xFF8B4513),
-                child: ListView.builder(
-                  controller: scrollController,
-                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 8)),
-                  reverse: true, // WhatsApp style: newest messages at bottom
-                  itemCount: groupedMessages.length + (controller.hasMore.value ? 1 : 0),
-                  key: ValueKey('messages_${groupedMessages.length}_${DateTime.now().millisecondsSinceEpoch}'),
-                  itemBuilder: (context, index) {
-                    // In reversed ListView, index 0 is the last item (newest message)
-                    // Load more button should be at the top (index == itemCount - 1 when reversed)
-                    if (controller.hasMore.value && index == groupedMessages.length) {
-                      return Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 8)),
-                          child: TextButton(
-                            onPressed: () => controller.loadMore(),
-                            child: const Text('Load older messages'),
+              return ListView.builder(
+                controller: scrollController,
+                padding: const EdgeInsets.all(8),
+                reverse: true,
+                itemCount: groupMessages.length,
+                itemBuilder: (context, index) {
+                  final currentMessage = groupMessages[groupMessages.length - 1 - index];
+                  final currentMessageDate = DateTime.parse(currentMessage['created_at']);
+
+                  bool showDateSeparator = false;
+                  if (index == groupMessages.length - 1) {
+                    showDateSeparator = true;
+                  } else {
+                    final previousMessage = groupMessages[groupMessages.length - 1 - (index + 1)];
+                    final previousMessageDate = DateTime.parse(previousMessage['created_at']);
+                    if (currentMessageDate.day != previousMessageDate.day ||
+                        currentMessageDate.month != previousMessageDate.month ||
+                        currentMessageDate.year != previousMessageDate.year) {
+                      showDateSeparator = true;
+                    }
+                  }
+
+                  List<Widget> widgets = [];
+                  if (showDateSeparator) {
+                    widgets.add(
+                      Center(
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 10),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            _formatDateSeparator(currentMessageDate),
+                            style: const TextStyle(color: Colors.black, fontSize: 12),
                           ),
                         ),
-                      );
-                    }
-                    
-                    // Calculate actual message index (reverse the index for reversed ListView)
-                    final messageIndex = groupedMessages.length - 1 - index;
-                    if (messageIndex < 0 || messageIndex >= groupedMessages.length) {
-                      return const SizedBox.shrink();
-                    }
-                    final messageGroup = groupedMessages[messageIndex];
-                    // Build grouped message bubble
-                    return _buildMessageBubble(context, messageGroup, messageIndex, groupedMessages);
-                  },
-                ),
+                      ),
+                    );
+                  }
+                  widgets.add(_buildMessageBubble(context, currentMessage));
+                  return Column(children: widgets);
+                },
               );
             }),
           ),
-          
-          // Message Input
           _buildMessageInput(context),
         ],
       ),
     );
   }
 
-  /// Get user initials from first and last name
-  String _getUserInitials(String userName) {
-    if (userName.isEmpty) return '?';
-    final parts = userName.trim().split(' ');
-    if (parts.length >= 2) {
-      // First letter of first name + first letter of last name
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    } else if (parts.length == 1) {
-      // Only first name, use first letter
-      return parts[0][0].toUpperCase();
+  String _formatDateSeparator(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = DateTime(now.year, now.month, now.day - 1);
+    final messageDate = DateTime(date.year, date.month, date.day);
+
+    if (messageDate == today) {
+      return 'Today';
+    } else if (messageDate == yesterday) {
+      return 'Yesterday';
+    } else {
+      return DateFormat('dd MMMM yyyy').format(date);
     }
-    return '?';
   }
 
-  /// Group consecutive messages from the same user (WhatsApp style - no time limit)
-  List<Map<String, dynamic>> _groupConsecutiveMessages(List<Map<String, dynamic>> messages) {
-    // Return messages as-is, without grouping by user, to ensure strict chronological order
-    return messages;
+  String _formatTime(String createdAt) {
+    final dateTime = DateTime.parse(createdAt);
+    return DateFormat('h:mm a').format(dateTime);
   }
 
-  Widget _buildMessageBubble(BuildContext context, Map<String, dynamic> message, int index, List<Map<String, dynamic>> allMessages) {
-    final msgUserId = message['user_id'] as int? ?? 0;
-    final isOwner = groupOwnerId != null && msgUserId == groupOwnerId;
-    final isMe = msgUserId == controller.userId.value;
-    final isLeftSide = !isMe;
-    final userName = message['user_name'] as String? ?? 'Unknown';
+  Widget _buildOldStyleRoundButton(BuildContext context, {required IconData icon, required VoidCallback onTap}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(30),
+        child: Container(
+          width: 40.0, height: 40.0,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.grey[50]!, Colors.grey[100]!]),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1.5),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+          ),
+          child: Icon(icon, color: AppTheme.iconscolor, size: 20.0),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMoreMenu(BuildContext context) {
+    return PopupMenuButton<String>(
+      onSelected: (value) { if (value == 'toggle') _toggleJingle(); },
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      icon: _buildOldStyleRoundButton(context, icon: Icons.more_vert, onTap: () {}),
+      itemBuilder: (context) {
+        final status = jingleStatus.value;
+        final shouldShow = status['shouldShowOption'] ?? false;
+        final isDisabled = status['isDisabled'] ?? false;
+        return [
+          if (shouldShow)
+            PopupMenuItem(
+              value: 'toggle',
+              child: Row(children: [
+                Icon(isDisabled ? Icons.volume_up_rounded : Icons.volume_off_rounded, color: const Color(0xFF5F4628), size: 20),
+                const SizedBox(width: 12),
+                Text(isDisabled ? 'Enable Voice' : 'Disable Voice'),
+              ]),
+            ),
+          const PopupMenuItem(value: 'info', child: Row(children: [
+            Icon(Icons.info_outline_rounded, color: Color(0xFF5F4628), size: 20),
+            const SizedBox(width: 12),
+            Text('Group Info'),
+          ])),
+        ];
+      },
+    );
+  }
+
+  Widget _buildMessageBubble(BuildContext context, Map<String, dynamic> message) {
+    final isMe = message['user_id'].toString() == controller.userId.value.toString();
     final profilePhoto = message['profile_photo'] as String?;
+    final userName = message['user_name'] as String? ?? 'User';
     final createdAt = message['created_at'] as String? ?? '';
-    
     final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
-    String? photoUrl;
-    if (profilePhoto != null && profilePhoto.isNotEmpty) {
-      final photoPath = profilePhoto.toString();
-      if (!photoPath.startsWith('http')) {
-        photoUrl = baseUrl + (photoPath.startsWith('/') ? photoPath.substring(1) : photoPath);
-      } else {
-        photoUrl = photoPath;
-      }
-    }
-
-    final userInitials = _getUserInitials(userName);
-    // Avatar should always be shown for each message now
-    final shouldShowAvatar = true;
 
     return Container(
-      margin: EdgeInsets.only(
-        bottom: ResponsiveHelper.spacing(context, 4), // Consistent spacing between messages
-        top: ResponsiveHelper.spacing(context, 4),
-      ),
+      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
       child: Row(
-        mainAxisAlignment: isLeftSide ? MainAxisAlignment.start : MainAxisAlignment.end,
+        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Avatar (LEFT side only)
-          if (isLeftSide) ...[
+          if (!isMe) ...[
             CircleAvatar(
-              radius: 18,
+              radius: 16,
               backgroundColor: Colors.grey[300],
-              backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-              child: photoUrl == null
-                  ? Text(
-                      userInitials,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[800],
-                      ),
-                    )
+              backgroundImage: profilePhoto != null && profilePhoto.isNotEmpty
+                  ? NetworkImage(profilePhoto.startsWith('http') ? profilePhoto : baseUrl + profilePhoto)
                   : null,
+              child: profilePhoto == null ? Text(userName.isNotEmpty ? userName[0].toUpperCase() : 'U', style: const TextStyle(fontSize: 12)) : null,
             ),
             const SizedBox(width: 8),
           ],
-          
-          // Message Bubble
           Flexible(
-            child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.75,
-              ),
-              padding: EdgeInsets.symmetric(
-                horizontal: ResponsiveHelper.spacing(context, 12),
-                vertical: ResponsiveHelper.spacing(context, 8),
-              ),
-              decoration: BoxDecoration(
-                color: isLeftSide 
-                    ? Colors.grey[200]
-                    : const Color(0xFFDCF8C6),
-                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // Uniform rounded corners
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 2,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // User name (only for left side)
-                  if (isLeftSide) ...[ // Always show username for left side messages
-                    Text(
-                      userName + (isOwner ? ' (Owner)' : ''),
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF8B4513),
-                      ),
+            child: InkWell(
+              onLongPress: () => _showModerationDialog(context, message),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.8, // Max width 80% of screen
+                ),
+                child: Container(
+                  width: double.infinity, // Make the container expand horizontally
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8), // Increased vertical padding
+                  decoration: BoxDecoration(
+                    color: isMe ? const Color(0xFFDCF8C6) : const Color(0xFFFFFFFF), // WhatsApp sent (light green) vs received (white)
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(10),
+                      topRight: const Radius.circular(10),
+                      bottomLeft: Radius.circular(isMe ? 10 : 0), // Pointed corner for received
+                      bottomRight: Radius.circular(isMe ? 0 : 10), // Pointed corner for sent
                     ),
-                    const SizedBox(height: 4),
-                  ],
-                  
-                  // Display single message content
-                  _buildSingleMessageContent(context, message, isLeftSide),
-                  
-                  // Timestamp
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: isLeftSide ? Alignment.bottomLeft : Alignment.bottomRight,
-                    child: Text(
-                      _formatTime(createdAt),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isLeftSide ? Colors.grey[600] : Colors.grey[700],
-                      ),
-                    ),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 2, offset: const Offset(0, 1))], // Slightly more prominent shadow
                   ),
-                ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!isMe) Padding(
+                        padding: const EdgeInsets.only(bottom: 2.0),
+                        child: Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF8B4513))),
+                      ),
+                      _buildMessageContent(context, message),
+                      Padding( // Wrap timestamp in Padding to control its position
+                        padding: const EdgeInsets.only(top: 4.0), // Space between message content and time
+                        child: Align(
+                          alignment: Alignment.bottomRight, // Align time to bottom right within the bubble
+                          child: Text(_formatTime(createdAt), style: const TextStyle(fontSize: 10, color: Colors.grey)), // Smaller font size for time
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
-          
-          // Spacing for alignment (RIGHT side)
-          if (!isLeftSide) ...[
-            const SizedBox(width: 8),
-          ],
+          if (isMe) const SizedBox(width: 4),
         ],
       ),
     );
   }
 
-  /// Build single message content (for backward compatibility)
-  Widget _buildSingleMessageContent(BuildContext context, Map<String, dynamic> msg, bool isLeftSide) {
-    var messageText = msg['message'] as String? ?? '';
-    if (messageText == null || messageText == 'null') {
-      messageText = '';
+  Widget _buildMessageContent(BuildContext context, Map<String, dynamic> msg) {
+    final messageType = msg['message_type']?.toString() ?? 'text';
+    final content = msg['message']?.toString() ?? '';
+
+    if (messageType == 'emoji' || FruitEmojiHelper.isFruit(content)) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: FruitEmojiHelper.buildFruitWidget(content, size: 40),
+      );
     }
-    final messageType = msg['message_type'] as String? ?? 'text';
-    final fileUrl = msg['file_url'] as String?;
-    
-    if (messageType == 'image' && fileUrl != null) {
+
+    if (messageType == 'image' && msg['file_url'] != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: CachedImage(
-              imageUrl: fileUrl,
-              width: double.infinity,
-              height: 150,
-              fit: BoxFit.cover,
-            ),
+            child: CachedImage(imageUrl: msg['file_url'], width: 200, height: 150, fit: BoxFit.cover),
           ),
-          if (messageText.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              messageText,
-              style: const TextStyle(fontSize: 13, color: Colors.black87),
+          if (content.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Text(content, style: const TextStyle(fontSize: 14)),
             ),
-          ],
         ],
       );
-    } else if (messageType == 'file' && fileUrl != null) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.grey[200],
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.insert_drive_file, size: 24),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                messageText.isNotEmpty ? messageText : 'File',
-                style: const TextStyle(fontSize: 14),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return _buildMessageText(context, messageText);
     }
-  }
-
-
-
-  bool _shouldShowAvatar(Map<String, dynamic> msg, int index, List<Map<String, dynamic>> groupMessages) {
-    return true; // Always show avatar for each message
+    return FruitEmojiHelper.buildCommentText(
+      context,
+      content,
+      style: const TextStyle(color: Colors.black87, fontSize: 14),
+    );
   }
 
   Widget _buildMessageInput(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: ResponsiveHelper.spacing(context, 8),
-        vertical: ResponsiveHelper.spacing(context, 8),
-      ),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, -2))]
       ),
       child: SafeArea(
-          child: Row(
-            children: [
-              // Emoji button
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _showEmojiPicker(context),
-                  borderRadius: BorderRadius.circular(30),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.emoji_emotions_outlined,
-                      color: const Color(0xFF8B4513),
-                      size: 20,
-                    ),
-                  ),
-                ),
-              ),
-              
-              const SizedBox(width: 8),
-              
-              // Attachment button
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _showAttachmentOptions(context),
-                  borderRadius: BorderRadius.circular(30),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.attach_file,
-                      color: const Color(0xFF8B4513),
-                      size: 20,
-                    ),
-                  ),
-                ),
-              ),
-              
-              const SizedBox(width: 8),
-              
-              // Text input
+        child: Row(
+          children: [
+            IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: AppTheme.iconscolor), onPressed: () => _showEmojiPicker(context)),
+            IconButton(icon: const Icon(Icons.attach_file, color: AppTheme.iconscolor), onPressed: () => _showAttachmentOptions(context)),
             Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 24)),
-                  border: Border.all(
-                    color: const Color(0xFF8B4513).withOpacity(0.2),
-                    width: 1,
-                  ),
-                ),
-                child: TextField(
-                  controller: messageController,
-                  maxLines: null,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _sendMessage(),
-                  // Completely disable autocomplete, suggestions, and autocorrect
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  autofillHints: const [],
-                  // Use multiline to avoid keyboard suggestions
-                  keyboardType: TextInputType.multiline,
-                  // Disable smart quotes and dashes
-                  smartDashesType: SmartDashesType.disabled,
-                  smartQuotesType: SmartQuotesType.disabled,
-                  // Disable text selection suggestions
-                  enableInteractiveSelection: true,
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                    color: const Color(0xFF5F4628),
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'Type a message...',
-                    hintStyle: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                      color: Colors.grey[500],
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: ResponsiveHelper.spacing(context, 16),
-                      vertical: ResponsiveHelper.spacing(context, 10),
-                    ),
-                  ),
+              child: TextField(
+                controller: messageController,
+                decoration: InputDecoration(
+                  hintText: 'Type a message...',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                  fillColor: Colors.grey[100],
+                  filled: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
                 ),
               ),
             ),
-            
             const SizedBox(width: 8),
-            
-            // Send button
-            Obx(() {
-              return Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: controller.isSending.value ? null : _sendMessage,
-                  borderRadius: BorderRadius.circular(30),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          const Color(0xFF8B4513),
-                          const Color(0xFF5F4628),
-                        ],
-                      ),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF8B4513).withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: controller.isSending.value
-                        ? Center(
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            ),
-                          )
-                        : Icon(
-                            Icons.send,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                  ),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _sendMessage,
+                borderRadius: BorderRadius.circular(30),
+                child: Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1.5),
+
+
+                      gradient: const LinearGradient(
+                          colors: [Color(0xFFFFFFFF), Color(0xFFFFFFFF)]),
+                      shape: BoxShape.circle),
+                  child: const Icon(Icons.send, color: AppTheme.iconscolor, size: 20),
                 ),
-              );
-            }),
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  void _sendMessage() async {
+    _runWithTermsCheck(() async {
+      final text = messageController.text.trim();
+      if (text.isEmpty) return;
+      messageController.clear();
+      await controller.sendMessage(groupId: widget.groupId, text: text);
+    });
+  }
+
+  void _showEmojiPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Obx(() => GridView.builder(
+        padding: const EdgeInsets.all(16),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 6, crossAxisSpacing: 12, mainAxisSpacing: 12),
+        itemCount: availableEmojis.length,
+        itemBuilder: (context, index) => InkWell(
+          onTap: () async {
+            _runWithTermsCheck(() async {
+              final emojiChar = availableEmojis[index]['emoji_char'] ?? availableEmojis[index]['code'];
+              await controller.sendMessage(
+                groupId: widget.groupId, 
+                text: emojiChar,
+                messageType: 'emoji',
+              );
+              Get.back();
+            });
+          },
+          child: HomeScreen.buildEmojiDisplay(context, availableEmojis[index], size: 32),
+        ),
+      )),
     );
   }
 
   void _showAttachmentOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Icon(Icons.photo, color: const Color(0xFF8B4513)),
-              title: Text(
-                'Photo',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                  color: const Color(0xFF5F4628),
-                ),
-              ),
-              onTap: () {
-                Get.back();
-                _pickImage(ImageSource.gallery);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.camera_alt, color: const Color(0xFF8B4513)),
-              title: Text(
-                'Camera',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                  color: const Color(0xFF5F4628),
-                ),
-              ),
-              onTap: () {
-                Get.back();
-                _pickImage(ImageSource.camera);
-              },
-            ),
-          ],
-        ),
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(leading: const Icon(Icons.photo), title: const Text('Gallery'), onTap: () { Get.back(); _pickImage(ImageSource.gallery); }),
+          ListTile(leading: const Icon(Icons.camera_alt), title: const Text('Camera'), onTap: () { Get.back(); _pickImage(ImageSource.camera); }),
+        ],
       ),
     );
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    try {
-      final image = await _picker.pickImage(source: source);
-      if (image != null) {
-        await controller.sendMessage(
-          groupId: widget.groupId,
-          text: '',
-          file: File(image.path),
-          messageType: 'image',
-        );
-      }
-    } catch (e) {
-      Get.snackbar('Error', 'Failed to pick image: $e');
+    final file = await _picker.pickImage(source: source);
+    if (file != null) {
+      _runWithTermsCheck(() {
+        controller.sendMessage(groupId: widget.groupId, text: '', file: File(file.path), messageType: 'image');
+      });
     }
   }
 
-  Future<void> _sendMessage() async {
-    final text = messageController.text.trim();
-    if (text.isEmpty) return;
-    
-    
-    // Clear input immediately for better UX
-    messageController.clear();
-    
-    final success = await controller.sendMessage(
-      groupId: widget.groupId,
-      text: text,
-    );
-    
-    if (success) {
-      // Wait for UI to update, then scroll to bottom
-      await Future.delayed(const Duration(milliseconds: 600));
-      if (mounted && scrollController.hasClients) {
-        scrollController.animateTo(
-          scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    } else {
-      // Restore text if sending failed
-      messageController.text = text;
-    }
-  }
-
-  String _formatTime(String? dateStr) {
+ /* String _formatTime(String? dateStr) {
     if (dateStr == null) return '';
     try {
       final date = DateTime.parse(dateStr);
-      final now = DateTime.now();
-      final difference = now.difference(date);
-      
-      if (difference.inDays > 0) {
-        return '${date.day}/${date.month} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-      } else {
-        return '${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-      }
-    } catch (e) {
-      return '';
-    }
+      return '${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+    } catch (e) { return ''; }
   }
 
-  void _showEmojiPicker(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: ResponsiveHelper.screenHeight(context) * 0.5,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 24)),
-            topRight: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 24)),
-          ),
-        ),
-        child: Column(
+  String _formatDateSeparator(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = DateTime(now.year, now.month, now.day - 1);
+    final messageDate = DateTime(date.year, date.month, date.day);
+
+    if (messageDate == today) {
+      return 'Today';
+    } else if (messageDate == yesterday) {
+      return 'Yesterday';
+    } else {
+      return '${date.day}/${date.month}/${date.year}';
+    }
+  }*/
+  void _showModerationDialog(BuildContext context, Map<String, dynamic> message) {
+    final isMe = message['user_id'].toString() == controller.userId.value.toString();
+    if (isMe) return;
+
+    Get.dialog(
+      AlertDialog(
+        title: const Text('Message Options'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
-            Container(
-              padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: Colors.grey.withOpacity(0.2),
-                    width: 1,
-                  ),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Select Emoji',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF8B4513),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Color(0xFF8B4513)),
-                    onPressed: () => Get.back(),
-                  ),
-                ],
-              ),
+            ListTile(
+              leading: const Icon(Icons.report_outlined, color: Colors.orange),
+              title: const Text('Report Content'),
+              onTap: () {
+                Get.back();
+                Get.to(() => rcs.ReportContentScreen(
+                      contentType: 'group_message',
+                      contentId: message['id'] is int ? message['id'] : int.parse(message['id'].toString()),
+                    ));
+              },
             ),
-            // Emoji Grid
-            Expanded(
-              child: Obx(() {
-                if (isLoadingEmojis.value) {
-                  return const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF8B4513),
+            ListTile(
+              leading: const Icon(Icons.block, color: Colors.red),
+              title: const Text('Block User'),
+              onTap: () async {
+                Get.back();
+                final userId = message['user_id'] is int ? message['user_id'] : int.tryParse(message['user_id'].toString());
+                if (userId != null) {
+                  final userName = message['user_name'] ?? 'this user';
+                  final confirmed = await Get.dialog<bool>(
+                    AlertDialog(
+                      title: Text('Block $userName?'),
+                      content: const Text('You will no longer see content from this user.'),
+                      actions: [
+                        TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                        TextButton(
+                            onPressed: () => Get.back(result: true),
+                            child: const Text('Block', style: TextStyle(color: Colors.red))),
+                      ],
                     ),
                   );
+
+                  if (confirmed == true) {
+                    try {
+                      await UserBlockingService.blockUser(userId);
+                      Get.snackbar('Success', 'User blocked');
+                      controller.loadMessages(widget.groupId, refresh: true);
+                    } catch (e) {
+                      Get.snackbar('Error', 'Failed to block user');
+                    }
+                  }
                 }
-                
-                if (availableEmojis.isEmpty) {
-                  return Center(
-                    child: Text(
-                      'No emojis available',
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  );
-                }
-                
-                return GridView.builder(
-                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: ResponsiveHelper.isMobile(context) ? 6 : ResponsiveHelper.isTablet(context) ? 8 : 10,
-                    crossAxisSpacing: ResponsiveHelper.spacing(context, 10),
-                    mainAxisSpacing: ResponsiveHelper.spacing(context, 10),
-                    childAspectRatio: 1.0,
-                  ),
-                  itemCount: availableEmojis.length,
-                  itemBuilder: (context, index) {
-                    final emoji = availableEmojis[index];
-                    final emojiChar = emoji['emoji_char'] as String? ?? '';
-                    final emojiCode = emoji['code'] as String? ?? '';
-                    final emojiName = emoji['name'] as String? ?? '';
-                    
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () async {
-                          // WhatsApp/Instagram style: Send emoji directly when selected
-                          // Priority: emoji_char > code > id > image_url filename
-                          String textToSend;
-                          if (emojiChar.isNotEmpty) {
-                            textToSend = emojiChar;
-                          } else if (emojiCode.isNotEmpty) {
-                            textToSend = emojiCode;
-                          } else {
-                            // Use emoji ID as fallback
-                            final emojiId = emoji['id']?.toString() ?? '';
-                            if (emojiId.isNotEmpty) {
-                              textToSend = emojiId;
-                            } else {
-                              // Last resort: use image URL filename
-                              final imageUrl = emoji['image_url'] as String? ?? '';
-                              if (imageUrl.isNotEmpty && imageUrl.contains('/')) {
-                                textToSend = imageUrl.split('/').last;
-                              } else {
-                                textToSend = emojiName; // Use name as last fallback
-                              }
-                            }
-                          }
-                          
-                          
-                          // Close emoji picker
-                          Get.back();
-                          
-                          // Send message directly
-                          final success = await controller.sendMessage(
-                            groupId: widget.groupId,
-                            text: textToSend,
-                          );
-                          
-                          if (success) {
-                            // Scroll to bottom after sending
-                            Future.delayed(const Duration(milliseconds: 200), () {
-                              if (scrollController.hasClients) {
-                                scrollController.animateTo(
-                                  scrollController.position.maxScrollExtent,
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeOut,
-                                );
-                              }
-                            });
-                          } else {
-                            Get.snackbar(
-                              'Error',
-                              'Failed to send emoji',
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        splashColor: const Color(0xFF8B4513).withOpacity(0.1),
-                        highlightColor: const Color(0xFF8B4513).withOpacity(0.05),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                            border: Border.all(
-                              color: Colors.grey.withOpacity(0.15),
-                              width: 1.5,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.03),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 8)),
-                              child: HomeScreen.buildEmojiDisplay(
-                                context,
-                                emoji,
-                                size: ResponsiveHelper.isMobile(context) ? 36 : ResponsiveHelper.isTablet(context) ? 40 : 44,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              }),
+              },
             ),
           ],
         ),
       ),
     );
   }
-
-  /// Build message text with emoji support
-  Widget _buildMessageText(BuildContext context, String messageText) {
-    final trimmed = messageText.trim();
-    
-    if (trimmed.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    
-    // Check if message contains Unicode emoji characters
-    final emojiPattern = RegExp(r'[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]', unicode: true);
-    final hasEmojiChar = emojiPattern.hasMatch(messageText);
-    
-    // For group chat: Only check for emoji codes if message is very short (likely an emoji ID/code)
-    // Regular text messages should NOT be matched with emojis
-    Map<String, dynamic>? emojiData;
-    bool isOnlyEmoji = false;
-    
-    // Only check for emoji if:
-    // 1. Message contains Unicode emoji characters, OR
-    // 2. Message is very short (<= 10 chars) and looks like an emoji code/ID (numeric or short code)
-    if (hasEmojiChar || (trimmed.length <= 10 && (RegExp(r'^\d+$').hasMatch(trimmed) || trimmed.length <= 5))) {
-      emojiData = _findEmojiByText(trimmed);
-      isOnlyEmoji = emojiData != null && trimmed.length <= 10 && !hasEmojiChar;
-    }
-    
-    // If message is ONLY an emoji code/ID (no Unicode emoji, very short, and matches an emoji)
-    if (isOnlyEmoji && messageText.trim() == trimmed && emojiData != null) {
-      return SizedBox(
-        width: 48,
-        height: 48,
-        child: HomeScreen.buildEmojiDisplay(
-          context,
-          emojiData!,
-          size: 48,
-        ),
-      );
-    }
-    
-    // If message contains Unicode emoji characters, parse and display with emoji images inline
-    if (hasEmojiChar) {
-      // Message has Unicode emoji characters - parse and display with emoji images
-      return RichText(
-        text: TextSpan(
-          style: ResponsiveHelper.textStyle(
-            context,
-            fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-            color: Colors.black87,
-          ),
-          children: _parseMessageWithEmojis(context, messageText),
-        ),
-      );
-    }
-    
-    // Regular text message - display as plain text (no emoji matching)
-    return Text(
-      messageText,
-      style: ResponsiveHelper.textStyle(
-        context,
-        fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-        color: Colors.black87,
-      ),
-    );
-  }
-  
-  /// Find emoji by text (can be character, code, image URL, or ID)
-  /// Only called for short messages that might be emoji codes
-  Map<String, dynamic>? _findEmojiByText(String text) {
-    if (text.isEmpty) return null;
-    
-    final trimmedText = text.trim();
-    // Only log for very short messages (likely emoji codes)
-    if (trimmedText.length <= 10) {
-    }
-    
-    for (var emoji in availableEmojis) {
-      final emojiChar = emoji['emoji_char'] as String? ?? '';
-      final emojiCode = emoji['code'] as String? ?? '';
-      final emojiImageUrl = emoji['image_url'] as String? ?? '';
-      final emojiId = emoji['id']?.toString() ?? '';
-      final emojiName = emoji['name'] as String? ?? '';
-      
-      // Strategy 1: Match by ID (most reliable for numeric IDs)
-      if (emojiId.isNotEmpty && emojiId == trimmedText) {
-        return emoji;
-      }
-      
-      // Strategy 2: Match by emoji_char
-      if (emojiChar.isNotEmpty && emojiChar.trim() == trimmedText) {
-        return emoji;
-      }
-      
-      // Strategy 3: Match by code
-      if (emojiCode.isNotEmpty && emojiCode.trim() == trimmedText) {
-        return emoji;
-      }
-      
-      // Strategy 4: Match by image_url filename
-      if (emojiImageUrl.isNotEmpty) {
-        String? textFilename;
-        String? urlFilename;
-        
-        if (trimmedText.contains('/')) {
-          textFilename = trimmedText.split('/').last.replaceAll('%20', ' ').toLowerCase();
-        } else {
-          textFilename = trimmedText.toLowerCase();
-        }
-        
-        if (emojiImageUrl.contains('/')) {
-          urlFilename = emojiImageUrl.split('/').last.replaceAll('%20', ' ').toLowerCase();
-        } else {
-          urlFilename = emojiImageUrl.toLowerCase();
-        }
-        
-        if (textFilename == urlFilename || 
-            emojiImageUrl.contains(trimmedText) || 
-            trimmedText.contains(emojiImageUrl)) {
-          return emoji;
-        }
-      }
-      
-      // Strategy 5: Match by name (partial match for filenames)
-      if (emojiName.isNotEmpty) {
-        final nameLower = emojiName.toLowerCase();
-        final textLower = trimmedText.toLowerCase();
-        // Check if text is part of emoji name (e.g., "Joy_Pineapple" matches "Joy_Pineapple (1).png")
-        if (nameLower.contains(textLower) || textLower.contains(nameLower.replaceAll(' ', '_'))) {
-          return emoji;
-        }
-      }
-    }
-    return null;
-  }
-
-  List<InlineSpan> _parseMessageWithEmojis(BuildContext context, String text) {
-    final List<InlineSpan> spans = [];
-    final emojiPattern = RegExp(r'[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]', unicode: true);
-    
-    // Also check for emoji codes (words with underscores like "joy_01", "kindness_peach_01")
-    final emojiCodePattern = RegExp(r'\b(joy|peace|love|patience|kindness|goodness|faithfulness|gentleness|meekness|self|control)[_\w]*\b', caseSensitive: false);
-    
-    int lastIndex = 0;
-    
-    // Find all potential emoji matches (both Unicode and codes)
-    final allMatches = <_EmojiMatch>[];
-    
-    // Unicode emoji matches
-    for (final match in emojiPattern.allMatches(text)) {
-      allMatches.add(_EmojiMatch(match.start, match.end, match.group(0)!, isUnicode: true));
-    }
-    
-    // Emoji code matches
-    for (final match in emojiCodePattern.allMatches(text)) {
-      allMatches.add(_EmojiMatch(match.start, match.end, match.group(0)!, isUnicode: false));
-    }
-    
-    // Sort by position
-    allMatches.sort((a, b) => a.start.compareTo(b.start));
-    
-    // Remove overlapping matches (keep first)
-    final nonOverlappingMatches = <_EmojiMatch>[];
-    for (var match in allMatches) {
-      if (nonOverlappingMatches.isEmpty || match.start >= nonOverlappingMatches.last.end) {
-        nonOverlappingMatches.add(match);
-      }
-    }
-    
-    // Build spans
-    for (final match in nonOverlappingMatches) {
-      // Add text before emoji
-      if (match.start > lastIndex) {
-        spans.add(TextSpan(
-          text: text.substring(lastIndex, match.start),
-        ));
-      }
-      
-      // Try to find emoji in available emojis
-      Map<String, dynamic>? emojiData;
-      
-      if (match.isUnicode) {
-        // Unicode emoji - match by emoji_char
-        for (var emoji in availableEmojis) {
-          if (emoji['emoji_char'] == match.text) {
-            emojiData = emoji;
-            break;
-          }
-        }
-      } else {
-        // Emoji code - match by code or name
-        emojiData = _findEmojiByText(match.text);
-      }
-      
-      if (emojiData != null) {
-        // Add emoji as widget span (will be rendered as image)
-        spans.add(WidgetSpan(
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: HomeScreen.buildEmojiDisplay(
-              context,
-              emojiData,
-              size: 20,
-            ),
-          ),
-        ));
-      } else {
-        // Fallback to text
-        spans.add(TextSpan(text: match.text));
-      }
-      
-      lastIndex = match.end;
-    }
-    
-    // Add remaining text
-    if (lastIndex < text.length) {
-      spans.add(TextSpan(text: text.substring(lastIndex)));
-    }
-    
-    return spans;
-  }
 }
-
-/// Helper class for emoji matches
-class _EmojiMatch {
-  final int start;
-  final int end;
-  final String text;
-  final bool isUnicode;
-  
-  _EmojiMatch(this.start, this.end, this.text, {this.isUnicode = true});
-}
-

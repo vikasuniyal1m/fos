@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/blogs_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Blogs Controller
 /// Manages blogs data and operations
@@ -104,6 +107,7 @@ class BlogsController extends GetxController {
         status: filterUserId.value > 0 ? 'Pending,Approved' : 'Approved',        category: null, // Always load all blogs for cache
         language: null, // Always load all blogs for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
@@ -149,7 +153,10 @@ class BlogsController extends GetxController {
     message.value = '';
 
     try {
-      final blog = await BlogsService.getBlogDetails(blogId);
+      final blog = await BlogsService.getBlogDetails(
+        blogId,
+        currentUserId: userId.value > 0 ? userId.value : null,
+      );
       selectedBlog.value = blog;
       
       // Load emojis and comments
@@ -168,14 +175,22 @@ class BlogsController extends GetxController {
 
   /// Load blog comments (with emoji reactions parsing)
   Future<void> loadBlogComments(int blogId) async {
+    print('⏱️ [BlogsController] Starting loadBlogComments for blogId: $blogId');
+    final startTime = DateTime.now();
+    
     try {
       final comments = await CommentsService.getComments(
         postType: 'blog',
         postId: blogId,
         userId: userId.value > 0 ? userId.value : null,
       );
+
+      final commentsFetchEndTime = DateTime.now();
+      print('⏱️ [BlogsController] CommentsService.getComments took: ${commentsFetchEndTime.difference(commentsFetchStartTime).inMilliseconds}ms');
+      
       
       // Parse emoji reactions from comments (same logic as prayers)
+      final emojiParsingStartTime = DateTime.now();
       final emojiReactions = <String, List<Map<String, dynamic>>>{};
       final textComments = <Map<String, dynamic>>[];
       
@@ -247,7 +262,8 @@ class BlogsController extends GetxController {
           }
         }
       }
-      
+      final emojiParsingEndTime = DateTime.now();
+      print('⏱️ [BlogsController] Emoji parsing took: ${emojiParsingEndTime.difference(emojiParsingStartTime).inMilliseconds}ms');
       blogComments.value = textComments;
       blogEmojiReactions.value = emojiReactions;
       print('✅ Loaded ${textComments.length} text comments and ${emojiReactions.length} emoji reaction types');
@@ -255,6 +271,9 @@ class BlogsController extends GetxController {
       print('❌ Error loading blog comments: $e');
       blogComments.value = [];
       blogEmojiReactions.value = <String, List<Map<String, dynamic>>>{};
+    } finally {
+      final endTime = DateTime.now();
+      print('⏱️ [BlogsController] loadBlogComments finished in: ${endTime.difference(startTime).inMilliseconds}ms');
     }
   }
   
@@ -349,6 +368,25 @@ class BlogsController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content
+    if (title.isNotEmpty) {
+      final titleCheck = ContentModerationService.checkContent(title);
+      if (!titleCheck['isClean']) {
+        message.value = 'Title: ${titleCheck['message']}';
+        _showModerationSnackbar(titleCheck['message']);
+        return false;
+      }
+    }
+
+    if (body.isNotEmpty) {
+      final bodyCheck = ContentModerationService.checkContent(body);
+      if (!bodyCheck['isClean']) {
+        message.value = 'Body: ${bodyCheck['message']}';
+        _showModerationSnackbar(bodyCheck['message']);
+        return false;
+      }
+    }
+
     isLoading.value = true;
     message.value = 'Creating blog...';
 
@@ -385,6 +423,14 @@ class BlogsController extends GetxController {
 
     if (userId.value == 0) {
       message.value = 'Please login first';
+      return false;
+    }
+
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
       return false;
     }
 
@@ -433,6 +479,15 @@ class BlogsController extends GetxController {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error toggling like: $e');
       return false;
+    }
+  }
+
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allBlogs = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
     }
   }
 
@@ -575,6 +630,22 @@ class BlogsController extends GetxController {
     } finally {
       isLoading.value = false;
     }
+  }
+
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    Get.snackbar(
+      'Community Guidelines',
+      message,
+      backgroundColor: const Color(0xFF5D4037),
+      colorText: Colors.white,
+      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+      mainButton: TextButton(
+        onPressed: () => Get.toNamed('/terms'), // Using string route if constant not imported
+        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
+      ),
+    );
   }
 }
 

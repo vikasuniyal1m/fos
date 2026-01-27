@@ -16,6 +16,7 @@ import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 
+import '../controllers/main_dashboard_controller.dart';
 import '../utils/app_theme.dart';
 
 /// Fruits of the Spirit Screen
@@ -197,7 +198,6 @@ class _FruitsScreenState extends State<FruitsScreen> {
       }).toList();
       
       print('✅ Filtered to ${emojis.length} fruit emojis matching fruits from table');
-      
       // Store all variants first (for variant dialog)
       final allVariants = List<Map<String, dynamic>>.from(emojis);
       
@@ -847,6 +847,68 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                         child: InkWell(
                           onTap: () async {
                             print('🖱️ Variant tapped: ${variant['name']}');
+
+                            // 1. Show Loading Dialog immediately
+                            Get.dialog(
+                              Center(
+                                child: Container(
+                                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 24)),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.2),
+                                        blurRadius: 20,
+                                        spreadRadius: 5,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        height: ResponsiveHelper.spacing(context, 40),
+                                        width: ResponsiveHelper.spacing(context, 40),
+                                        child: CircularProgressIndicator(
+                                          valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF8B4513)),
+                                          strokeWidth: 3,
+                                        ),
+                                      ),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, 20)),
+                                      Text(
+                                        'Updating feeling...',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: const Color(0xFF8B4513),
+                                          letterSpacing: 0.5,
+                                        ).copyWith(
+                                          decoration: TextDecoration.none, // Isse lines hat jayengi
+                                        ),
+                                      ),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                                      Text(
+
+                                        'Please wait a moment',
+                                        style: ResponsiveHelper.textStyle(
+
+
+                                          context,
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ).copyWith(
+                                          decoration: TextDecoration.none, // Isse lines hat jayengi
+                                        ),
+
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              barrierDismissible: false,
+                            );
                             // Record usage
                             try {
                               final userId = await UserStorage.getUserId();
@@ -948,8 +1010,15 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                       print('✅ STEP 3: Skipping API reload - local storage has correct data');
                                       print('✅ UI should show the selected variant: ${variant['name']}');
                                       
-                                      // Navigate to home page after fruit selection
-                                      Get.offNamedUntil(Routes.HOME, (route) => false);
+                                      // Navigate to dashboard after fruit selection to show bottom nav
+                                      if (Get.isRegistered<MainDashboardController>()) {
+                                        Get.find<MainDashboardController>().changeIndex(0);
+                                        if (Get.currentRoute != Routes.DASHBOARD) {
+                                          Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
+                                        }
+                                      } else {
+                                        Get.offAllNamed(Routes.DASHBOARD);
+                                      }
                                       
                                       // Show success message
                                       Get.snackbar(
@@ -977,8 +1046,15 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                         Navigator.of(context).pop();
                                       }
                                       
-                                      // Navigate to home page after fruit selection (even on error)
-                                      Get.offNamedUntil(Routes.HOME, (route) => false);
+                                      // Navigate to dashboard after fruit selection (even on error) to show bottom nav
+                                      if (Get.isRegistered<MainDashboardController>()) {
+                                        Get.find<MainDashboardController>().changeIndex(0);
+                                        if (Get.currentRoute != Routes.DASHBOARD) {
+                                          Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
+                                        }
+                                      } else {
+                                        Get.offAllNamed(Routes.DASHBOARD);
+                                      }
                                       
                                       // Show warning message
                                       Get.snackbar(
@@ -1486,7 +1562,7 @@ class _FruitsScreenContentState extends State<_FruitsScreenContent> {
         );
         },
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 1),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 1),
     );
   }
 

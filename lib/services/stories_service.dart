@@ -21,6 +21,7 @@ class StoriesService {
     String? fruitTag,
     int? userId,
     String? category,
+    int? currentUserId,
     int limit = 20,
     int offset = 0,
   }) async {
@@ -33,6 +34,7 @@ class StoriesService {
     if (fruitTag != null) queryParams['fruit_tag'] = fruitTag;
     if (userId != null) queryParams['user_id'] = userId.toString();
     if (category != null) queryParams['category'] = category;
+    if (currentUserId != null) queryParams['current_user_id'] = currentUserId.toString();
 
     final response = await ApiService.get(
       ApiConfig.stories,
@@ -52,10 +54,15 @@ class StoriesService {
   /// - storyId: Story ID
   /// 
   /// Returns: Story with comments
-  static Future<Map<String, dynamic>> getStoryDetails(int storyId) async {
+  static Future<Map<String, dynamic>> getStoryDetails(int storyId, {int? currentUserId}) async {
+    final queryParams = {'id': storyId.toString()};
+    if (currentUserId != null) {
+      queryParams['current_user_id'] = currentUserId.toString();
+    }
+    
     final response = await ApiService.get(
       ApiConfig.stories,
-      queryParameters: {'id': storyId.toString()},
+      queryParameters: queryParams,
     );
 
     if (response['success'] == true && response['data'] != null) {

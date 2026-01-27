@@ -11,6 +11,11 @@ import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
+import '../controllers/main_dashboard_controller.dart';
+import '../routes/app_pages.dart';
+import '../services/terms_service.dart';
+import '../services/user_storage.dart' as us;
+import 'terms_acceptance_screen.dart';
 
 /// Upload Video Screen - Modern User-Friendly Design
 class UploadVideoScreen extends StatefulWidget {
@@ -284,6 +289,18 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
   }
 
   Future<void> _uploadVideo() async {
+    // Check for terms acceptance
+    final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
+    if (!hasAcceptedFactors) {
+      Get.to(() => TermsAcceptanceScreen(
+        onAccepted: () {
+          Get.back(); // Pop the terms screen
+          _uploadVideo(); // Retry submission
+        },
+      ));
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -362,35 +379,43 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
       }
       
       // Wait a bit for snackbar to show, then navigate
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 1000));
       
-      // Navigate back and refresh
-      if (mounted && Navigator.canPop(context)) {
+      // Navigate back
+      if (mounted) {
+        if (Get.isRegistered<MainDashboardController>()) {
+          Get.find<MainDashboardController>().changeIndex(3);
+        }
         Get.back();
-        Future.delayed(const Duration(milliseconds: 300), () {
-          try {
-            controller.loadVideos(refresh: true, includePending: true);
-          } catch (e) {
-            print('Error refreshing videos: $e');
-          }
-        });
       }
     } else {
       // Show error message
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
+            final errorMsg = controller.message.value;
+            final isModeration = errorMsg.contains('community guidelines');
+
             Get.snackbar(
-              'Error',
-              controller.message.value.isNotEmpty 
-                  ? controller.message.value 
-                  : 'Failed to upload video. Please try again.',
-              backgroundColor: Colors.red,
+              isModeration ? 'Community Standard' : 'Notice',
+              errorMsg.isNotEmpty 
+                  ? errorMsg 
+                  : 'Action could not be completed. Please try again.',
+              backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
               colorText: Colors.white,
+              icon: Icon(
+                isModeration ? Icons.security_rounded : Icons.info_outline,
+                color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                size: 28,
+              ),
               snackPosition: SnackPosition.BOTTOM,
-              duration: const Duration(seconds: 3),
-              icon: const Icon(Icons.error, color: Colors.white),
+              duration: Duration(seconds: isModeration ? 5 : 3),
               margin: const EdgeInsets.all(16),
+              borderRadius: 12,
+              mainButton: isModeration ? TextButton(
+                onPressed: () => Get.toNamed(Routes.TERMS),
+                child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
+              ) : null,
             );
           }
         });

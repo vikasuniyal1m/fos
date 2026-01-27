@@ -9,6 +9,9 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/screens/report_content_screen.dart';
 
 /// Prayer Requests Screen
 /// Modern, user-friendly design with attractive UI
@@ -219,7 +222,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           ),
         ],
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 2),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 2),
     );
   }
 
@@ -468,6 +471,10 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
                       ],
                     ),
                   ),
+                  // Only show options (Report/Block) if the prayer is NOT created by the current user
+                  if (prayer['user_id'] != null && 
+                      prayer['user_id'].toString() != controller.userId.value.toString())
+                    _buildPrayerOptions(context, prayer),
                 ],
               ),
             ),
@@ -550,6 +557,80 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPrayerOptions(BuildContext context, Map<String, dynamic> prayer) {
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          Get.to(() => ReportContentScreen(
+                contentType: 'prayer',
+                contentId: prayer['id'] is int ? prayer['id'] : int.parse(prayer['id'].toString()),
+              ));
+        } else if (value == 'block') {
+          final userIdRaw = prayer['user_id'] ?? prayer['created_by'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            final currentUserId = await UserStorage.getUserId();
+            if (currentUserId == userId) {
+              Get.snackbar('Info', 'You cannot block yourself');
+              return;
+            }
+
+            final userName = prayer['user_name'] ?? prayer['name'] ?? 'this user';
+            final confirmed = await Get.dialog<bool>(
+              AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Get.back(result: true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                if (currentUserId != null) {
+                  await UserBlockingService.blockUser(userId);
+                  Get.snackbar('Success', 'User blocked');
+                  Get.find<PrayersController>().loadPrayers(refresh: true);
+                }
+              } catch (e) {
+                Get.snackbar('Error', 'Failed to block user');
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'report',
+          child: Row(
+            children: [
+              Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+              SizedBox(width: 8),
+              Text('Report Content'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'block',
+          child: Row(
+            children: [
+              Icon(Icons.block, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text('Block User'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

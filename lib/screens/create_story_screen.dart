@@ -4,8 +4,13 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:fruitsofspirit/services/stories_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/services/user_storage.dart' as us;
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/services/terms_service.dart';
+import 'package:fruitsofspirit/screens/terms_acceptance_screen.dart';
+
+import '../routes/app_pages.dart';
 
 /// Create Story Screen
 /// Professional, user-friendly design matching home page style
@@ -93,6 +98,17 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
   }
 
   Future<void> _createStory() async {
+    final hasAcceptedTerms = await TermsService.hasAcceptedTerms();
+    if (!hasAcceptedTerms) {
+      Get.to(() => TermsAcceptanceScreen(
+            onAccepted: () {
+              Get.back(); // Pop terms screen
+              _createStory(); // Retry
+            },
+          ));
+      return;
+    }
+
     if (userId == null || userId == 0) {
       await _loadUserId();
     }
@@ -180,13 +196,27 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
         Get.back();
       }
     } catch (e) {
+      final errorMsg = e.toString().replaceAll('Exception: ', '');
+      final isModeration = errorMsg.contains('community guidelines');
+
       Get.snackbar(
-        'Error',
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
+        isModeration ? 'Community Standard' : 'Notice',
+        errorMsg,
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
         colorText: Colors.white,
+        icon: Icon(
+          isModeration ? Icons.security_rounded : Icons.error_outline,
+          color: isModeration ? const Color(0xFFC79211) : Colors.white,
+          size: 28,
+        ),
         snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 3),
+        duration: Duration(seconds: isModeration ? 5 : 3),
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
+        mainButton: isModeration ? TextButton(
+          onPressed: () => Get.toNamed(Routes.TERMS),
+          child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
+        ) : null,
       );
     } finally {
       if (mounted) {

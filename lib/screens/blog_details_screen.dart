@@ -8,6 +8,9 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/screens/report_content_screen.dart';
 
 /// Blog Details Screen
 /// User-friendly and attractive UI with like, comment, and ask questions functionality
@@ -441,6 +444,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                     ],
                                   ),
                                 ),
+                                _buildBlogOptions(context, blog),
                               ],
                             ),
                             SizedBox(height: ResponsiveHelper.spacing(context, 20)),
@@ -942,6 +946,13 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                             child: TextField(
                               controller: commentController,
                               decoration: InputDecoration(
+                                prefixIcon: IconButton(
+                                  icon: const Icon(
+                                    Icons.emoji_emotions_outlined,
+                                    color: Color(0xFF8B4513),
+                                  ),
+                                  onPressed: () => _showEmojiPicker(context, blogId, controller),
+                                ),
                                 hintText: 'Write a comment...',
                                 border: InputBorder.none,
                                 hintStyle: ResponsiveHelper.textStyle(
@@ -1171,7 +1182,8 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 6)),
                     // Comment Content - blog_comments uses 'comment' field, not 'content'
-                    Text(
+                    FruitEmojiHelper.buildCommentText(
+                      context,
                       AutoTranslateHelper.getTranslatedTextSync(
                         text: (comment['comment'] as String? ?? comment['content'] as String? ?? '').trim(),
                         sourceLanguage: comment['language'] as String?,
@@ -1240,28 +1252,29 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                           ),
                         ),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
-                        // Report Button
-                        InkWell(
-                          onTap: () => _showReportDialog(context, comment),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.flag_outlined,
-                                size: ResponsiveHelper.iconSize(context, mobile: 18),
-                                color: AppTheme.iconscolor,
-                              ),
-                              SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                              Text(
-                                'Report',
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
-                                  color: Colors.grey[600],
+                        // Report Button - Only show for other users' comments
+                        if (currentUserId != null && (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()))
+                          InkWell(
+                            onTap: () => _showReportDialog(context, comment),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.flag_outlined,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 18),
+                                  color: AppTheme.iconscolor,
                                 ),
-                              ),
-                            ],
+                                SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                                Text(
+                                  'Report',
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ],
@@ -1438,7 +1451,8 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
           ),
           SizedBox(height: ResponsiveHelper.spacing(context, 12)),
           // Question Content
-          Text(
+          FruitEmojiHelper.buildCommentText(
+            context,
             AutoTranslateHelper.getTranslatedTextSync(
               text: displayContent,
               sourceLanguage: question['language'] as String?,
@@ -1857,28 +1871,29 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                   ),
                                 ),
                                 SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                                // Report Button for Reply
-                                InkWell(
-                                  onTap: () => _showReportDialog(context, reply),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.flag_outlined,
-                                        size: ResponsiveHelper.iconSize(context, mobile: 14),
-                                        color: Colors.grey[600],
-                                      ),
-                                      SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                                      Text(
-                                        'Report',
-                                        style: ResponsiveHelper.textStyle(
-                                          context,
-                                          fontSize: 11,
+                                // Report Button for Reply - Only show for other users' replies
+                                if (currentUserId != null && (reply['user_id'] != null && reply['user_id'].toString() != currentUserId.toString()))
+                                  InkWell(
+                                    onTap: () => _showReportDialog(context, reply),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.flag_outlined,
+                                          size: ResponsiveHelper.iconSize(context, mobile: 14),
                                           color: Colors.grey[600],
                                         ),
-                                      ),
-                                    ],
+                                        SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                                        Text(
+                                          'Report',
+                                          style: ResponsiveHelper.textStyle(
+                                            context,
+                                            fontSize: 11,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ],
@@ -1972,6 +1987,49 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                   fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
                   color: Colors.black87,
                 ),
+              ),
+              SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+              TextButton.icon(
+                onPressed: () async {
+                  final userIdRaw = comment['user_id'] ?? comment['created_by'];
+                  if (userIdRaw != null) {
+                    final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+                    if (userId == null) return;
+                    
+                    if (currentUserId == userId) {
+                      Get.snackbar('Info', 'You cannot block yourself');
+                      return;
+                    }
+
+                    final userName = comment['user_name'] ?? 'this user';
+                    final confirmed = await Get.dialog<bool>(
+                      AlertDialog(
+                        title: Text('Block $userName?'),
+                        content: const Text('You will no longer see content from this user.'),
+                        actions: [
+                          TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                          TextButton(onPressed: () => Get.back(result: true), child: const Text('Block', style: TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true) {
+                      try {
+                        if (currentUserId != null) {
+                          await UserBlockingService.blockUser(userId);
+                          Navigator.of(context).pop();
+                          Get.snackbar('Success', 'User blocked');
+                          final currentBlogId = controller.selectedBlog['id'] is int ? controller.selectedBlog['id'] : int.parse(controller.selectedBlog['id'].toString());
+                          controller.loadBlogDetails(currentBlogId);
+                        }
+                      } catch (e) {
+                        Get.snackbar('Error', 'Failed to block user');
+                      }
+                    }
+                  }
+                },
+                icon: const Icon(Icons.block, color: Colors.red, size: 20),
+                label: const Text('Block User', style: TextStyle(color: Colors.red)),
               ),
               SizedBox(height: ResponsiveHelper.spacing(context, 12)),
               TextField(
@@ -2562,6 +2620,93 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBlogOptions(BuildContext context, Map<String, dynamic> blog) {
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          Get.to(() => ReportContentScreen(
+                contentType: 'blog',
+                contentId: blog['id'] is int ? blog['id'] : int.parse(blog['id'].toString()),
+              ));
+        } else if (value == 'block') {
+          final userIdRaw = blog['user_id'] ?? blog['created_by'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            if (currentUserId == userId) {
+              Get.snackbar('Info', 'You cannot block yourself');
+              return;
+            }
+
+            final userName = blog['user_name'] ?? 'this blogger';
+            final confirmed = await Get.dialog<bool>(
+              AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Get.back(result: true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                if (currentUserId != null) {
+                  await UserBlockingService.blockUser(userId);
+                  Get.snackbar('Success', 'User blocked');
+                  Get.back(); // Back to list
+                }
+              } catch (e) {
+                Get.snackbar('Error', 'Failed to block user');
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) {
+        final List<PopupMenuEntry<String>> items = [];
+        
+        final userIdRaw = blog['user_id'] ?? blog['created_by'];
+        final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+        
+        // Only show options if it's NOT the current user's blog
+        if (posterId != null && posterId != currentUserId) {
+          items.add(
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Text('Report Content'),
+                ],
+              ),
+            ),
+          );
+          items.add(
+            const PopupMenuItem(
+              value: 'block',
+              child: Row(
+                children: [
+                  Icon(Icons.block, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Text('Block User'),
+                ],
+              ),
+            ),
+          );
+        }
+        
+        return items;
+      },
     );
   }
 }

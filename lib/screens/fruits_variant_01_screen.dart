@@ -385,7 +385,6 @@ class _FruitsVariant01ScreenState extends State<FruitsVariant01Screen> {
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 1),
     );
   }
 

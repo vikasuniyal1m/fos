@@ -1,3 +1,5 @@
+import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -6,6 +8,10 @@ import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
+import '../controllers/main_dashboard_controller.dart';
+import '../services/terms_service.dart';
+import '../services/user_storage.dart' as us;
+import 'terms_acceptance_screen.dart';
 
 /// Create Blog Screen (Bloggers Only)
 class CreateBlogScreen extends StatefulWidget {
@@ -42,13 +48,52 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      setState(() {
-        selectedImage = File(image.path);
-      });
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+
+    if (pickedFile != null) {
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: pickedFile.path,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop Image',
+            toolbarColor: AppTheme.iconscolor,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false, // Allow free cropping
+            hideBottomControls: false,
+            statusBarColor: AppTheme.iconscolor, // Match status bar color
+            activeControlsWidgetColor: AppTheme.iconscolor,
+            aspectRatioPresets: [
+              CropAspectRatioPreset.square,
+              CropAspectRatioPreset.ratio3x2,
+              CropAspectRatioPreset.ratio4x3,
+              CropAspectRatioPreset.ratio16x9,
+              CropAspectRatioPreset.original,
+            ],
+          ),
+          IOSUiSettings(
+            title: 'Crop Image',
+            aspectRatioLockEnabled: false, // Allow free cropping
+            doneButtonTitle: 'Done',
+            cancelButtonTitle: 'Cancel',
+            minimumAspectRatio: 1.0,
+            aspectRatioPresets: [
+              CropAspectRatioPreset.square,
+              CropAspectRatioPreset.ratio3x2,
+              CropAspectRatioPreset.ratio4x3,
+              CropAspectRatioPreset.ratio16x9,
+              CropAspectRatioPreset.original,
+            ],
+          ),
+        ],
+      );
+
+      if (croppedFile != null) {
+        setState(() {
+          selectedImage = File(croppedFile.path);
+        });
+      }
     }
-    return;
   }
 
   void _removeImage() {
@@ -58,13 +103,26 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
   }
 
   Future<void> _submitBlog() async {
+    print('[_submitBlog] function called.');
+
+    // Check for terms acceptance
+    final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
+    if (!hasAcceptedFactors) {
+      Get.to(() => TermsAcceptanceScreen(
+        onAccepted: () {
+          Get.back(); // Pop the terms screen
+          _submitBlog(); // Retry submission
+        },
+      ));
+      return;
+    }
     // Validation
     if (titleController.text.trim().isEmpty) {
       Get.snackbar(
-        'Error',
+        'Suggestion',
         'Please enter blog title',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        backgroundColor: Colors.orange.shade300,
+        colorText: Colors.black,
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
@@ -72,10 +130,10 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
 
     if (bodyController.text.trim().isEmpty) {
       Get.snackbar(
-        'Error',
+        'Suggestion',
         'Please enter blog content',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        backgroundColor: Colors.orange.shade300,
+        colorText: Colors.black,
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
@@ -83,10 +141,10 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
 
     if (bodyController.text.trim().length < 50) {
       Get.snackbar(
-        'Error',
-        'Blog content must be at least 50 characters',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        'Suggestion',
+        'Blog content must be at least 50 characters long.',
+        backgroundColor: Colors.orange.shade300,
+        colorText: Colors.black,
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
@@ -100,48 +158,69 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
       image: selectedImage,
     );
 
-    if (success) {
-      // Show success message FIRST (before navigation)
+  if (success) {
+      print('Blog creation successful. Mounted: $mounted');
+
+      // Show success message
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Get.snackbar(
-              'Success',
-              controller.message.value.isNotEmpty 
-                  ? controller.message.value 
-                  : 'Blog created successfully!',
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
-              snackPosition: SnackPosition.BOTTOM,
-              duration: const Duration(seconds: 2),
-              margin: const EdgeInsets.all(16),
-            );
-          }
-        });
+        Get.snackbar(
+          'Success',
+          controller.message.value.isNotEmpty
+              ? controller.message.value
+              : 'Blog created successfully! Waiting for approval.',
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 2),
+          margin: const EdgeInsets.all(16),
+          icon: const Icon(Icons.check_circle, color: Colors.white),
+        );
       }
       
-      // Wait a bit for snackbar to show, then navigate
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // Navigate back
-      if (mounted && Navigator.canPop(context)) {
-        Get.back();
+      // Update Dashboard Tab if available
+      if (Get.isRegistered<MainDashboardController>()) {
+        try {
+          Get.find<MainDashboardController>().changeIndex(0); // Switch to Home tab
+        } catch (e) {
+          print('Error changing dashboard index: $e');
+        }
       }
-    } else {
+      
+      // Wait briefly for snackbar
+      await Future.delayed(const Duration(milliseconds: 1500));
+      
+      // STRONG NAVIGATION: Clear stack until Dashboard
+      Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
+    } 
+    else {
+      print('Blog creation failed.');
       // Show error message
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
+            final errorMsg = controller.message.value;
+            final isModeration = errorMsg.contains('community guidelines');
+
             Get.snackbar(
-              'Error',
-              controller.message.value.isNotEmpty 
-                  ? controller.message.value 
-                  : 'Failed to create blog. Please try again.',
-              backgroundColor: Colors.red,
-              colorText: Colors.white,
+              isModeration ? 'Community Standard' : 'Community Suggestion',
+              errorMsg.isNotEmpty 
+                  ? errorMsg 
+                  : 'Action could not be completed. Please try again.',
+              backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.orange.shade300,
+              colorText: isModeration ? Colors.white : Colors.black,
+              icon: Icon(
+                isModeration ? Icons.security_rounded : Icons.tips_and_updates_outlined,
+                color: isModeration ? const Color(0xFFC79211) : Colors.black,
+                size: 28,
+              ),
               snackPosition: SnackPosition.BOTTOM,
-              duration: const Duration(seconds: 3),
+              duration: Duration(seconds: isModeration ? 5 : 3),
               margin: const EdgeInsets.all(16),
+              borderRadius: 12,
+              mainButton: isModeration ? TextButton(
+                onPressed: () => Get.toNamed(Routes.TERMS),
+                child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
+              ) : null,
             );
           }
         });
@@ -314,7 +393,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                               borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
                               child: Image.file(
                                 selectedImage!,
-                                fit: BoxFit.cover,
+                                fit: BoxFit.contain,
                                 width: double.infinity,
                                 height: double.infinity,
                               ),
@@ -560,14 +639,15 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                 ),
               ),
               SizedBox(height: ResponsiveHelper.spacing(context, 8)),
-              Text(
-                '${bodyController.text.length} characters',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
-                  color: bodyController.text.length < 50 ? Colors.red : Colors.grey[600],
+              if (bodyController.text.trim().length < 50)
+                Text(
+                  'Minimum 50 characters required',
+                  style: ResponsiveHelper.textStyle(
+                    context,
+                    fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
+                    color: AppTheme.iconscolor, // Changed to theme color for suggestion
+                  ),
                 ),
-              ),
               SizedBox(height: ResponsiveHelper.spacing(context, 32)),
 
               // Submit Button

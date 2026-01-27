@@ -18,6 +18,7 @@ class PrayersService {
     String status = 'Approved',
     String? category,
     int? userId,
+    int? currentUserId,
     int limit = 20,
     int offset = 0,
   }) async {
@@ -32,6 +33,9 @@ class PrayersService {
     }
     if (userId != null) {
       queryParams['user_id'] = userId.toString();
+    }
+    if (currentUserId != null) {
+      queryParams['current_user_id'] = currentUserId.toString();
     }
 
     final response = await ApiService.get(
@@ -52,10 +56,15 @@ class PrayersService {
   /// - prayerId: Prayer request ID
   /// 
   /// Returns: Prayer request with responses
-  static Future<Map<String, dynamic>> getPrayerDetails(int prayerId) async {
+  static Future<Map<String, dynamic>> getPrayerDetails(int prayerId, {int? currentUserId}) async {
+    final queryParams = {'id': prayerId.toString()};
+    if (currentUserId != null) {
+      queryParams['current_user_id'] = currentUserId.toString();
+    }
+    
     final response = await ApiService.get(
       ApiConfig.prayers,
-      queryParameters: {'id': prayerId.toString()},
+      queryParameters: queryParams,
     );
 
     if (response['success'] == true && response['data'] != null) {

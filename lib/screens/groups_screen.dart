@@ -84,7 +84,7 @@ class GroupsScreen extends GetView<GroupsController> {
 
               if (controller.groups.isEmpty) {
                 return Center(
-                  child: Padding(
+                  child: SingleChildScrollView( // Added SingleChildScrollView
                     padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 24)),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -267,13 +267,14 @@ class GroupsScreen extends GetView<GroupsController> {
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(12),
               ),
-              child: AspectRatio(
-                aspectRatio: 16 / 9, // Professional aspect ratio
+              child: SizedBox( // Use SizedBox to give a fixed height
+                height: MediaQuery.of(context).size.height * 0.2, // Use a percentage of screen height
+                width: double.infinity,
                 child: CachedImage(
                   imageUrl: imageUrl,
                   width: double.infinity,
                   height: double.infinity,
-                  fit: BoxFit.cover,
+                  fit: BoxFit.contain, // Change to contain to show full image
                   errorWidget: Container(
                     width: double.infinity,
                     height: double.infinity,
@@ -435,45 +436,47 @@ class GroupsScreen extends GetView<GroupsController> {
                               });
                             }
                           } else {
-                            // Set selected group in controller for jingle service
-                            controller.selectedGroup.value = group;
-                            
-                            // Get category and play jingle before navigation
-                            final category = group['category'] as String? ?? '';
-                            print('🔊 Group category: $category');
-                            if (category.isNotEmpty) {
-                              final jingleService = JingleService();
-                              
-                              // Check if we should show disable option after this play
-                              jingleService.shouldShowDisableOption(category).then((shouldShow) {
-                                // Start jingle first (non-blocking)
-                                jingleService.startJingle(category).then((started) {
-                                  print('🔊 Jingle started: $started');
-                                  
-                                  // Wait a bit for jingle to start, then navigate
-                                  Future.delayed(const Duration(milliseconds: 800), () {
-                                    Get.toNamed(
-                                      Routes.GROUP_CHAT,
-                                      arguments: group['id'],
-                                    );
-                                  });
-                                }).catchError((error) {
-                                  print('⚠️ Error starting jingle: $error');
-                                  // Navigate anyway if jingle fails
-                                  Get.toNamed(
-                                    Routes.GROUP_CHAT,
-                                    arguments: group['id'],
+                              // Show loading indicator
+                              Get.dialog(
+                                const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                                barrierDismissible: false,
+                              );
+
+                              // Load group details
+                              await controller.loadGroupDetails(group['id'] as int);
+
+                              // Dismiss loading indicator
+                              Get.back(); // Dismiss the dialog
+
+                              if (controller.selectedGroup.value != null) {
+                                // Get category and play jingle before navigation
+                                final category = group['category'] as String? ?? '';
+                                print('🔊 Group category: $category');
+                                if (category.isNotEmpty) {
+                                final jingleService = Get.find<JingleService>();
+                                  // Pre-load the jingle specifically for this category
+                                  jingleService.startJingle(category);
+                                }
+                                // Navigation to Group Details
+                                Get.toNamed(Routes.GROUP_CHAT, arguments: group['id']);
+                              } else {
+                                // Show error if group details failed to load
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  Get.snackbar(
+                                    'Error',
+                                    controller.message.value.isNotEmpty
+                                        ? controller.message.value
+                                        : 'Failed to load group details. Please try again.',
+                                    backgroundColor: Colors.red,
+                                    colorText: Colors.white,
+                                    snackPosition: SnackPosition.BOTTOM,
+                                    duration: const Duration(seconds: 3),
+                                    margin: const EdgeInsets.all(16),
                                   );
                                 });
-                              });
-                            } else {
-                              print('⚠️ No category found for group');
-                              // No category, navigate directly
-                              Get.toNamed(
-                                Routes.GROUP_CHAT,
-                                arguments: group['id'],
-                              );
-                            }
+                              }
                           }
                         },
                         icon: Icon(
@@ -507,11 +510,39 @@ class GroupsScreen extends GetView<GroupsController> {
                     // Details Button
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () {
-                          Get.toNamed(
-                            Routes.GROUP_DETAILS,
-                            arguments: group['id'],
+                        onPressed: () async {
+                          // Show loading indicator
+                          Get.dialog(
+                            const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                            barrierDismissible: false,
                           );
+
+                          try {
+                            // Load group details
+                            await controller.loadGroupDetails(group['id'] as int);
+                            // Dismiss loading indicator
+                            Get.back();
+                            // Navigate to details page
+                            Get.toNamed(
+                              Routes.GROUP_DETAILS,
+                              arguments: group['id'],
+                            );
+                          } catch (e) {
+                            // Dismiss loading indicator
+                            Get.back();
+                            // Show error message
+                            Get.snackbar(
+                              'Error',
+                              'Failed to load group details: ${e.toString().replaceAll('Exception: ', '')}',
+                              backgroundColor: Colors.red,
+                              colorText: Colors.white,
+                              snackPosition: SnackPosition.BOTTOM,
+                              duration: const Duration(seconds: 3),
+                              margin: const EdgeInsets.all(16),
+                            );
+                          }
                         },
                         icon: Icon(
                           Icons.info_outline,

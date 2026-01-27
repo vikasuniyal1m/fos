@@ -5,6 +5,8 @@ import 'package:fruitsofspirit/services/group_posts_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Group Posts Controller
 /// Manages group posts, reactions, and comments
@@ -198,6 +200,16 @@ class GroupPostsController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content in post
+    if (postType == 'text' && content.isNotEmpty) {
+      final moderationCheck = ContentModerationService.checkContent(content);
+      if (!moderationCheck['isClean']) {
+        message.value = moderationCheck['message'];
+        _showModerationSnackbar(moderationCheck['message']);
+        return false;
+      }
+    }
+
     isLoading.value = true;
     message.value = 'Creating post...';
 
@@ -315,6 +327,14 @@ class GroupPostsController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
+      return false;
+    }
+
     try {
       await CommentsService.addComment(
         userId: userId.value,
@@ -345,6 +365,22 @@ class GroupPostsController extends GetxController {
   /// Refresh Posts
   Future<void> refresh() async {
     await loadGroupPosts(currentGroupId.value, refresh: true);
+  }
+
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    Get.snackbar(
+      'Community Guidelines',
+      message,
+      backgroundColor: const Color(0xFF5D4037),
+      colorText: Colors.white,
+      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+      mainButton: TextButton(
+        onPressed: () => Get.toNamed('/terms'), // Using string route if constant not imported
+        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
+      ),
+    );
   }
 }
 

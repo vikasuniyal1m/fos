@@ -15,6 +15,7 @@ import 'package:fruitsofspirit/services/data_loading_service.dart';
 import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
+import 'package:fruitsofspirit/services/intro_service.dart';
 
 class HomeController extends GetxController {
   // ScrollController for smooth scrolling
@@ -42,15 +43,48 @@ class HomeController extends GetxController {
   var userFeeling = Rxn<Map<String, dynamic>>(); // Current user's feeling (null if not recorded)
   var userName = ''.obs; // Current user's name
   
+  // Performance: Track if data is already loaded to prevent unnecessary reloads
+  var _isDataLoaded = false;
+  var _isLoading = false;
+  
   // Performance: Track if emojis are already loaded
   var _isEmojisLoaded = false;
   var _isLoadingEmojis = false;
+
+  // Intro overlay state
+  var showIntroOverlay = false.obs;
 
   @override
   void onInit() {
     super.onInit();
     _loadUserId();
     _initializeData();
+  }
+
+  @override
+  void onReady() {
+    super.onReady();
+    checkIntro(); // Call checkIntro when the controller is ready
+  }
+
+  void checkIntro() async {
+    // If already showing or already checked in this session, don't do it again
+    if (showIntroOverlay.value) return;
+
+    // Wait for a small delay to ensure home screen is rendered
+    await Future.delayed(const Duration(milliseconds: 1000));
+
+    // Show intro overlay if not skipped permanently
+    if (IntroService.shouldShowIntroOverlay()) {
+      print('🎬 Showing Intro Overlay on Home Page');
+      showIntroOverlay.value = true;
+    } else {
+      print('🎬 Intro Overlay skipped (already marked as skip)');
+    }
+  }
+
+  void closeIntroOverlay() {
+    showIntroOverlay.value = false;
   }
 
   Future<void> _loadUserId() async {
@@ -205,7 +239,7 @@ class HomeController extends GetxController {
         final apiUpdatedAt = feeling['updated_at'] as String?;
         final currentCreatedAt = currentFeeling?['created_at'] as String?;
         final apiCreatedAt = feeling['created_at'] as String?;
-        
+
         print('🍎 FRUIT ISSUE: 🔍 ID Comparison:');
         print('🍎 FRUIT ISSUE:   - apiEmojiId: $apiEmojiId');
         print('🍎 FRUIT ISSUE:   - currentEmojiDetailsId: $currentEmojiDetailsId');
@@ -333,8 +367,13 @@ class HomeController extends GetxController {
   Future<void> updateUserFeeling(String emoji, {Map<String, dynamic>? emojiData}) async {
     print('🍎 FRUIT ISSUE: updateUserFeeling called - emoji=$emoji, emojiData=${emojiData?['name'] ?? 'null'}');
     if (userId.value <= 0) {
-      print('🍎 FRUIT ISSUE: ⚠️ Cannot update feeling: userId is ${userId.value}');
-      return;
+      final id = await UserStorage.getUserId();
+      if (id != null) {
+        userId.value = id;
+      } else {
+        print('🍎 FRUIT ISSUE: ⚠️ Cannot update feeling: userId is still ${userId.value}');
+        return;
+      }
     }
     
     print('🍎 FRUIT ISSUE: 🔄 Updating user feeling with emoji: $emoji');
@@ -422,14 +461,19 @@ class HomeController extends GetxController {
       print('🍎 FRUIT ISSUE: ✅ Saved emoji_details: ${optimisticFeeling['emoji_details']?['name'] ?? 'null'}');
       print('🍎 FRUIT ISSUE: ✅ Saved emoji_details ID: ${optimisticFeeling['emoji_details']?['id'] ?? 'null'}');
       print('🍎 FRUIT ISSUE: ✅ Saved timestamp: ${optimisticFeeling['updated_at']}');
-      
+
       // STEP 2: Update UI instantly - this should trigger Obx rebuild
       // IMPORTANT: Set to null first, then set new value to force GetX to detect change
       // This ensures UI updates even if emoji code is the same but details changed
       print('🍎 FRUIT ISSUE: 🔄 Updating UI - setting userFeeling.value to null first');
       userFeeling.value = null;
-      await Future.delayed(const Duration(milliseconds: 10));
+      print('🍎 FRUIT ISSUE: 🔄 Step 2.1: userFeeling set to null (rebuild triggered)');
+      
+      await Future.delayed(const Duration(milliseconds: 50)); // Slightly longer delay
+      
       userFeeling.value = Map<String, dynamic>.from(optimisticFeeling);
+      print('🍎 FRUIT ISSUE: ✅ Step 2.2: userFeeling updated with value: ${userFeeling.value?['emoji']}');
+      userFeeling.refresh(); // Force another refresh
       
       print('🍎 FRUIT ISSUE: ✅ User feeling updated instantly in UI with emoji: $emoji');
       print('🍎 FRUIT ISSUE: ✅ userFeeling.value emoji: ${userFeeling.value?['emoji']}');
@@ -437,13 +481,13 @@ class HomeController extends GetxController {
       print('🍎 FRUIT ISSUE: ✅ userFeeling.value emoji_details ID: ${userFeeling.value?['emoji_details']?['id'] ?? 'null'}');
       print('🍎 FRUIT ISSUE: ✅ userFeeling.value has emoji_details: ${userFeeling.value?['emoji_details'] != null}');
       print('🍎 FRUIT ISSUE: ✅ New timestamp: ${optimisticFeeling['updated_at']}');
-      
+
       // Force UI refresh multiple times to ensure update
       userFeeling.refresh();
       await Future.delayed(const Duration(milliseconds: 50));
       userFeeling.refresh();
       print('✅ Forced UI refresh multiple times');
-      
+
       // Note: Backend update should be done BEFORE calling this function
       // This function just updates UI optimistically
       // The caller should reload from API after backend update
@@ -459,8 +503,93 @@ class HomeController extends GetxController {
     }
   }
 
+  /// Set initial data from cache or external service
+  void setInitialData(Map<String, dynamic> data) {
+    if (data.isEmpty) return;
+
+    print('🏠 HomeController: Setting initial data from external source...');
+
+    if (data['fruits'] != null && (data['fruits'] as List).isNotEmpty) {
+      fruits.value = List<Map<String, dynamic>>.from(data['fruits']);
+    }
+    if (data['prayers'] != null && (data['prayers'] as List).isNotEmpty) {
+      prayers.value = List<Map<String, dynamic>>.from(data['prayers']);
+    }
+    if (data['blogs'] != null && (data['blogs'] as List).isNotEmpty) {
+      blogs.value = List<Map<String, dynamic>>.from(data['blogs']);
+    }
+    if (data['videos'] != null && (data['videos'] as List).isNotEmpty) {
+      videos.value = List<Map<String, dynamic>>.from(data['videos']);
+    }
+    if (data['liveVideos'] != null && (data['liveVideos'] as List).isNotEmpty) {
+      liveVideos.value = List<Map<String, dynamic>>.from(data['liveVideos']);
+    }
+    if (data['galleryPhotos'] != null && (data['galleryPhotos'] as List).isNotEmpty) {
+      galleryPhotos.value = List<Map<String, dynamic>>.from(data['galleryPhotos']);
+    }
+    if (data['stories'] != null && (data['stories'] as List).isNotEmpty) {
+      stories.value = List<Map<String, dynamic>>.from(data['stories']);
+    }
+    if (data['groups'] != null && (data['groups'] as List).isNotEmpty) {
+      groups.value = List<Map<String, dynamic>>.from(data['groups']);
+    }
+    if (data['emojis'] != null && (data['emojis'] as List).isNotEmpty) {
+      final emojisList = List<Map<String, dynamic>>.from(data['emojis']);
+      
+      // Categorize emojis
+      final mainFruitsList = <Map<String, dynamic>>[];
+      final allEmojisList = <Map<String, dynamic>>[];
+      final oppositeEmojisList = <Map<String, dynamic>>[];
+      final emotionEmojisList = <Map<String, dynamic>>[];
+      
+      for (var emoji in emojisList) {
+        final category = emoji['category'] as String? ?? '';
+        final name = (emoji['name'] as String? ?? '').toLowerCase();
+        allEmojisList.add(emoji);
+        
+        final fruitNames = ['goodness', 'joy', 'kindness', 'peace', 'patience', 'faithfulness', 'gentleness', 'meekness', 'self-control', 'self control', 'love'];
+        final hasFruitName = fruitNames.any((fruit) => name.contains(fruit));
+        
+        if (category.toLowerCase().contains('fruit') || category == 'Fruits' || (category.isEmpty && hasFruitName)) {
+          mainFruitsList.add(emoji);
+        } else if (category.toLowerCase().contains('opposite')) {
+          oppositeEmojisList.add(emoji);
+        } else if (category.toLowerCase().contains('emotion')) {
+          emotionEmojisList.add(emoji);
+        }
+      }
+      
+      emojis.value = mainFruitsList;
+      allEmojis.value = allEmojisList;
+      oppositeEmojis.value = oppositeEmojisList;
+      emotionEmojis.value = emotionEmojisList;
+      _isEmojisLoaded = true;
+    }
+
+    // Mark data as loaded to prevent redundant loads
+    _isDataLoaded = true;
+
+    // If we have some data, we can stop initial loading
+    if (fruits.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
+      isInitialLoading.value = false;
+      print('✅ HomeController: Initial loading finished (data populated via setInitialData)');
+    }
+    
+    // Refresh UI
+    fruits.refresh();
+    prayers.refresh();
+    blogs.refresh();
+  }
+
   /// Initialize data: load from cache first (instant), then refresh in background
   Future<void> _initializeData() async {
+    // If data already loaded externally (e.g. from SplashScreen via setInitialData), skip
+    if (_isDataLoaded && (fruits.isNotEmpty || prayers.isNotEmpty)) {
+      isInitialLoading.value = false;
+      print('🏠 HomeController: Data already loaded externally, skipping _initializeData');
+      return;
+    }
+
     isInitialLoading.value = true;
     message.value = '';
 
@@ -472,14 +601,20 @@ class HomeController extends GetxController {
       if (fruits.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
         isInitialLoading.value = false;
         print('✅ Data loaded from cache - showing instantly');
+        
+        // Then load fresh data from API in background (silent update)
+        loadHomeData().then((_) {
+          print('✅ Background data refresh completed');
+        }).catchError((e) {
+          print('⚠️ Background refresh error: $e');
+        });
+      } else {
+        // If NO cache, we MUST wait for the API to show something
+        print('🔄 No cache found, waiting for initial data load...');
+        await loadHomeData(showLoading: false);
+        isInitialLoading.value = false;
+        print('✅ Initial data load completed');
       }
-
-      // Then load fresh data from API in background (silent update)
-      loadHomeData().then((_) {
-        print('✅ Background data refresh completed');
-      }).catchError((e) {
-        print('⚠️ Background refresh error: $e');
-      });
     } catch (e) {
       message.value = 'Error loading data: ${e.toString()}';
       print('Error initializing home data: $e');
@@ -637,7 +772,7 @@ class HomeController extends GetxController {
       await CacheService.cacheList('home_stories', stories);
       await CacheService.cacheList('home_groups', groups);
       await CacheService.cacheList('home_emojis', emojis);
-      
+
       print('💾 All data cached successfully (Hive + SharedPreferences)');
     } catch (e) {
       print('⚠️ Error caching data: $e');
@@ -757,6 +892,7 @@ class HomeController extends GetxController {
     try {
       final prayersList = await PrayersService.getPrayers(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 50, // Increased limit to show more prayers
       );
       prayers.value = prayersList;
@@ -774,6 +910,7 @@ class HomeController extends GetxController {
     try {
       final blogsList = await BlogsService.getBlogs(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 5,
       );
       blogs.value = blogsList;
@@ -792,12 +929,13 @@ class HomeController extends GetxController {
       // Load approved videos
       final approvedVideos = await VideosService.getVideos(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 5,
       );
       
       // Load pending videos for current user if logged in
       List<Map<String, dynamic>> allVideos = List.from(approvedVideos);
-      
+
       if (userId.value > 0) {
         try {
           final pendingVideos = await VideosService.getVideos(
@@ -849,6 +987,7 @@ class HomeController extends GetxController {
     try {
       final storiesList = await StoriesService.getStories(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 100, // Load all approved stories
       );
       stories.value = storiesList;
@@ -895,6 +1034,7 @@ class HomeController extends GetxController {
     try {
       final photosList = await GalleryService.getPhotos(
         status: 'Approved',
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: 6,
       );
       
@@ -907,7 +1047,7 @@ class HomeController extends GetxController {
       for (var img in photosList) {
         print('   - API: ${img['file_path']}');
       }
-      
+
       // Merge API photos with static images (static images first)
       galleryPhotos.value = [...staticImages, ...photosList];
       print('✅ Total gallery photos: ${galleryPhotos.length}');
@@ -964,7 +1104,7 @@ class HomeController extends GetxController {
       print('⚠️ Emojis already loading, skipping...');
       return;
     }
-    
+
     // Performance: Skip if data already loaded and not refreshing
     if (_isEmojisLoaded && !refresh && emojis.isNotEmpty) {
       print('✅ Emojis already loaded (${emojis.length} items), skipping reload...');

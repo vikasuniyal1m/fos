@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:get/get.dart';
 import 'dart:io' show Platform;
-import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:bootstrap_icons/bootstrap_icons.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -9,6 +10,16 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:fruitsofspirit/services/auth_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart' show ApprovalPendingException, ApiException, NetworkException, RoleMismatchException;
+import 'package:fruitsofspirit/services/intro_service.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/prayers_controller.dart';
+import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/notifications_controller.dart';
+import 'package:fruitsofspirit/controllers/profile_controller.dart';
+import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/blogs_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
+import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -25,6 +36,20 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   String? _loginError; // Store login error message
+
+  void _reinitializeControllers() {
+    // Re-initialize core controllers to load new user data
+    // These were deleted during logout to prevent data leak
+    Get.put(HomeController(), permanent: true);
+    Get.put(PrayersController(), permanent: true);
+    Get.put(GroupsController(), permanent: true);
+    Get.put(NotificationsController(), permanent: true);
+    Get.put(ProfileController(), permanent: true);
+    Get.put(FruitsController(), permanent: true);
+    Get.put(BlogsController(), permanent: true);
+    Get.put(VideosController(), permanent: true);
+    Get.put(GalleryController(), permanent: true);
+  }
 
   @override
   void dispose() {
@@ -71,8 +96,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user data in SharedPreferences
       await UserStorage.saveUser(user);
 
+      // Re-initialize controllers to load new user data
+      _reinitializeControllers();
+
       if (mounted) {
-        Get.offAllNamed(Routes.HOME);
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {
       if (mounted) {
@@ -167,8 +195,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         // Save user data
                         await UserStorage.saveUser(user);
                         
+                        // Re-initialize controllers
+                        _reinitializeControllers();
+
                         if (mounted) {
-                          Get.offAllNamed(Routes.HOME);
+                          Get.offAllNamed(Routes.DASHBOARD);
                         }
                       } catch (loginError) {
                         if (mounted) {
@@ -353,8 +384,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user data
       await UserStorage.saveUser(user);
 
+      // Re-initialize controllers
+      _reinitializeControllers();
+
       if (mounted) {
-        Get.offAllNamed(Routes.HOME);
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on SignInWithAppleAuthorizationException catch (e) {
       // Handle Apple Sign In specific errors
@@ -570,8 +604,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user data
       await UserStorage.saveUser(user);
 
+      // Re-initialize controllers
+      _reinitializeControllers();
+
       if (mounted) {
-        Get.offAllNamed(Routes.HOME);
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {
       if (mounted) {
@@ -872,7 +909,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       hintText: "Email or Phone Number",
                       prefixIcon: Icon(
                         Icons.person, 
-                        color: const Color(0xFFC79211),
+                        color: AppTheme.iconscolor,
                         size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 26),
                       ),
                       filled: true,
@@ -884,15 +921,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
@@ -929,7 +966,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     decoration: InputDecoration(
                       prefixIcon: Icon(
                         Icons.person_outline, 
-                        color: const Color(0xFFC79211),
+                        color: AppTheme.iconscolor,
                         size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 26),
                       ),
                       labelText: "Select Role",
@@ -943,15 +980,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
@@ -1022,7 +1059,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       hintText: "Password",
                       prefixIcon: Icon(
                         Icons.lock, 
-                        color: const Color(0xFFC79211),
+                        color: AppTheme.iconscolor,
                         size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 26),
                       ),
                       filled: true,
@@ -1035,7 +1072,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          color: const Color(0xFFC79211),
+                          color: AppTheme.iconscolor,
                           size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 26),
                         ),
                         onPressed: () {
@@ -1046,15 +1083,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.2),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.2),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
@@ -1160,7 +1197,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       }, // Navigate to PhoneAuthScreen
                       style: ResponsiveHelper.adaptiveButtonStyle(
                         context,
-                        backgroundColor: const Color(0xFF9F9467),
+                        backgroundColor: const Color(0xFF9F9467).withOpacity(0.8),
                         foregroundColor: Colors.white,
                       ).copyWith(
                         padding: MaterialStateProperty.all(

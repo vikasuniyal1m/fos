@@ -25,17 +25,20 @@ import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
 
 import '../utils/app_theme.dart';
+import 'IntroVideoScreen.dart';
 
 class HomeScreen extends GetView<HomeController> {
   const HomeScreen({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: Navigator.of(context).canPop(), // Allow pop if navigation history exists
-      onPopInvoked: (didPop) async {
+    return Stack(
+      children: [
+        PopScope(
+          canPop: Navigator.of(context).canPop(), // Allow pop if navigation history exists
+          onPopInvoked: (didPop) async {
         if (didPop) return;
-        
+
         // If we can't pop, we're at root - show exit confirmation
         if (!Navigator.of(context).canPop()) {
           final shouldExit = await Get.dialog<bool>(
@@ -105,466 +108,467 @@ class HomeScreen extends GetView<HomeController> {
         // backgroundColor: const Color(0xFFF8F9FA),
         backgroundColor: AppTheme.themeColor,
         appBar: const StandardAppBar(),
-      body: Obx(() {
-        // Show loading indicator ONLY if no cached data exists
-        // If cache exists, data shows instantly, no loading indicator
-        final hasCachedData = controller.fruits.isNotEmpty || 
-                              controller.prayers.isNotEmpty || 
-                              controller.blogs.isNotEmpty;
-        
-        if (controller.isInitialLoading.value && !hasCachedData) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Professional loading indicator
-                Container(
-                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 20)),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: CircularProgressIndicator(
-                  color: const Color(0xFF8B4513),
-                    strokeWidth: 3,
-                ),
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 20)),
-                Text(
-                  controller.message.value.isNotEmpty
-                      ? controller.message.value
-                      : 'Loading...',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                    color: Colors.black,
-                    fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-          );
-        }
+        body: Obx(() {
+          // Show loading indicator ONLY if no cached data exists
+          // If cache exists, data shows instantly, no loading indicator
+          final hasCachedData = controller.fruits.isNotEmpty ||
+              controller.prayers.isNotEmpty ||
+              controller.blogs.isNotEmpty;
 
-        // Show actual content once data is loaded
-        // Professional responsive design for tablets/iPads
-        final isTabletDevice = ResponsiveHelper.isTablet(context);
-        final maxContentWidth = isTabletDevice 
-            ? (ResponsiveHelper.isLargeTablet(context) ? 1200.0 : 840.0)
-            : null;
-        
-        return SafeArea(
-        top: false,
-        bottom: true,
-        child: RefreshIndicator(
-          onRefresh: () => controller.refreshData(),
-          color: const Color(0xFF8B4513),
-          child: ResponsiveHelper.constrainedContent(
-            context: context,
-            maxWidth: maxContentWidth,
-            child: SingleChildScrollView(
-                controller: controller.scrollController,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-            // Subtle Top Actions - Social Media Style with Expandable Feel Section
-            Padding(
-              padding: ResponsiveHelper.safePadding(
-                context, 
-                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-                vertical: ResponsiveHelper.isMobile(context) ? 10 : 12,
-              ),
-              child: Row(
+          if (controller.isInitialLoading.value && !hasCachedData) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: _ExpandableFeelSection(controller: controller),
-                              ),
-                  SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-                  Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () async {
-                          try {
-                            // Get e-commerce URL from backend
-                            final ecommerceData = await EcommerceService.getEcommerceUrl();
-                            final ecommerceUrl = ecommerceData['url'] as String? ?? 'https://your-ecommerce-app-url.com';
-                            
-                            final uri = Uri.parse(ecommerceUrl);
-                            if (await canLaunchUrl(uri)) {
-                              await launchUrl(uri, mode: LaunchMode.externalApplication);
-                            } else {
-                              Get.snackbar(
-                                'E-Commerce',
-                                'E-commerce URL is not configured. Please contact admin.',
-                                backgroundColor: Colors.orange,
-                                colorText: Colors.white,
-                              );
-                            }
-                          } catch (e) {
-                            Get.snackbar(
-                              'Error',
-                              'Failed to open e-commerce: $e',
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                            );
-                          }
-                        },
-                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
-                        child: Container(
-                        padding: ResponsiveHelper.padding(
-                          context,
-                          horizontal: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 16 : 20,
-                          vertical: ResponsiveHelper.isMobile(context) ? 10 : ResponsiveHelper.isTablet(context) ? 12 : 14,
+                  // Professional loading indicator
+                  Container(
+                    padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 20)),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
-                          decoration: BoxDecoration(
-                          color: Colors.white,
-                                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.grey.withOpacity(0.2),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 3),
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Image.asset(
-                                      'assets/fosshoppinglogo.png',
-                                      width: ResponsiveHelper.isMobile(context)
-                                          ? 50.0
-                                          : ResponsiveHelper.isTablet(context)
-                                              ? 70.0
-                                              : 90.0,
-                                      height: ResponsiveHelper.isMobile(context)
-                                          ? 50.0
-                                          : ResponsiveHelper.isTablet(context)
-                                              ? 70.0
-                                              : 90.0,
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return Icon(
-                                  Icons.shopping_bag_rounded,
-                                          color: AppTheme.iconscolor,
-                                          size: ResponsiveHelper.isMobile(context)
-                                              ? 50.0
-                                              : ResponsiveHelper.isTablet(context)
-                                                  ? 70.0
-                                                  : 90.0,
-                                        );
-                                      },
-                                    ),
-                                    SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 4 : 6)),
-                                    Text(
-                                      'Shop Now',
-                                      style: ResponsiveHelper.textStyle(
-                                        context,
-                                        fontSize: ResponsiveHelper.fontSize(
-                                          context,
-                                          mobile: 12,
-                                          tablet: 14,
-                                          desktop: 16,
-                                        ),
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black,
-                                      ),
-                                    ),
-                                  ],
-                        ),
-                      ),
-                        ),
-                      ),
-                    ],
-                  ),
-            ),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
-            // Stories Section - Instagram Style (No Header, Just Stories)
-            // Show only stories from stories table
-            Obx(() {
-              final stories = controller.stories;
-              
-              if (stories.isEmpty) {
-                return const SizedBox.shrink();
-              }
-              
-              // Take first 8 stories (already sorted by created_at DESC from API)
-              final storiesToShow = stories.take(8).toList();
-              return _buildStoriesCarousel(context, storiesToShow);
-            }),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 16)),
-            // Quick Actions - NEW Compact Design with Labels in Colored Box
-            Padding(
-              padding: ResponsiveHelper.padding(
-                context, 
-                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-              ),
-              child: _buildQuickActionsBox(context),
-            ),
-            // OLD Quick Actions - COMMENTED OUT
-            // Padding(
-            //   padding: ResponsiveHelper.padding(context, horizontal: 16),
-            //   child: _buildQuickActionsGrid(context),
-            // ),
-            // Unified Feed - Mixed Content (Social Media Style)
-            // Prayer Requests Feed - Carousel with Header
-            Obx(() {
-              final prayers = controller.prayers.take(50).toList(); // Show more prayers in carousel
-              if (prayers.isEmpty) {
-                return const SizedBox.shrink();
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Header with View All
-                  Padding(
-                    padding: ResponsiveHelper.padding(
-                      context, 
-                      horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                      ],
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
+                    child: CircularProgressIndicator(
+                      color: const Color(0xFF8B4513),
+                      strokeWidth: 3,
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 20)),
+                  Text(
+                    controller.message.value.isNotEmpty
+                        ? controller.message.value
+                        : 'Loading...',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                      color: Colors.black,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Show actual content once data is loaded
+          // Professional responsive design for tablets/iPads
+          final isTabletDevice = ResponsiveHelper.isTablet(context);
+          final maxContentWidth = isTabletDevice
+              ? (ResponsiveHelper.isLargeTablet(context) ? 1200.0 : 840.0)
+              : null;
+
+          return SafeArea(
+            top: false,
+            bottom: true,
+            child: RefreshIndicator(
+              onRefresh: () => controller.refreshData(),
+              color: const Color(0xFF8B4513),
+              child: ResponsiveHelper.constrainedContent(
+                context: context,
+                maxWidth: maxContentWidth,
+                child: SingleChildScrollView(
+                  controller: controller.scrollController,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Subtle Top Actions - Social Media Style with Expandable Feel Section
+                      Padding(
+                        padding: ResponsiveHelper.safePadding(
+                          context,
+                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                          vertical: ResponsiveHelper.isMobile(context) ? 10 : 12,
+                        ),
+                        child: Row(
                           children: [
-                            Container(
-                              padding: ResponsiveHelper.padding(context, all: 6),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.red[400]!,
-                                    Colors.red[600]!,
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                              ),
-                              child: Icon(
-                                Icons.favorite_rounded,
-                                color: Colors.white,
-                                size: ResponsiveHelper.iconSize(context, mobile: 18),
-                              ),
+                            Expanded(
+                              child: _ExpandableFeelSection(controller: controller),
                             ),
                             SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-                            Text(
-                              'Prayer Requests',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () async {
+                                  try {
+                                    // Get e-commerce URL from backend
+                                    final ecommerceData = await EcommerceService.getEcommerceUrl();
+                                    final ecommerceUrl = ecommerceData['url'] as String? ?? 'https://your-ecommerce-app-url.com';
+
+                                    final uri = Uri.parse(ecommerceUrl);
+                                    if (await canLaunchUrl(uri)) {
+                                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                    } else {
+                                      Get.snackbar(
+                                        'E-Commerce',
+                                        'E-commerce URL is not configured. Please contact admin.',
+                                        backgroundColor: Colors.orange,
+                                        colorText: Colors.white,
+                                      );
+                                    }
+                                  } catch (e) {
+                                    Get.snackbar(
+                                      'Error',
+                                      'Failed to open e-commerce: $e',
+                                      backgroundColor: Colors.red,
+                                      colorText: Colors.white,
+                                    );
+                                  }
+                                },
+                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
+                                child: Container(
+                                  padding: ResponsiveHelper.padding(
+                                    context,
+                                    horizontal: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 16 : 20,
+                                    vertical: ResponsiveHelper.isMobile(context) ? 10 : ResponsiveHelper.isTablet(context) ? 12 : 14,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.withOpacity(0.2),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 3),
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Image.asset(
+                                        'assets/fosshoppinglogo.png',
+                                        width: ResponsiveHelper.isMobile(context)
+                                            ? 50.0
+                                            : ResponsiveHelper.isTablet(context)
+                                            ? 70.0
+                                            : 90.0,
+                                        height: ResponsiveHelper.isMobile(context)
+                                            ? 50.0
+                                            : ResponsiveHelper.isTablet(context)
+                                            ? 70.0
+                                            : 90.0,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return Icon(
+                                            Icons.shopping_bag_rounded,
+                                            color: AppTheme.iconscolor,
+                                            size: ResponsiveHelper.isMobile(context)
+                                                ? 50.0
+                                                : ResponsiveHelper.isTablet(context)
+                                                ? 70.0
+                                                : 90.0,
+                                          );
+                                        },
+                                      ),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 4 : 6)),
+                                      Text(
+                                        'Shop Now',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: ResponsiveHelper.fontSize(
+                                            context,
+                                            mobile: 12,
+                                            tablet: 14,
+                                            desktop: 16,
+                                          ),
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ],
                         ),
-                        TextButton(
-                          onPressed: () {
-                            try {
-                              final prayersController = Get.find<PrayersController>();
-                              prayersController.filterUserId.value = 0;
-                              // Performance: Only refresh if needed
-                              if (prayersController.prayers.isEmpty) {
-                                prayersController.loadPrayers(refresh: true);
-                              }
-                            } catch (e) {
-                              Get.put(PrayersController());
-                            }
-                            Get.toNamed(Routes.PRAYER_REQUESTS);
-                          },
-                          child: Text(
-                            'View All',
-                            style: ResponsiveHelper.textStyle(
-                              context,
-                              fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                              color: Colors.black,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                      ),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
+                      // Stories Section - Instagram Style (No Header, Just Stories)
+                      // Show only stories from stories table
+                      Obx(() {
+                        final stories = controller.stories;
+
+                        if (stories.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+
+                        // Take first 8 stories (already sorted by created_at DESC from API)
+                        final storiesToShow = stories.take(8).toList();
+                        return _buildStoriesCarousel(context, storiesToShow);
+                      }),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 16)),
+                      // Quick Actions - NEW Compact Design with Labels in Colored Box
+                      Padding(
+                        padding: ResponsiveHelper.padding(
+                          context,
+                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
                         ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: ResponsiveHelper.spacing(context, 8)),
-                  // Prayer Requests Carousel
-                  _buildPrayerRequestsCarousel(context, prayers),
-                ],
-              );
-            }),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
-            // Connect. Pray. Share. Grow Spiritually. Section with Go Live button (Priority: Inspiration)
-            Padding(
-              padding: ResponsiveHelper.padding(
-                context, 
-                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-              ),
-              child: Container(
-                padding: ResponsiveHelper.padding(
-                  context, 
-                  all: ResponsiveHelper.isMobile(context) ? 16 : 20,
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white,
-                      const Color(0xFFFAF6EC).withOpacity(0.3),
-                      Colors.white,
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      spreadRadius: 0,
-                      blurRadius: 15,
-                      offset: const Offset(0, 5),
-                  ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Connect. Pray. Share. Grow Spiritually.',
-                            style: ResponsiveHelper.textStyle(
-                              context,
-                              fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black,
-                              letterSpacing: 0.3,
-                              height: 1.3,
-                            ),
-                          ),
-                          SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                              onTap: () {
-                                // Go Live functionality - show dialog to create live stream
-                                _showGoLiveDialog(context);
-                              },
-                              child: Container(
-                                padding: ResponsiveHelper.padding(
-                                  context, 
-                                  horizontal: ResponsiveHelper.isMobile(context) ? 20 : 24,
-                                  vertical: ResponsiveHelper.isMobile(context) ? 12 : 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Color(0xFF4CAF50),
-                                      Color(0xFF45A049),
+                        child: _buildQuickActionsBox(context),
+                      ),
+                      // OLD Quick Actions - COMMENTED OUT
+                      // Padding(
+                      //   padding: ResponsiveHelper.padding(context, horizontal: 16),
+                      //   child: _buildQuickActionsGrid(context),
+                      // ),
+                      // Unified Feed - Mixed Content (Social Media Style)
+                      // Prayer Requests Feed - Carousel with Header
+                      Obx(() {
+                        final prayers = controller.prayers.take(50).toList(); // Show more prayers in carousel
+                        if (prayers.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Header with View All
+                            Padding(
+                              padding: ResponsiveHelper.padding(
+                                context,
+                                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: ResponsiveHelper.padding(context, all: 6),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              Colors.red[400]!,
+                                              Colors.red[600]!,
+                                            ],
+                                          ),
+                                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
+                                        ),
+                                        child: Icon(
+                                          Icons.favorite_rounded,
+                                          color: Colors.white,
+                                          size: ResponsiveHelper.iconSize(context, mobile: 18),
+                                        ),
+                                      ),
+                                      SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+                                      Text(
+                                        'Prayer Requests',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black,
+                                        ),
+                                      ),
                                     ],
                                   ),
-                                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Color(0xFF4CAF50).withOpacity(0.3),
-                                      spreadRadius: 0,
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 4),
+                                  TextButton(
+                                    onPressed: () {
+                                      try {
+                                        final prayersController = Get.find<PrayersController>();
+                                        prayersController.filterUserId.value = 0;
+                                        // Performance: Only refresh if needed
+                                        if (prayersController.prayers.isEmpty) {
+                                          prayersController.loadPrayers(refresh: true);
+                                        }
+                                      } catch (e) {
+                                        Get.put(PrayersController());
+                                      }
+                                      Get.toNamed(Routes.PRAYER_REQUESTS);
+                                    },
+                                    child: Text(
+                                      'View All',
+                                      style: ResponsiveHelper.textStyle(
+                                        context,
+                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ],
-                                ),
-                                child: Row(
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                            // Prayer Requests Carousel
+                            _buildPrayerRequestsCarousel(context, prayers),
+                          ],
+                        );
+                      }),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
+                      // Connect. Pray. Share. Grow Spiritually. Section with Go Live button (Priority: Inspiration)
+                      Padding(
+                        padding: ResponsiveHelper.padding(
+                          context,
+                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                        ),
+                        child: Container(
+                          padding: ResponsiveHelper.padding(
+                            context,
+                            all: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                          ),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.white,
+                                const Color(0xFFFAF6EC).withOpacity(0.3),
+                                Colors.white,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                spreadRadius: 0,
+                                blurRadius: 15,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(
-                                      Icons.videocam_rounded,
-                                      color: Colors.white,
-                                      size: ResponsiveHelper.iconSize(context, mobile: 20),
-                                ),
-                                    SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                                     Text(
-                              'Go Live',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                                color: Colors.white,
+                                      'Connect. Pray. Share. Grow Spiritually.',
+                                      style: ResponsiveHelper.textStyle(
+                                        context,
+                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
                                         fontWeight: FontWeight.bold,
-                                        letterSpacing: 0.5,
+                                        color: Colors.black,
+                                        letterSpacing: 0.3,
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                    SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                                    Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                                        onTap: () {
+                                          Get.toNamed(Routes.LIVE);
+                                        },
+                                        child: Container(
+                                          padding: ResponsiveHelper.padding(
+                                            context,
+                                            horizontal: ResponsiveHelper.isMobile(context) ? 20 : 24,
+                                            vertical: ResponsiveHelper.isMobile(context) ? 12 : 14,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            gradient: const LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                Color(0xFF4CAF50),
+                                                Color(0xFF45A049),
+                                              ],
+                                            ),
+                                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Color(0xFF4CAF50).withOpacity(0.3),
+                                                spreadRadius: 0,
+                                                blurRadius: 8,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.videocam_rounded,
+                                                color: Colors.white,
+                                                size: ResponsiveHelper.iconSize(context, mobile: 20),
+                                              ),
+                                              SizedBox(width: ResponsiveHelper.spacing(context, 8)),
+                                              Text(
+                                                'Go Live',
+                                                style: ResponsiveHelper.textStyle(
+                                                  context,
+                                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 0.5,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 16)),
+                              // Dove Image
+                              CachedImage(
+                                imageUrl: 'https://fruitofthespirit.templateforwebsites.com/uploads/images/dove.png',
+                                height: ResponsiveHelper.imageHeight(context, mobile: 110, tablet: 130, desktop: 150),
+                                width: ResponsiveHelper.imageWidth(context, mobile: 110, tablet: 130, desktop: 150),
+                                fit: BoxFit.contain,
+                                errorWidget: Icon(
+                                  Icons.air,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
+                                  color: const Color(0xFF8B4513),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                    SizedBox(width: ResponsiveHelper.spacing(context, 16)),
-                    // Dove Image
-                    CachedImage(
-                      imageUrl: 'https://fruitofthespirit.templateforwebsites.com/uploads/images/dove.png',
-                      height: ResponsiveHelper.imageHeight(context, mobile: 110, tablet: 130, desktop: 150),
-                      width: ResponsiveHelper.imageWidth(context, mobile: 110, tablet: 130, desktop: 150),
-                      fit: BoxFit.contain,
-                      errorWidget: Icon(
-                        Icons.air,
-                        size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                        color: const Color(0xFF8B4513),
-                      ),
-                    ),
-                  ],
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
+                      // Videos Feed - Combined Live and Regular Videos
+                      Obx(() {
+                        // Combine live videos and regular videos
+                        final liveVideos = controller.liveVideos.toList();
+                        final regularVideos = controller.videos.toList();
+
+                        // Combine: Live videos first, then regular videos
+                        final allVideos = <Map<String, dynamic>>[];
+                        allVideos.addAll(liveVideos);
+                        allVideos.addAll(regularVideos);
+
+                        if (allVideos.isEmpty) return const SizedBox.shrink();
+
+                        // Take first 15 videos (live + regular)
+                        final videosToShow = allVideos.take(15).toList();
+                        return _buildVideosReelsCarousel(context, videosToShow);
+                      }),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
+                      // Blogs Carousel Section (Last)
+                      Obx(() {
+                        final blogs = controller.blogs.take(5).toList();
+                        if (blogs.isEmpty) return const SizedBox.shrink();
+                        return _buildBlogsCarousel(context, blogs);
+                      }),
+                    ],
+                  ),
                 ),
               ),
             ),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
-            // Videos Feed - Combined Live and Regular Videos
-            Obx(() {
-              // Combine live videos and regular videos
-              final liveVideos = controller.liveVideos.toList();
-              final regularVideos = controller.videos.toList();
-              
-              // Combine: Live videos first, then regular videos
-              final allVideos = <Map<String, dynamic>>[];
-              allVideos.addAll(liveVideos);
-              allVideos.addAll(regularVideos);
-              
-              if (allVideos.isEmpty) return const SizedBox.shrink();
-              
-              // Take first 15 videos (live + regular)
-              final videosToShow = allVideos.take(15).toList();
-              return _buildVideosReelsCarousel(context, videosToShow);
-            }),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
-            // Blogs Carousel Section (Last)
-            Obx(() {
-              final blogs = controller.blogs.take(5).toList();
-              if (blogs.isEmpty) return const SizedBox.shrink();
-              return _buildBlogsCarousel(context, blogs);
-            }),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
+          );
 
       }),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
       ),
-    );
+    )]);
+
+
   }
 
 
@@ -680,8 +684,8 @@ class HomeScreen extends GetView<HomeController> {
       
       return CachedImage(
         imageUrl: fullImageUrl,
-        height: imageSize,
-        width: imageSize,
+        height: size == null ? null : imageSize,
+        width: size == null ? null : imageSize,
         fit: BoxFit.contain,
         errorWidget: _buildPlaceholderIcon(context, imageSize),
       );
@@ -961,31 +965,31 @@ class HomeScreen extends GetView<HomeController> {
                   // Profile Picture - Responsive size with CachedImage
                   profilePhotoUrl != null && !isAnonymous
                       ? ClipOval(
-                          child: CachedImage(
-                            imageUrl: profilePhotoUrl,
-                            width: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
-                            height: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
-                            fit: BoxFit.cover,
-                            errorWidget: CircleAvatar(
-                              radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                              backgroundColor: Colors.grey[300]!,
-                              child: Icon(
-                                Icons.person_rounded,
-                                size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ),
-                        )
-                      : CircleAvatar(
-                          radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                          backgroundColor: Colors.grey[300]!,
-                          child: Icon(
-                            Icons.person_rounded,
-                            size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                            color: isAnonymous ? Colors.grey[600] :  Colors.white,
-                          ),
+                    child: CachedImage(
+                      imageUrl: profilePhotoUrl,
+                      width: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
+                      height: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
+                      fit: BoxFit.cover,
+                      errorWidget: CircleAvatar(
+                        radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
+                        backgroundColor: Colors.grey[300]!,
+                        child: Icon(
+                          Icons.person_rounded,
+                          size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
+                          color: Colors.grey[600],
                         ),
+                      ),
+                    ),
+                  )
+                      : CircleAvatar(
+                    radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
+                    backgroundColor: Colors.grey[300]!,
+                    child: Icon(
+                      Icons.person_rounded,
+                      size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
+                      color: isAnonymous ? Colors.grey[600] :  Colors.white,
+                    ),
+                  ),
                   SizedBox(width: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
                   // Name and Subtitle - Responsive
                   Expanded(
@@ -1019,7 +1023,7 @@ class HomeScreen extends GetView<HomeController> {
                       ],
                     ),
                   ),
-                  // Three-dot menu - Responsive
+                  // Three-dot menu - Responsive with Report option
                   PopupMenuButton<String>(
                     icon: Icon(
                       Icons.more_vert,
@@ -2702,9 +2706,9 @@ class HomeScreen extends GetView<HomeController> {
           // Performance: Only refresh if filter changed
           if (blogsController.filterUserId.value != 0) {
             // Performance: Only refresh if needed
-          if (blogsController.blogs.isEmpty) {
-            blogsController.loadBlogs(refresh: true);
-          }
+            if (blogsController.blogs.isEmpty) {
+              blogsController.loadBlogs(refresh: true);
+            }
           }
         } catch (e) {
           Get.put(BlogsController());

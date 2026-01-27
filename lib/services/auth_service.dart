@@ -43,6 +43,7 @@ class AuthService {
       );
 
       if (response['success'] == true && response['data'] != null) {
+        print('AuthService.login: Backend response data: ${response['data']}');
         return response['data'] as Map<String, dynamic>;
       } else {
         // Check if it's a role mismatch error
@@ -231,6 +232,7 @@ class AuthService {
       'google_id': googleId,
       'email': email,
       'name': name,
+      'role': 'User',
     };
 
     if (profilePicture != null) {

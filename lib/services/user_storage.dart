@@ -12,6 +12,7 @@ class UserStorage {
   static const String _keyIsLoggedIn = 'is_logged_in';
   static const String _keyUserFeeling = 'user_feeling'; // Store selected emoji locally
   static const String _keyOnboardingSeen = 'onboarding_seen'; // Track if user has seen onboarding
+  static const String _keyUgcTermsAccepted = 'ugc_terms_accepted'; // Track if user has accepted UGC terms
   
   static Box? _box;
   static bool _isInitialized = false;
@@ -159,6 +160,7 @@ class UserStorage {
     await box.delete(_keyUser);
     await box.delete(_keyUserId);
     await box.delete(_keyUserFeeling); // Also clear feeling on logout
+    await box.delete(_keyUgcTermsAccepted); // Clear terms acceptance on logout to ensure safety
     await box.put(_keyIsLoggedIn, false);
   }
 
@@ -256,6 +258,27 @@ class UserStorage {
       print('✅ Onboarding status reset');
     } catch (e) {
       print('⚠️ Error resetting onboarding status: $e');
+    }
+  }
+  /// Mark UGC Terms as Accepted
+  static Future<void> setUgcTermsAccepted(bool accepted) async {
+    try {
+      final box = await _getBox();
+      await box.put(_keyUgcTermsAccepted, accepted);
+      print('✅ UGC terms acceptance status updated: $accepted');
+    } catch (e) {
+      print('⚠️ Error saving terms acceptance status: $e');
+    }
+  }
+
+  /// Check if UGC Terms have been Accepted
+  static Future<bool> hasAcceptedUgcTerms() async {
+    try {
+      final box = await _getBox();
+      return box.get(_keyUgcTermsAccepted, defaultValue: false);
+    } catch (e) {
+      print('⚠️ Error checking terms acceptance status: $e');
+      return false;
     }
   }
 }

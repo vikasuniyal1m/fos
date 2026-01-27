@@ -10,6 +10,9 @@ import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/screens/report_content_screen.dart';
 
 /// Photo Details Screen
 /// Shows single photo with full comment system (like blog/prayer details)
@@ -336,6 +339,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                     ],
                                   ),
                                 ),
+                                _buildPhotoOptions(context, photo),
                               ],
                             ),
                             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
@@ -856,11 +860,12 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             child: TextField(
                               controller: commentController,
                               decoration: InputDecoration(
-                                hintText: 'Write a comment...',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    ResponsiveHelper.borderRadius(context, mobile: 24),
+                                prefixIcon: IconButton(
+                                  icon: const Icon(
+                                    Icons.emoji_emotions_outlined,
+                                    color: Color(0xFF8B4513),
                                   ),
+                                  onPressed: () => _showEmojiPicker(context, photoId, controller),
                                 ),
                                 filled: true,
                                 fillColor: Colors.grey.shade100,
@@ -1031,7 +1036,8 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 6)),
                     // Comment Content
-                    Text(
+                    FruitEmojiHelper.buildCommentText(
+                      context,
                       AutoTranslateHelper.getTranslatedTextSync(
                         text: content,
                         sourceLanguage: comment['language'] as String?,
@@ -1126,28 +1132,29 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           ),
                         ),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
-                        // Report Button
-                        InkWell(
-                          onTap: () => _showReportDialog(context, comment),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.flag_outlined,
-                                size: ResponsiveHelper.iconSize(context, mobile: 18),
-                                color: Colors.grey[600],
-                              ),
-                              SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                              Text(
-                                'Report',
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: 13,
+                        // Report Button - Only show for other users' comments
+                        if (currentUserId != null && (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()))
+                          InkWell(
+                            onTap: () => _showReportDialog(context, comment),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.flag_outlined,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 18),
                                   color: Colors.grey[600],
                                 ),
-                              ),
-                            ],
+                                SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                                Text(
+                                  'Report',
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: 13,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ],
@@ -1502,6 +1509,29 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                   ],
                                 ),
                               ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                              if (currentUserId != null && (reply['user_id'] != null && reply['user_id'].toString() != currentUserId.toString()))
+                                InkWell(
+                                  onTap: () => _showReportDialog(context, reply),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.flag_outlined,
+                                        size: ResponsiveHelper.iconSize(context, mobile: 14),
+                                        color: Colors.grey[600],
+                                      ),
+                                      SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                                      Text(
+                                        'Report',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                             ],
                           ),
                         ],
@@ -1550,32 +1580,85 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: reasons.map((reason) {
-            return ListTile(
-              title: Text(reason),
-              onTap: () async {
-                Navigator.pop(context);
-                final success = await controller.reportComment(comment['id'] as int, reason);
-                if (success) {
-                  Get.snackbar(
-                    'Success',
-                    'Comment reported successfully',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
-                  );
-                } else {
-                  Get.snackbar(
-                    'Error',
-                    controller.message.value,
-                    backgroundColor: Colors.red,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
-                  );
-                }
-              },
-            );
-          }).toList(),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()) ...[
+              ...reasons.map((reason) {
+                return ListTile(
+                  title: Text(reason),
+                  dense: true,
+                  onTap: () async {
+                    Navigator.pop(context);
+                    final success = await controller.reportComment(comment['id'] as int, reason);
+                    if (success) {
+                      Get.snackbar(
+                        'Success',
+                        'Comment reported successfully',
+                        backgroundColor: Colors.green,
+                        colorText: Colors.white,
+                        duration: const Duration(seconds: 2),
+                      );
+                    } else {
+                      Get.snackbar(
+                        'Error',
+                        controller.message.value,
+                        backgroundColor: Colors.red,
+                        colorText: Colors.white,
+                        duration: const Duration(seconds: 2),
+                      );
+                    }
+                  },
+                );
+              }).toList(),
+              const Divider(),
+              TextButton.icon(
+                onPressed: () async {
+                  final userIdRaw = comment['user_id'];
+                  if (userIdRaw != null) {
+                    final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+                    if (userId == null) return;
+                    
+                    if (currentUserId == userId) {
+                      Get.snackbar('Info', 'You cannot block yourself');
+                      return;
+                    }
+
+                    final userName = comment['user_name'] ?? 'this user';
+                    final confirmed = await Get.dialog<bool>(
+                      AlertDialog(
+                        title: Text('Block $userName?'),
+                        content: const Text('You will no longer see content from this user.'),
+                        actions: [
+                          TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                          TextButton(onPressed: () => Get.back(result: true), child: const Text('Block', style: TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true) {
+                      try {
+                        if (currentUserId != null) {
+                          await UserBlockingService.blockUser(userId);
+                          Navigator.of(context).pop();
+                          Get.snackbar('Success', 'User blocked');
+                          final currentPhotoId = controller.selectedPhoto['id'] is int ? controller.selectedPhoto['id'] : int.parse(controller.selectedPhoto['id'].toString());
+                          controller.loadPhotoComments(currentPhotoId);
+                        }
+                      } catch (e) {
+                        Get.snackbar('Error', 'Failed to block user');
+                      }
+                    }
+                  }
+                },
+                icon: const Icon(Icons.block, color: Colors.red, size: 20),
+                label: const Text('Block User', style: TextStyle(color: Colors.red)),
+              ),
+            ] else 
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('This is your own comment.', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+              ),
+          ],
         ),
         actions: [
           TextButton(
@@ -1591,6 +1674,93 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPhotoOptions(BuildContext context, Map<String, dynamic> photo) {
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          Get.to(() => ReportContentScreen(
+                contentType: 'gallery',
+                contentId: photo['id'] is int ? photo['id'] : int.parse(photo['id'].toString()),
+              ));
+        } else if (value == 'block') {
+          final userIdRaw = photo['user_id'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            if (currentUserId == userId) {
+              Get.snackbar('Info', 'You cannot block yourself');
+              return;
+            }
+
+            final userName = photo['user_name'] ?? 'this user';
+            final confirmed = await Get.dialog<bool>(
+              AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Get.back(result: true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                if (currentUserId != null) {
+                  await UserBlockingService.blockUser(userId);
+                  Get.snackbar('Success', 'User blocked');
+                  Get.back(); // Back to gallery
+                }
+              } catch (e) {
+                Get.snackbar('Error', 'Failed to block user');
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) {
+        final List<PopupMenuEntry<String>> items = [];
+        
+        final userIdRaw = photo['user_id'];
+        final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+        
+        // Only show options if it's NOT the current user's photo
+        if (posterId != null && posterId != currentUserId) {
+          items.add(
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Text('Report Content'),
+                ],
+              ),
+            ),
+          );
+          items.add(
+            const PopupMenuItem(
+              value: 'block',
+              child: Row(
+                children: [
+                  Icon(Icons.block, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Text('Block User'),
+                ],
+              ),
+            ),
+          );
+        }
+        
+        return items;
+      },
     );
   }
 

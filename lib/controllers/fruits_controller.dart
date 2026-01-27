@@ -46,6 +46,14 @@ class FruitsController extends GetxController {
     }
   }
 
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      allFruits.value = List<Map<String, dynamic>>.from(data);
+      _isAllFruitsLoaded = true;
+    }
+  }
+
   /// Load all fruits
   Future<void> loadAllFruits({bool refresh = false}) async {
     // Performance: Skip if already loading

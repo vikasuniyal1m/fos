@@ -87,6 +87,7 @@ dependencies {
     // When using the BoM, don't specify versions in Firebase dependencies
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth") // Add Firebase Auth dependency
+    implementation(kotlin("stdlib-jdk8"))
 
     // Add the dependencies for any other desired Firebase products
 }
