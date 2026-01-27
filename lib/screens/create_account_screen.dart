@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/bindings/InitialBinding.dart';
 import 'dart:io' show Platform;
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:icons_plus/icons_plus.dart';
@@ -26,6 +27,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   bool _isConfirmPasswordVisible = false;
   bool _agreeToTerms = false;
   bool _isLoading = false;
+  String? _registrationError; // Inline error message
+  String? _errorField; // Track which field has the error
   String _selectedRole = 'User'; // Default role: User or Blogger
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -62,6 +65,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
 
     setState(() {
       _isLoading = true;
+      _registrationError = null;
+      _errorField = null;
     });
 
     try {
@@ -190,54 +195,71 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         // Parse error message and show professional, user-friendly messages
         String errorTitle = 'Registration Failed';
         String errorMessage = 'Unable to create account. Please try again.';
+        String? errorField;
         
         // Check for specific error types and show appropriate messages
         final errorLower = e.message.toLowerCase();
         
         if (errorLower.contains('email') && (errorLower.contains('already') || errorLower.contains('exists') || errorLower.contains('taken'))) {
           errorTitle = 'Email Already Registered';
-          errorMessage = 'This email address is already registered. Please use a different email or try logging in.';
+          errorMessage = 'This email address is already registered.';
+          errorField = 'email';
         } else if (errorLower.contains('phone') && (errorLower.contains('already') || errorLower.contains('exists') || errorLower.contains('taken'))) {
           errorTitle = 'Phone Already Registered';
-          errorMessage = 'This phone number is already registered. Please use a different phone number or try logging in.';
+          errorMessage = 'This phone number is already registered.';
+          errorField = 'phone';
         } else if (errorLower.contains('password') && (errorLower.contains('weak') || errorLower.contains('short') || errorLower.contains('invalid'))) {
           errorTitle = 'Weak Password';
-          errorMessage = 'Password is too weak. Please use a stronger password with at least 6 characters.';
+          errorMessage = 'Password is too weak (min 6 characters).';
+          errorField = 'password';
         } else if (errorLower.contains('password') && errorLower.contains('match')) {
           errorTitle = 'Password Mismatch';
-          errorMessage = 'Passwords do not match. Please make sure both password fields are the same.';
+          errorMessage = 'Passwords do not match.';
+          errorField = 'confirm_password';
         } else if (errorLower.contains('name') && (errorLower.contains('required') || errorLower.contains('empty'))) {
           errorTitle = 'Name Required';
-          errorMessage = 'Please enter your full name to continue.';
+          errorMessage = 'Please enter your full name.';
+          errorField = 'name';
         } else if (errorLower.contains('terms') || errorLower.contains('accept')) {
           errorTitle = 'Terms Required';
-          errorMessage = 'Please accept the Terms & Conditions to create an account.';
+          errorMessage = 'Please accept the Terms & Conditions.';
         } else if (errorLower.contains('validation') || errorLower.contains('invalid')) {
           errorTitle = 'Invalid Information';
-          errorMessage = 'Please check all fields and ensure they are filled correctly.';
+          errorMessage = 'Please check this field.';
         } else {
           // Generic error - don't show server message to user
-          errorMessage = 'Unable to create account. Please check your information and try again.';
+          errorMessage = e.message; // Show actual message if not categorized
         }
         
-        Get.snackbar(
-          errorTitle,
-          errorMessage,
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.error_outline,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
-          shouldIconPulse: true,
-          isDismissible: true,
-          dismissDirection: DismissDirection.horizontal,
-        );
+        setState(() {
+          _registrationError = errorMessage;
+          _errorField = errorField;
+        });
+
+        // Trigger validation to show error inline if a field was identified
+        if (_errorField != null) {
+          _formKey.currentState?.validate();
+        } else {
+          // Show snackbar for non-field specific errors
+          Get.snackbar(
+            errorTitle,
+            errorMessage,
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red.withOpacity(0.9),
+            colorText: Colors.white,
+            duration: const Duration(seconds: 4),
+            margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+            borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
+            icon: Icon(
+              Icons.error_outline,
+              color: Colors.white,
+              size: ResponsiveHelper.iconSize(context, mobile: 24),
+            ),
+            shouldIconPulse: true,
+            isDismissible: true,
+            dismissDirection: DismissDirection.horizontal,
+          );
+        }
       }
     } on NetworkException catch (e) {
       // Log network error to console
@@ -351,26 +373,19 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       // Save user data
       await UserStorage.saveUser(user);
 
-      if (mounted) {
-               // Show success message
-        Get.snackbar(
-          'Login Successful',
-          'Successfully logged in with Apple',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.green.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.check_circle_outline,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
-        );
+      // Re-initialize controllers
+      InitialBinding().dependencies();
 
-        // Re-initialize dependencies to ensure all controllers are ready
-        InitialBinding().dependencies();
+      if (mounted) {
+        Get.snackbar(
+          'Success',
+          'Logged in successfully with Apple',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.iconscolor,
+          colorText: Colors.black,
+          duration: const Duration(seconds: 2),
+          icon: const Icon(Icons.check_circle, color: Colors.white),
+        );
         Get.offAllNamed(Routes.DASHBOARD);
       }
     } on SignInWithAppleAuthorizationException catch (e) {
@@ -562,7 +577,19 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       await UserStorage.saveUser(user);
       print('✅ User data saved');
 
+      // Re-initialize controllers
+      InitialBinding().dependencies();
+
       if (mounted) {
+        Get.snackbar(
+          'Success',
+          'Logged in successfully with Google',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.iconscolor,
+          colorText: Colors.black,
+          duration: const Duration(seconds: 2),
+          icon: const Icon(Icons.check_circle, color: Colors.white),
+        );
         Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {
@@ -800,6 +827,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     controller: _nameController,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
+                      if (_errorField == 'name' && _registrationError != null) {
+                        return _registrationError;
+                      }
                       if (value == null || value.trim().isEmpty) {
                         return 'Please enter your name';
                       }
@@ -839,31 +869,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
+                      if (_errorField == 'email' && _registrationError != null) {
+                        return _registrationError;
+                      }
                       final email = value?.trim() ?? '';
                       final phone = _phoneController.text.trim();
                       if (email.isEmpty && phone.isEmpty) {
                         return 'Please enter email or phone';
                       }
-
-                        if (phone.isNotEmpty) {
-                        if (!phone.startsWith('+')) {
-                          return 'Start with country code (e.g. +1)';
-                        }
-                        
-                        // Remove '+' for digit counting
-                        final digitsOnly = phone.replaceAll(RegExp(r'[^0-9]'), '');
-                        
-                        // Check if total digits are enough (Country Code + 10 digits)
-                        // Minimum valid length is usually 11 digits (1 digit CC + 10 digit number)
-                        if (digitsOnly.length < 11) {
-                          return 'Enter valid number (Country Code + 10 digits)';
-                        }
-                        
-                        if (!RegExp(r'^\+[0-9]+$').hasMatch(phone)) {
-                          return 'Only numbers and + allowed';
-                        }
-                      }
-                      
                       if (email.isNotEmpty && !GetUtils.isEmail(email)) {
                         return 'Please enter a valid email';
                       }
@@ -903,16 +916,40 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     keyboardType: TextInputType.phone,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
+                      if (_errorField == 'phone' && _registrationError != null) {
+                        return _registrationError;
+                      }
                       final phone = value?.trim() ?? '';
                       final email = _emailController.text.trim();
+                      
                       if (email.isEmpty && phone.isEmpty) {
                         return 'Please enter email or phone';
                       }
+                      
+                      if (phone.isNotEmpty) {
+                        if (!phone.startsWith('+')) {
+                          return 'Start with country code (e.g. +1)';
+                        }
+                        
+                        // Remove '+' for digit counting
+                        final digitsOnly = phone.replaceAll(RegExp(r'[^0-9]'), '');
+                        
+                        // Check if total digits are enough (Country Code + 10 digits)
+                        // Minimum valid length is usually 11 digits (1 digit CC + 10 digit number)
+                        if (digitsOnly.length < 11) {
+                          return 'Enter valid number (Country Code + 10 digits)';
+                        }
+                        
+                        if (!RegExp(r'^\+[0-9]+$').hasMatch(phone)) {
+                          return 'Only numbers and + allowed';
+                        }
+                      }
+                      
                       return null;
                     },
                     decoration: InputDecoration(
                       prefixIcon: const Icon(Icons.phone, color: AppTheme.iconscolor),
-                      hintText: "Phone (Optional if email provided)",
+                      hintText: "Phone (+1234567890)",
                       filled: true,
                       fillColor: Colors.white,
                       border: OutlineInputBorder(
@@ -944,6 +981,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     obscureText: !_isPasswordVisible,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
+                      if (_errorField == 'password' && _registrationError != null) {
+                        return _registrationError;
+                      }
                       if (value == null || value.isEmpty) {
                         return 'Please enter password';
                       }
@@ -997,6 +1037,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     obscureText: !_isConfirmPasswordVisible,
                     textInputAction: TextInputAction.done,
                     validator: (value) {
+                      if (_errorField == 'confirm_password' && _registrationError != null) {
+                        return _registrationError;
+                      }
                       if (value == null || value.isEmpty) {
                         return 'Please confirm password';
                       }
