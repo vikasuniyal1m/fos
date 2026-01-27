@@ -8,6 +8,9 @@ class ForgotPasswordScreen extends GetView<ForgotPasswordController> {
 
   @override
   Widget build(BuildContext context) {
+        if (!Get.isRegistered<ForgotPasswordController>()) {
+      Get.put(ForgotPasswordController());
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: SafeArea(

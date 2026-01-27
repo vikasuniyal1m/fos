@@ -38,17 +38,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _loginError; // Store login error message
 
   void _reinitializeControllers() {
-    // Re-initialize core controllers to load new user data
-    // These were deleted during logout to prevent data leak
-    Get.put(HomeController(), permanent: true);
-    Get.put(PrayersController(), permanent: true);
-    Get.put(GroupsController(), permanent: true);
-    Get.put(NotificationsController(), permanent: true);
-    Get.put(ProfileController(), permanent: true);
-    Get.put(FruitsController(), permanent: true);
-    Get.put(BlogsController(), permanent: true);
-    Get.put(VideosController(), permanent: true);
-    Get.put(GalleryController(), permanent: true);
+    InitialBinding().dependencies();
   }
 
   @override

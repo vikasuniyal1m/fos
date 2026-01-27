@@ -158,35 +158,41 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
       image: selectedImage,
     );
 
-    if (success) {
+  if (success) {
       print('Blog creation successful. Mounted: $mounted');
-      // Show success message FIRST (before navigation)
+
+      // Show success message
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          print('Inside addPostFrameCallback. Mounted: $mounted');
-          if (mounted) {
-            Get.snackbar(
-              'Success',
-              controller.message.value.isNotEmpty
-                  ? controller.message.value
-                  : 'Blog created successfully!',
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
-              snackPosition: SnackPosition.BOTTOM,
-              duration: const Duration(seconds: 2),
-              margin: const EdgeInsets.all(16),
-            );
-            // Navigate back after snackbar is shown (GetX navigation)
-            if (Get.isRegistered<MainDashboardController>()) {
-              Get.find<MainDashboardController>().changeIndex(0);
-              Get.back();
-            } else {
-              Get.offAllNamed(Routes.DASHBOARD);
-            }
-          }
-        });
+        Get.snackbar(
+          'Success',
+          controller.message.value.isNotEmpty
+              ? controller.message.value
+              : 'Blog created successfully! Waiting for approval.',
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 2),
+          margin: const EdgeInsets.all(16),
+          icon: const Icon(Icons.check_circle, color: Colors.white),
+        );
       }
-    } else {
+      
+      // Update Dashboard Tab if available
+      if (Get.isRegistered<MainDashboardController>()) {
+        try {
+          Get.find<MainDashboardController>().changeIndex(0); // Switch to Home tab
+        } catch (e) {
+          print('Error changing dashboard index: $e');
+        }
+      }
+      
+      // Wait briefly for snackbar
+      await Future.delayed(const Duration(milliseconds: 1500));
+      
+      // STRONG NAVIGATION: Clear stack until Dashboard
+      Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
+    } 
+    else {
       print('Blog creation failed.');
       // Show error message
       if (mounted) {
