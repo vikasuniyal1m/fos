@@ -361,19 +361,14 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         });
       }
       
-      // Wait a bit for snackbar to show, then navigate
-      await Future.delayed(const Duration(milliseconds: 500));
+     await Future.delayed(const Duration(milliseconds: 1000));
       
-      // Navigate back and refresh
-      if (mounted && Navigator.canPop(context)) {
-        Get.back();
-        Future.delayed(const Duration(milliseconds: 300), () {
-          try {
-            controller.loadVideos(refresh: true, includePending: true);
-          } catch (e) {
-            print('Error refreshing videos: $e');
-          }
-        });
+      // Robust Navigation back to Dashboard
+      if (mounted) {
+        if (Get.isRegistered<MainDashboardController>()) {
+          Get.find<MainDashboardController>().changeIndex(3);
+        }
+        Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
       }
     } else {
       // Show error message
