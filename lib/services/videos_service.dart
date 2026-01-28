@@ -97,6 +97,7 @@ class VideosService {
     if (description != null && description.isNotEmpty) fields['description'] = description;
     if (category != null && category.isNotEmpty) fields['category'] = category;
 
+    print('📤 VideosService.uploadVideo: Fields: $fields');
     try {
       final files = <String, File>{'video': videoFile};
       if (thumbnailFile != null) {
