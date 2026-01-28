@@ -159,8 +159,8 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       Get.snackbar(
         'Error',
         'Please enter your prayer request',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
       );
       return;
     }
@@ -173,8 +173,8 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       Get.snackbar(
         'Error',
         'Please select a user',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
       );
       return;
     }
@@ -183,8 +183,8 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       Get.snackbar(
         'Error',
         'Please select a group',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        backgroundColor:AppTheme.iconscolor,
+        colorText: Colors.black,
       );
       return;
     }
@@ -214,22 +214,22 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     if (success) {
       // Show success message with professional text
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
         Get.snackbar(
           'Request Submitted',
           'Your prayer request has been submitted successfully.',
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
+          backgroundColor: AppTheme.iconscolor,
+          colorText: Colors.black,
           duration: const Duration(seconds: 2),
           margin: const EdgeInsets.all(16),
           icon: const Icon(Icons.check_circle, color: Colors.white),
           snackPosition: SnackPosition.BOTTOM,
         );
       }
-        // Reset filter to show all prayers
-        prayersController.filterUserId.value = 0;
-        prayersController.selectedCategory.value = '';
+
+      // Navigate to prayer requests screen and refresh
+      // Reset filter to show all prayers
+      prayersController.filterUserId.value = 0;
+      prayersController.selectedCategory.value = '';
 
              // Force refresh (fire and forget)
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -315,14 +315,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                 color: AppTheme.iconscolor,
                 size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
               ),
-              onPressed: (){
-                final dialogContext = Get.overlayContext;
-                if (dialogContext != null) {
-                  Navigator.of(dialogContext, rootNavigator: true).pop();
-                } else if (context.mounted) {
-                  Navigator.of(context, rootNavigator: true).pop();
-                }
-              },
+              onPressed: () => Get.back(),
             ),
           ),
         title: Row(
