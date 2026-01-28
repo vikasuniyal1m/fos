@@ -175,14 +175,22 @@ class BlogsController extends GetxController {
 
   /// Load blog comments (with emoji reactions parsing)
   Future<void> loadBlogComments(int blogId) async {
+    print('⏱️ [BlogsController] Starting loadBlogComments for blogId: $blogId');
+    final startTime = DateTime.now();
+    
     try {
       final comments = await CommentsService.getComments(
         postType: 'blog',
         postId: blogId,
         userId: userId.value > 0 ? userId.value : null,
       );
+
+      final commentsFetchEndTime = DateTime.now();
+      print('⏱️ [BlogsController] CommentsService.getComments took: ${commentsFetchEndTime.difference(commentsFetchStartTime).inMilliseconds}ms');
+      
       
       // Parse emoji reactions from comments (same logic as prayers)
+      final emojiParsingStartTime = DateTime.now();
       final emojiReactions = <String, List<Map<String, dynamic>>>{};
       final textComments = <Map<String, dynamic>>[];
       
@@ -254,7 +262,8 @@ class BlogsController extends GetxController {
           }
         }
       }
-      
+      final emojiParsingEndTime = DateTime.now();
+      print('⏱️ [BlogsController] Emoji parsing took: ${emojiParsingEndTime.difference(emojiParsingStartTime).inMilliseconds}ms');
       blogComments.value = textComments;
       blogEmojiReactions.value = emojiReactions;
       print('✅ Loaded ${textComments.length} text comments and ${emojiReactions.length} emoji reaction types');
@@ -262,6 +271,9 @@ class BlogsController extends GetxController {
       print('❌ Error loading blog comments: $e');
       blogComments.value = [];
       blogEmojiReactions.value = <String, List<Map<String, dynamic>>>{};
+    } finally {
+      final endTime = DateTime.now();
+      print('⏱️ [BlogsController] loadBlogComments finished in: ${endTime.difference(startTime).inMilliseconds}ms');
     }
   }
   

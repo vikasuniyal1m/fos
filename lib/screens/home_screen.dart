@@ -23,6 +23,7 @@ import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
+import 'package:fruitsofspirit/widgets/video_frame_thumbnail.dart';
 
 import '../utils/app_theme.dart';
 import 'IntroVideoScreen.dart';
@@ -1473,7 +1474,7 @@ class HomeScreen extends GetView<HomeController> {
                         width: double.infinity,
                         fit: BoxFit.cover,
                         errorWidget: videoUrl != null
-                            ? _VideoFrameThumbnail(
+                            ? VideoFrameThumbnail(
                                 videoUrl: videoUrl,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
@@ -1499,7 +1500,7 @@ class HomeScreen extends GetView<HomeController> {
                               ),
                       )
                     : videoUrl != null
-                        ? _VideoFrameThumbnail(
+                        ? VideoFrameThumbnail(
                             videoUrl: videoUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
@@ -2076,7 +2077,7 @@ class HomeScreen extends GetView<HomeController> {
                       imageUrl: imageUrl!,
                       fit: BoxFit.cover,
                       errorWidget: videoUrl != null
-                          ? _VideoFrameThumbnail(
+                          ? VideoFrameThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: width,
@@ -2101,7 +2102,7 @@ class HomeScreen extends GetView<HomeController> {
                             ),
                     )
                   : videoUrl != null
-                      ? _VideoFrameThumbnail(
+                      ? VideoFrameThumbnail(
                           videoUrl: videoUrl,
                           fit: BoxFit.cover,
                           width: width,
@@ -2261,7 +2262,7 @@ class HomeScreen extends GetView<HomeController> {
                           height: videoHeight,
                           fit: BoxFit.cover,
                           errorWidget: videoUrl != null
-                              ? _VideoFrameThumbnail(
+                              ? VideoFrameThumbnail(
                                   videoUrl: videoUrl,
                                   fit: BoxFit.cover,
                                   width: videoWidth,
@@ -2288,7 +2289,7 @@ class HomeScreen extends GetView<HomeController> {
                                 ),
                         )
                       : videoUrl != null
-                          ? _VideoFrameThumbnail(
+                          ? VideoFrameThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: videoWidth,
@@ -3987,7 +3988,7 @@ class HomeScreen extends GetView<HomeController> {
                     width: cardWidth,
                     fit: BoxFit.cover,
                     errorWidget: videoUrl != null
-                        ? _VideoFrameThumbnail(
+                        ? VideoFrameThumbnail(
                             videoUrl: videoUrl,
                             fit: BoxFit.cover,
                             width: cardWidth,
@@ -4014,7 +4015,7 @@ class HomeScreen extends GetView<HomeController> {
                           ),
                   )
                 : videoUrl != null
-                    ? _VideoFrameThumbnail(
+                    ? VideoFrameThumbnail(
                         videoUrl: videoUrl,
                         fit: BoxFit.cover,
                         width: cardWidth,
@@ -5885,116 +5886,7 @@ class _VideoPlayerThumbnail extends StatefulWidget {
   _VideoPlayerThumbnailState createState() => _VideoPlayerThumbnailState();
 }
 
-/// Widget to extract and display first frame from video as thumbnail
-class _VideoFrameThumbnail extends StatefulWidget {
-  final String videoUrl;
-  final BoxFit fit;
-  final double? width;
-  final double? height;
 
-  const _VideoFrameThumbnail({
-    Key? key,
-    required this.videoUrl,
-    this.fit = BoxFit.cover,
-    this.width,
-    this.height,
-  }) : super(key: key);
-
-  @override
-  _VideoFrameThumbnailState createState() => _VideoFrameThumbnailState();
-}
-
-class _VideoFrameThumbnailState extends State<_VideoFrameThumbnail> {
-  VideoPlayerController? _controller;
-  bool _isInitialized = false;
-  bool _hasError = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeVideo();
-  }
-
-  Future<void> _initializeVideo() async {
-    try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
-      await _controller!.initialize();
-      
-      // Seek to first frame (0 seconds) and pause
-      await _controller!.seekTo(Duration.zero);
-      await _controller!.pause();
-      
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-          _hasError = false;
-        });
-      }
-    } catch (e) {
-      print('Error initializing video thumbnail: $e');
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _isInitialized = false;
-        });
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_hasError) {
-      return Container(
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppTheme.themeColor,
-              AppTheme.primaryColor.withOpacity(0.3),
-            ],
-          ),
-        ),
-        child: Icon(
-          Icons.video_library_rounded,
-          size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
-          color: AppTheme.primaryColor,
-        ),
-      );
-    }
-
-    if (!_isInitialized || _controller == null || !_controller!.value.isInitialized) {
-      return Container(
-        width: widget.width,
-        height: widget.height,
-        color: Colors.grey[300],
-        child: Center(
-          child: CircularProgressIndicator(
-            color: AppTheme.iconscolor,
-            strokeWidth: 2,
-          ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: widget.width,
-      height: widget.height,
-      child: AspectRatio(
-        aspectRatio: _controller!.value.aspectRatio,
-        child: VideoPlayer(_controller!),
-      ),
-    );
-  }
-}
 
 class _VideoPlayerThumbnailState extends State<_VideoPlayerThumbnail> with WidgetsBindingObserver {
   late VideoPlayerController _controller;
@@ -6822,7 +6714,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                       height: double.infinity,
                       fit: BoxFit.cover,
                       errorWidget: videoUrl != null
-                          ? _VideoFrameThumbnail(
+                          ? VideoFrameThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: double.infinity,
@@ -6849,7 +6741,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                             ),
                     )
                   : videoUrl != null
-                      ? _VideoFrameThumbnail(
+                      ? VideoFrameThumbnail(
                           videoUrl: videoUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,

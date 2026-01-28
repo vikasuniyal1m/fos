@@ -9,6 +9,7 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/widgets/video_frame_thumbnail.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 
 /// Search Screen
@@ -603,11 +604,11 @@ class _SearchScreenState extends State<SearchScreen> {
         // Remove leading slash if present
         final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
         imageUrl = baseUrl + cleanPath;
-        print('🔍 Photo imageUrl constructed: $imageUrl from file_path: $filePath');
       } else {
-        print('⚠️ Photo has no file_path: $item');
         imageUrl = null;
       }
+    } else if (type == 'Video') {
+      imageUrl = _getVideoThumbnail(item);
     } else {
       imageUrl = null;
     }
@@ -980,27 +981,15 @@ class _SearchScreenState extends State<SearchScreen> {
                           width: double.infinity,
                           fit: BoxFit.cover,
                           errorWidget: videoUrl != null
-                              ? Container(
+                              ? VideoFrameThumbnail(
+                                  videoUrl: videoUrl,
+                                  fit: BoxFit.cover,
                                   height: thumbnailHeight,
                                   width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        AppTheme.themeColor,
-                                        AppTheme.primaryColor.withOpacity(0.3),
-                                      ],
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.video_library_rounded,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                                    color: AppTheme.primaryColor,
-                                  ),
                                 )
                               : Container(
                                   height: thumbnailHeight,
+                                  width: double.infinity,
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       begin: Alignment.topLeft,
@@ -1019,24 +1008,11 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ),
                         )
                       : videoUrl != null
-                          ? Container(
+                          ? VideoFrameThumbnail(
+                              videoUrl: videoUrl,
+                              fit: BoxFit.cover,
                               height: thumbnailHeight,
                               width: double.infinity,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AppTheme.themeColor,
-                                    AppTheme.primaryColor.withOpacity(0.3),
-                                  ],
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.video_library_rounded,
-                                size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                                color: AppTheme.primaryColor,
-                              ),
                             )
                           : Container(
                               height: thumbnailHeight,
