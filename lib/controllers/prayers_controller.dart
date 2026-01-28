@@ -1,3 +1,4 @@
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:get/get.dart';
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/prayers_service.dart';
@@ -155,8 +156,12 @@ class PrayersController extends GetxController {
       );
       selectedPrayer.value = prayer;
       
-      // Load comments
-      await loadPrayerComments(prayerId);
+      // Load emojis and comments
+      await Future.wait([
+        loadAvailableEmojis(),
+        loadQuickEmojis(),
+        loadPrayerComments(prayerId),
+      ]);
     } catch (e) {
       message.value = 'Error loading prayer: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error loading prayer details: $e');
@@ -187,8 +192,9 @@ class PrayersController extends GetxController {
       final emojiReactions = <String, List<Map<String, dynamic>>>{};
       
       for (var comment in comments) {
-        final content = comment['content'] as String? ?? '';
-        final trimmed = content.trim();
+        // Handle both 'content' and 'comment' fields for backward compatibility
+        final content = (comment['content'] as String? ?? comment['comment'] as String? ?? '').trim();
+        final trimmed = content;
         final parentId = comment['parent_comment_id'];
         final commentId = comment['id'];
         
@@ -234,7 +240,13 @@ class PrayersController extends GetxController {
           emojiKey = trimmed;
           print('✅ Found emoji reaction (ID): $emojiKey');
         }
-        
+        // Strategy 5: Check if it's a fruit keyword using Helper
+        else if (FruitEmojiHelper.isFruit(trimmed)) {
+          isEmojiReaction = true;
+          emojiKey = trimmed;
+          print('✅ Found emoji reaction (fruit keyword): $emojiKey');
+        }
+
         if (isEmojiReaction && emojiKey != null) {
           // It's an emoji reaction - store user information
           if (!emojiReactions.containsKey(emojiKey)) {
