@@ -21,6 +21,8 @@ import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 
+import '../bindings/InitialBinding.dart';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
 

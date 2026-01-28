@@ -27,7 +27,7 @@ class MainDashboardScreen extends GetView<MainDashboardController> {
                     children: const [
                       HomeScreen(),
                       FruitsScreen(isRootTab: true),
-                      PrayerRequestsScreen(),
+                      PrayerRequestsScreen(isRootTab: true),
                       VideosScreen(),
                       GalleryScreen(),
                     ],

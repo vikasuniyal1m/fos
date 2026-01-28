@@ -16,7 +16,10 @@ import 'package:fruitsofspirit/screens/report_content_screen.dart';
 /// Prayer Requests Screen
 /// Modern, user-friendly design with attractive UI
 class PrayerRequestsScreen extends GetView<PrayersController> {
-  const PrayerRequestsScreen({Key? key}) : super(key: key);
+  final bool isRootTab;
+
+  const PrayerRequestsScreen({Key? key, this.isRootTab = false}) : super(key: key);
+
 
   /// Get ImageProvider for profile photo (handles both network and assets)
   ImageProvider? _getImageProvider(String? photoUrl) {
@@ -121,7 +124,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: StandardAppBar(
-        showBackButton: true,
+        showBackButton: isRootTab==true ? false : true,
         rightActions: [
           StandardAppBar.buildActionIcon(
             context,
