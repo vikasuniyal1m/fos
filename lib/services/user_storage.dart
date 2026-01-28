@@ -101,7 +101,24 @@ class UserStorage {
   static Future<void> saveUser(Map<String, dynamic> user) async {
     final box = await _getBox();
     await box.put(_keyUser, jsonEncode(user));
-    await box.put(_keyUserId, user['id'] as int);
+
+    // Safely parse ID which might be String or Int from different APIs
+    int? userId;
+    if (user['id'] != null) {
+      if (user['id'] is int) {
+        userId = user['id'] as int;
+      } else if (user['id'] is String) {
+        userId = int.tryParse(user['id']);
+      }
+    }
+
+    if (userId != null) {
+      await box.put(_keyUserId, userId);
+      print('✅ User ID saved to storage: $userId');
+    } else {
+      print('⚠️ Warning: No valid ID found in user data: ${user['id']}');
+    }
+
     await box.put(_keyIsLoggedIn, true);
   }
 
@@ -127,7 +144,18 @@ class UserStorage {
       final userId = box.get(_keyUserId);
       if (userId is int) {
         return userId;
+      } else if (userId is String) {
+        final parsed = int.tryParse(userId);
+        if (parsed != null) return parsed;
       }
+
+      // Fallback: Check in user_data map if ID exists there
+      final user = await getUser();
+      if (user != null && user['id'] != null) {
+        if (user['id'] is int) return user['id'] as int;
+        if (user['id'] is String) return int.tryParse(user['id']);
+      }
+
       return null;
     } catch (e) {
       print('⚠️ Error getting user ID from Hive: $e');

@@ -33,7 +33,7 @@ class ApiConfig {
   static const String blockUser = '$baseUrl/block_user.php';
   
   // Request timeout
-  static const Duration timeout = Duration(seconds: 30);
+  static const Duration timeout = Duration(seconds: 60);
   static const Duration mediaTimeout = Duration(minutes: 5);
 
   

@@ -712,18 +712,16 @@ class HomeController extends GetxController {
     }
 
     try {
-      // Load all data in parallel for better performance
-      await Future.wait([
-        loadFruits(),
-        loadPrayers(),
-        loadBlogs(),
-        loadVideos(),
-        loadLiveVideos(),
-        loadGalleryPhotos(),
-        loadStories(),
-        loadGroups(),
-        loadEmojis(),
-      ]);
+      // Load all data sequentially instead of parallel to prevent overloading slow servers
+      await loadFruits();
+      await loadPrayers();
+      await loadBlogs();
+      await loadVideos();
+      await loadLiveVideos();
+      await loadGalleryPhotos();
+      await loadStories();
+      await loadGroups();
+      await loadEmojis();
 
       // Cache the loaded data
       await _cacheAllData();

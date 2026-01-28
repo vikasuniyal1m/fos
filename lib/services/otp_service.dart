@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import 'api_service.dart';
 
 // Custom Exceptions
 class ApiException implements Exception {
@@ -99,7 +100,7 @@ class OtpService {
       final isEmail = emailOrPhone.contains('@') && emailOrPhone.contains('.');
       
       // Use auth.php with forgot-password action (which sends OTP)
-      final url = Uri.parse('${ApiConfig.auth}?action=forgot-password');
+      final url = '${ApiConfig.auth}?action=forgot-password';
       
       // Use form-urlencoded format as per ApiConfig
       final requestBody = isEmail 
@@ -110,21 +111,13 @@ class OtpService {
       print('📤 Request body: $requestBody');
       print('📤 Is Email: $isEmail');
       
-      // http.post automatically encodes Map<String, String> as form-urlencoded
-      final response = await http.post(
+      // Use ApiService.post for consistent error handling and timeouts
+      final response = await ApiService.post(
         url,
-        headers: ApiConfig.headers, // Use standard headers (form-urlencoded)
         body: requestBody,
       );
       
-      print('📥 OTP Response status: ${response.statusCode}');
-      print('📥 OTP Response body: ${response.body}');
-      print('📥 OTP Response body length: ${response.body.length}');
-      print('📥 OTP Response headers: ${response.headers}');
-      
-      return _handleResponse(response);
-    } on SocketException {
-      throw NetworkException('No internet connection');
+      return response;
     } catch (e) {
       print('❌ OTP Send Error: $e');
       rethrow;
@@ -137,7 +130,7 @@ class OtpService {
       final isEmail = emailOrPhone.contains('@') && emailOrPhone.contains('.');
       
       // Use auth.php with verify-otp action
-      final url = Uri.parse('${ApiConfig.auth}?action=verify-otp');
+      final url = '${ApiConfig.auth}?action=verify-otp';
       
       // Use form-urlencoded format as per ApiConfig
       final requestBody = {
@@ -149,21 +142,13 @@ class OtpService {
       print('📤 Request body: $requestBody');
       print('📤 Is Email: $isEmail');
       
-      // Use ApiService.post which handles form encoding properly
-      // But since we're in OtpService, we'll encode manually
-      final response = await http.post(
+      // Use ApiService.post for consistent error handling and timeouts
+      final response = await ApiService.post(
         url,
-        headers: ApiConfig.headers, // Use standard headers (form-urlencoded)
-        body: requestBody, // http.post automatically encodes Map<String, String> as form-urlencoded
+        body: requestBody,
       );
       
-      print('📥 OTP Verify Response status: ${response.statusCode}');
-      print('📥 OTP Verify Response body: ${response.body}');
-      print('📥 OTP Verify Response body length: ${response.body.length}');
-      
-      return _handleResponse(response);
-    } on SocketException {
-      throw NetworkException('No internet connection');
+      return response;
     } catch (e) {
       print('❌ OTP Verify Error: $e');
       rethrow;

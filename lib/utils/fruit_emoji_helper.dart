@@ -5,15 +5,21 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 /// Fruit Emoji Helper
 /// Standardized utility to detect and render fruit emojis across the app
 class FruitEmojiHelper {
-  /// Detect if text is a fruit name or emoji character
+  /// Detect if text is a fruit name, emoji character, or emoji image URL
   static bool isFruit(String text) {
     if (text.isEmpty) return false;
-    final trimmed = text.trim().toLowerCase();
+    final trimmed = text.trim();
+    final lower = trimmed.toLowerCase();
+
+    // Check if it's a direct URL to an emoji
+    if (lower.startsWith('http') || lower.contains('.png') || lower.contains('.jpg') || lower.contains('/emojis/')) return true;
     
     // Check fruit names
     final fruitNames = ['love', 'joy', 'peace', 'patience', 'kindness', 'goodness', 
-                       'faithfulness', 'gentleness', 'meekness', 'self-control', 'self control', 'discipline'];
-    if (fruitNames.contains(trimmed)) return true;
+                       'faithfulness', 'gentleness', 'meekness', 'self-control', 'self control', 'discipline',
+                       'patience_orange', 'joy_pineapple', 'peace_watermelon', 'kindness_orange', 'goodness_mango',
+                       'faithfulness_cherry', 'gentleness_grapes', 'self_control_apple'];
+    if (fruitNames.contains(lower)) return true;
     
     // Check emoji characters
     final emojiChars = ['😊', '☮️', '⏳', '🤗', '✨', '🙏', '🕊️', '🎯', '❤️', '⭐', '👏'];
@@ -28,6 +34,9 @@ class FruitEmojiHelper {
     final trimmed = text.trim();
     final lower = trimmed.toLowerCase();
     
+    // If it's already a full URL, return it
+    if (lower.startsWith('http')) return trimmed;
+
     // Try by name first
     String? url = ImageConfig.getFruitReactionImageUrlByName(lower, size: size, variant: variant);
     if (url != null) return url;

@@ -8,6 +8,7 @@ import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/content_moderation_service.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/services/fruits_service.dart';
 
 /// Gallery Controller
 /// Manages gallery photos data and operations

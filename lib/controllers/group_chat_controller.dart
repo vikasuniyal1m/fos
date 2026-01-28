@@ -3,11 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/group_chat_service.dart';
-import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/services/user_storage.dart' as us;
 import 'package:fruitsofspirit/services/content_moderation_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 
 import '../routes/app_pages.dart';
+import '../utils/app_theme.dart';
 
 /// Group Chat Controller
 /// Manages real-time chat messages
@@ -38,7 +39,7 @@ class GroupChatController extends GetxController {
   }
 
   Future<void> _loadUserId() async {
-    final id = await UserStorage.getUserId();
+    final id = await us.UserStorage.getUserId();
     if (id != null) {
       userId.value = id;
     }
@@ -108,6 +109,13 @@ class GroupChatController extends GetxController {
         // Handle null or empty message text - convert to empty string
         if (msg['message'] == null || msg['message'] == 'null') {
           msg['message'] = '';
+        }
+
+        // Ensure message_type is correctly identified as 'emoji' for fruit/URL messages
+        final content = msg['message']?.toString() ?? '';
+        final mType = msg['message_type']?.toString();
+        if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
+          msg['message_type'] = 'emoji';
         }
         return msg;
       }).toList();
@@ -218,6 +226,13 @@ class GroupChatController extends GetxController {
         if (msg['message'] == null || msg['message'] == 'null') {
           msg['message'] = '';
         }
+
+        // Ensure message_type is correctly identified as 'emoji' for fruit/URL messages
+        final content = msg['message']?.toString() ?? '';
+        final mType = msg['message_type']?.toString();
+        if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
+          msg['message_type'] = 'emoji';
+        }
         return msg;
       }).toList();
 
@@ -304,8 +319,8 @@ class GroupChatController extends GetxController {
         Get.snackbar(
           'Community Guidelines',
           'Your message contains inappropriate content. Please revise and try again.',
-          backgroundColor: const Color(0xFF5D4037),
-          colorText: Colors.white,
+          backgroundColor: AppTheme.iconscolor,
+          colorText: Colors.black,
           icon: const Icon(
             Icons.security_rounded,
             color: Color(0xFFC79211),
@@ -345,43 +360,60 @@ class GroupChatController extends GetxController {
       
       sentMessage['group_id'] = groupId;
       sentMessage['user_id'] = userId.value;
-      if ((sentMessage['message'] == null || sentMessage['message'] == '' || sentMessage['message'] == 'null') &&
-          sentMessage['text'] != null &&
-          sentMessage['text'] is String &&
-          (sentMessage['text'] as String).trim().isNotEmpty) {
-        sentMessage['message'] = (sentMessage['text'] as String).trim();
+
+      // Ensure message text is present
+      if ((sentMessage['message'] == null || sentMessage['message'] == '' || sentMessage['message'] == 'null')) {
+        sentMessage['message'] = sentMessage['text'] ?? '';
       }
-      if (sentMessage['created_at'] == null && sentMessage['time'] != null) {
-        sentMessage['created_at'] = sentMessage['time'];
+
+      // Ensure message_type is correctly identified as 'emoji' for fruit/URL messages
+      final content = sentMessage['message']?.toString() ?? '';
+      final mType = sentMessage['message_type']?.toString();
+      if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
+        sentMessage['message_type'] = 'emoji';
       }
-      if (sentMessage['message'] == null || sentMessage['message'] == 'null') {
-        sentMessage['message'] = '';
+
+      // Ensure timestamp is present
+      if (sentMessage['created_at'] == null) {
+        sentMessage['created_at'] = sentMessage['time'] ?? DateTime.now().toString();
+      }
+
+      // Add current user info to the message so it displays correctly immediately
+      try {
+        final user = await us.UserStorage.getUser();
+        if (user != null) {
+          sentMessage['user_name'] = user['name'];
+          sentMessage['profile_photo'] = user['profile_photo'];
+        }
+      } catch (e) {
+        print('Error adding user info to sent message: $e');
       }
       
-      // Check if message already exists (prevent duplicates)
-      final sentMsgId = sentMessage['id'];
+      // Handle different ID fields returned by backend (id, msg_id)
+      final rawId = sentMessage['id'] ?? sentMessage['msg_id'];
       int? sentMessageId;
-      if (sentMsgId is int) {
-        sentMessageId = sentMsgId;
-      } else if (sentMsgId is String) {
-        sentMessageId = int.tryParse(sentMsgId);
+      if (rawId is int) {
+        sentMessageId = rawId;
+      } else if (rawId is String) {
+        sentMessageId = int.tryParse(rawId);
+      }
+
+      // Map msg_id to id for consistency if id is missing
+      if (sentMessage['id'] == null && rawId != null) {
+        sentMessage['id'] = rawId;
       }
       
-      // Only add if message doesn't already exist
-      final existingIds = messages.map((m) {
-        final idVal = m['id'];
-        if (idVal is int) return idVal;
-        if (idVal is String) return int.tryParse(idVal) ?? 0;
-        return 0;
-      }).toSet();
+      // Prevent duplicates in the local list
+      final existingIds = messages.map((m) => m['id']?.toString()).toSet();
+      final currentRawIdStr = rawId?.toString();
       
-      if (sentMessageId != null && !existingIds.contains(sentMessageId)) {
+      if (currentRawIdStr != null && !existingIds.contains(currentRawIdStr)) {
         // Add the newly sent message to the list
-        messages.add(sentMessage);
+        messages.insert(0, sentMessage); // Insert at top since ListView is reversed
         messages.refresh();
         
-        // Update lastMessageId if this is the newest message
-        if (sentMessageId > (lastMessageId ?? 0)) {
+        // Update lastMessageId if it's a numeric ID
+        if (sentMessageId != null && sentMessageId > (lastMessageId ?? 0)) {
           lastMessageId = sentMessageId;
         }
       }

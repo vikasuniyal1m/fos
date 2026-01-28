@@ -232,7 +232,7 @@ class AuthService {
       'google_id': googleId,
       'email': email,
       'name': name,
-      'role': 'User',
+      'role': 'User', // Default role for social login
     };
 
     if (profilePicture != null) {

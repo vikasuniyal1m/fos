@@ -28,7 +28,6 @@ import 'package:fruitsofspirit/screens/group_chat_screen.dart';
 import 'package:fruitsofspirit/screens/create_group_screen.dart';
 import 'package:fruitsofspirit/screens/profile_screen.dart';
 import 'package:fruitsofspirit/bindings/profile_binding.dart';
-import 'package:fruitsofspirit/bindings/forgot_password_binding.dart';
 import 'package:fruitsofspirit/screens/edit_profile_screen.dart';
 import 'package:fruitsofspirit/screens/stories_screen.dart';
 import 'package:fruitsofspirit/screens/create_story_screen.dart';
@@ -41,6 +40,7 @@ import 'package:fruitsofspirit/screens/fruit_details_screen.dart';
 import 'package:fruitsofspirit/screens/fruits_variant_01_screen.dart';
 import 'package:fruitsofspirit/screens/prayer_reminders_screen.dart';
 import 'package:fruitsofspirit/screens/live_screen.dart';
+import 'package:fruitsofspirit/screens/reset_password_screen.dart';
 
 part 'app_routes.dart';
 
@@ -83,7 +83,11 @@ class AppPages {
     GetPage(
       name: Routes.FORGOT_PASSWORD,
       page: () => const ForgotPasswordScreen(),
-      binding: ForgotPasswordBinding(),
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.RESET_PASSWORD,
+      page: () => const ResetPasswordScreen(),
       transition: Transition.fadeIn,
     ),
 

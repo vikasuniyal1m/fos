@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/auth_service.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/screens/reset_password_screen.dart';
 
 class ForgotPasswordController extends GetxController {
   final TextEditingController emailPhoneController = TextEditingController();
@@ -37,6 +39,10 @@ class ForgotPasswordController extends GetxController {
         colorText: Colors.white,
         duration: const Duration(seconds: 3),
       );
+
+      // Navigate to ResetPasswordScreen immediately
+      print('🚀 Navigating to ResetPasswordScreen with: $input');
+      Get.toNamed(Routes.RESET_PASSWORD, arguments: input);
     } on ApiException catch (e) {
       message.value = e.message;
       Get.snackbar(
