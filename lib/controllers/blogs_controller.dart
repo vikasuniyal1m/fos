@@ -179,6 +179,7 @@ class BlogsController extends GetxController {
     final startTime = DateTime.now();
     
     try {
+      final commentsFetchStartTime = DateTime.now();
       final comments = await CommentsService.getComments(
         postType: 'blog',
         postId: blogId,
