@@ -471,6 +471,16 @@ class VideosController extends GetxController {
     isLoading.value = true;
     message.value = 'Uploading video...';
 
+    print('📤 VideosController.uploadVideo: Preparing upload...');
+    await _loadUserId();
+    print('📤 VideosController.uploadVideo: Using userId: ${userId.value}');
+
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      isLoading.value = false;
+      return false;
+    }
+
     try {
       await VideosService.uploadVideo(
         userId: userId.value,
