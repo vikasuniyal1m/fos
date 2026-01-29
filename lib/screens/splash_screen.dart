@@ -67,6 +67,29 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
 
       // Check if user is logged in with timeout to prevent hanging
+      final hasSeenOnboarding = await UserStorage.hasSeenOnboarding()
+          .timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('⚠️ UserStorage.hasSeenOnboarding() timed out, defaulting to false');
+          return false;
+        },
+      )
+          .catchError((error) {
+        debugPrint('❌ Error checking onboarding status: $error');
+        return false;
+      });
+
+      debugPrint('DEBUG: hasSeenOnboarding = $hasSeenOnboarding');
+
+      if (!mounted) return;
+
+      if (!hasSeenOnboarding) {
+        debugPrint('➡️ Navigating to ONBOARDING');
+        Get.offAllNamed(Routes.ONBOARDING);
+        return;
+      }
+
       final isLoggedIn = await UserStorage.isLoggedIn()
           .timeout(
         const Duration(seconds: 5),
