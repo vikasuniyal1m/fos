@@ -44,6 +44,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
   var availableEmojis = <Map<String, dynamic>>[].obs;
   var isLoadingEmojis = true.obs;
   var jingleStatus = <String, dynamic>{}.obs;
+  bool _isSendingMessage = false;
 
   int? groupOwnerId;
   String? groupCategory;
@@ -332,14 +333,14 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                 itemCount: groupMessages.length,
                 itemBuilder: (context, index) {
                   final currentMessage = groupMessages[groupMessages.length - 1 - index];
-                  final currentMessageDate = DateTime.parse(currentMessage['created_at']);
+                  final currentMessageDate = _parseDateTime(currentMessage['created_at']);
 
                   bool showDateSeparator = false;
                   if (index == groupMessages.length - 1) {
                     showDateSeparator = true;
                   } else {
                     final previousMessage = groupMessages[groupMessages.length - 1 - (index + 1)];
-                    final previousMessageDate = DateTime.parse(previousMessage['created_at']);
+                    final previousMessageDate = _parseDateTime(previousMessage['created_at']);
                     if (currentMessageDate.day != previousMessageDate.day ||
                         currentMessageDate.month != previousMessageDate.month ||
                         currentMessageDate.year != previousMessageDate.year) {
@@ -394,8 +395,21 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     }
   }
 
+  DateTime _parseDateTime(String? dateString) {
+    if (dateString == null || dateString.isEmpty) return DateTime.now();
+    try {
+      // Assume UTC if Z is missing to fix timezone offsets
+      if (!dateString.endsWith('Z')) {
+        return DateTime.parse('${dateString}Z').toLocal();
+      }
+      return DateTime.parse(dateString).toLocal();
+    } catch (e) {
+      return DateTime.now();
+    }
+  }
+
   String _formatTime(String createdAt) {
-    final dateTime = DateTime.parse(createdAt);
+    final dateTime = _parseDateTime(createdAt);
     return DateFormat('h:mm a').format(dateTime);
   }
 
@@ -574,28 +588,44 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                   fillColor: Colors.grey[100],
                   filled: true,
+                  enabled: !_isSendingMessage,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
                 ),
+                onSubmitted: (_) => _sendMessage(),
               ),
             ),
             const SizedBox(width: 8),
             Material(
               color: Colors.transparent,
-              child: InkWell(
-                onTap: _sendMessage,
-                borderRadius: BorderRadius.circular(30),
-                child: Container(
-                  width: 40, height: 40,
-                  decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1.5),
-
-
-                      gradient: const LinearGradient(
-                          colors: [Color(0xFFFFFFFF), Color(0xFFFFFFFF)]),
-                      shape: BoxShape.circle),
-                  child: const Icon(Icons.send, color: AppTheme.iconscolor, size: 20),
-                ),
-              ),
+              child: _isSendingMessage
+                ? const SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppTheme.iconscolor,
+                        ),
+                      ),
+                    ),
+                  )
+                : InkWell(
+                    onTap: _sendMessage,
+                    borderRadius: BorderRadius.circular(30),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1.5),
+                          gradient: const LinearGradient(
+                              colors: [Color(0xFFFFFFFF), Color(0xFFFFFFFF)]),
+                          shape: BoxShape.circle),
+                      child: const Icon(Icons.send, color: AppTheme.iconscolor, size: 20),
+                    ),
+                  ),
             ),
           ],
         ),
@@ -604,11 +634,31 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
   }
 
   void _sendMessage() async {
+    if (_isSendingMessage) return;
+
     _runWithTermsCheck(() async {
       final text = messageController.text.trim();
       if (text.isEmpty) return;
-      messageController.clear();
-      await controller.sendMessage(groupId: widget.groupId, text: text);
+      
+      // FIX: Dismiss keyboard immediately
+      FocusScope.of(context).unfocus();
+      
+      setState(() {
+        _isSendingMessage = true;
+      });
+
+      try {
+        messageController.clear();
+        await controller.sendMessage(groupId: widget.groupId, text: text);
+      } catch (e) {
+        print('Error sending message: $e');
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSendingMessage = false;
+          });
+        }
+      }
     });
   }
 
@@ -622,10 +672,20 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
         itemBuilder: (context, index) => InkWell(
           onTap: () async {
             _runWithTermsCheck(() async {
-              final emojiChar = availableEmojis[index]['emoji_char'] ?? availableEmojis[index]['code'];
+              final emojiData = availableEmojis[index];
+              final String emojiChar = emojiData['emoji_char']?.toString() ?? '';
+              final String imageUrl = emojiData['image_url']?.toString() ?? '';
+              final String code = emojiData['code']?.toString() ?? '';
+
+              // Prioritize emoji character if it's not empty, otherwise use image_url for direct rendering,
+              // or fall back to code if nothing else is available.
+              final String textToSend = emojiChar.isNotEmpty ? emojiChar : (imageUrl.isNotEmpty ? imageUrl : code);
+
+              if (textToSend.isEmpty) return;
+
               await controller.sendMessage(
                 groupId: widget.groupId, 
-                text: emojiChar,
+                text: textToSend,
                 messageType: 'emoji',
               );
               Get.back();

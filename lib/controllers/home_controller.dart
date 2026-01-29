@@ -723,6 +723,7 @@ class HomeController extends GetxController {
       await loadGroups();
       await loadEmojis();
 
+
       // Cache the loaded data
       await _cacheAllData();
 

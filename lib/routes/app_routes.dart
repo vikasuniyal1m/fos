@@ -64,6 +64,7 @@ abstract class _Paths {
   static const FORGOT_PASSWORD = '/forgot-password';
   static const RESET_PASSWORD = '/reset-password';
 
+
   // Feature Paths
   static const FRUITS = '/fruits';
   static const PRAYER_REQUESTS = '/prayer-requests';

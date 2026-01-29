@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/bindings/InitialBinding.dart';
 import 'package:get/get.dart';
 import 'dart:io' show Platform;
 import 'package:fruitsofspirit/routes/routes.dart';
@@ -38,6 +39,8 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _loginError; // Store login error message
 
   void _reinitializeControllers() {
+    // Re-initialize core controllers to load new user data
+    // These were deleted during logout to prevent data leak
     InitialBinding().dependencies();
   }
 
@@ -243,8 +246,8 @@ class _LoginScreenState extends State<LoginScreen> {
           'Role Updated',
           'Your role has been automatically set to ${e.correctRole}. Please try logging in again.',
           snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.blue.withOpacity(0.9),
-          colorText: Colors.white,
+          backgroundColor: AppTheme.iconscolor,
+          colorText: Colors.black,
           duration: const Duration(seconds: 3),
           margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
           borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
@@ -296,8 +299,8 @@ class _LoginScreenState extends State<LoginScreen> {
           'Connection Error',
           'No internet connection. Please check your network settings and try again.',
           snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
+          backgroundColor: AppTheme.iconscolor,
+          colorText: Colors.black,
           duration: const Duration(seconds: 4),
           margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
           borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
@@ -327,8 +330,8 @@ class _LoginScreenState extends State<LoginScreen> {
         'Not Available',
         'Sign in with Apple is only available on iOS devices.',
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withOpacity(0.9),
-        colorText: Colors.white,
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
       );
       return;
     }
@@ -402,8 +405,8 @@ class _LoginScreenState extends State<LoginScreen> {
               'Sign in with Apple',
               errorMessage,
               snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.orange.withOpacity(0.9),
-              colorText: Colors.white,
+              backgroundColor: AppTheme.iconscolor,
+              colorText: Colors.black,
               duration: const Duration(seconds: 3),
             );
           }

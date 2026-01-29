@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
@@ -28,6 +30,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   final replyControllers = <int, TextEditingController>{};
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
+  final ScrollController _scrollController = ScrollController();
   var isSubmittingComment = false.obs;
   var isSubmittingQuestion = false.obs;
   var showQuestionInput = false.obs;
@@ -48,6 +51,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     commentController.dispose();
     questionController.dispose();
     for (var controller in replyControllers.values) {
@@ -58,11 +62,22 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
 
   /// Format time ago
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -73,7 +88,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -81,7 +96,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -233,8 +248,30 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                 size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
               ),
               onPressed: () {
-                // TODO: Implement share functionality
+                final blog = controller.selectedBlog;
+                final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                final imagePath = blog['image_url'] as String?;
+                String? blogImageUrl;
+                if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
+                  if (imagePath.toString().startsWith('http')) {
+                    blogImageUrl = imagePath.toString();
+                  } else {
+                    final cleanPath = imagePath.toString().startsWith('/') 
+                        ? imagePath.toString().substring(1) 
+                        : imagePath.toString();
+                    blogImageUrl = '$baseUrl$cleanPath';
+                  }
+                }
+
+                ShareHelper.shareContent(
+                  contentType: 'blog',
+                  contentId: blogId,
+                  title: blog['title'] ?? 'Blog',
+                  content: blog['body'],
+                  mediaUrl: blogImageUrl,
+                );
               },
+
             ),
           ],
         ),
@@ -313,6 +350,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
             children: [
               Expanded(
                 child: SingleChildScrollView(
+                  controller: _scrollController,
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: ResponsiveHelper.padding(context, all: 16),
                   child: Column(
@@ -1021,6 +1059,9 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     
     if (text.isEmpty) return;
 
+    // FIX: Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+
     if (parentCommentId != null) {
       isSubmittingComment.value = true;
     } else {
@@ -1030,6 +1071,17 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     try {
       final success = await controller.addComment(blogId, text, parentCommentId: parentCommentId);
       if (success) {
+        if (parentCommentId == null) {
+          // Scroll to bottom to show latest comment
+          await Future.delayed(const Duration(milliseconds: 300));
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOut,
+            );
+          }
+        }
         if (parentCommentId != null) {
           replyControllers[parentCommentId]?.clear();
           setState(() {
@@ -1071,11 +1123,24 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     if (questionText.isEmpty) return;
 
     isSubmittingQuestion.value = true;
+
+    // FIX: Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+
     try {
       // Add ? prefix to mark as question (will be used for filtering)
       final questionContent = questionText.startsWith('?') ? questionText : '? $questionText';
       final success = await controller.addComment(blogId, questionContent, parentCommentId: null);
       if (success) {
+        // Scroll to bottom to show latest question
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+        }
         questionController.clear();
         showQuestionInput.value = false;
         // Reload comments to show the new question
@@ -1680,25 +1745,40 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
             ),
           ),
           SizedBox(width: ResponsiveHelper.spacing(context, 8)),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => _submitComment(blogId, parentCommentId: parentCommentId),
-              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-              child: Container(
-                padding: ResponsiveHelper.padding(context, all: 8),
-                decoration: BoxDecoration(
-                  color: isQuestion ? const Color(0xFF2196F3) : const Color(0xFF9F9467),
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-                ),
-                child: Icon(
-                  Icons.send,
-                  color: Colors.white,
-                  size: ResponsiveHelper.iconSize(context, mobile: 18),
-                ),
-              ),
-            ),
-          ),
+          Obx(() => isSubmittingComment.value
+              ? Padding(
+                  padding: ResponsiveHelper.padding(context, all: 8),
+                  child: SizedBox(
+                    width: ResponsiveHelper.iconSize(context, mobile: 18),
+                    height: ResponsiveHelper.iconSize(context, mobile: 18),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: isQuestion ? const Color(0xFF2196F3) : const Color(0xFF9F9467),
+                    ),
+                  ),
+                )
+              : Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      FocusScope.of(context).unfocus();
+                      _submitComment(blogId, parentCommentId: parentCommentId);
+                    },
+                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+                    child: Container(
+                      padding: ResponsiveHelper.padding(context, all: 8),
+                      decoration: BoxDecoration(
+                        color: isQuestion ? const Color(0xFF2196F3) : const Color(0xFF9F9467),
+                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+                      ),
+                      child: Icon(
+                        Icons.send,
+                        color: Colors.white,
+                        size: ResponsiveHelper.iconSize(context, mobile: 18),
+                      ),
+                    ),
+                  ),
+                )),
         ],
       ),
     );
@@ -2281,6 +2361,10 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                               context,
                               emojiData,
                               size: ResponsiveHelper.isMobile(context) ? 44 : 48,
+                              onTap: isValidEmoji ? () async {
+                                FocusScope.of(context).unfocus();
+                                return await controller.addEmojiReaction(blogId, emoji!);
+                              } : null,
                             ),
                           ),
                         ),
@@ -2568,54 +2652,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                     return Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: isValidEmoji ? () async {
-                          final success = await controller.addEmojiReaction(blogId, emoji!);
-                          if (success) {
-                            // Show success message FIRST (before closing dialog)
-                            if (mounted) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Success',
-                                    'Reaction added',
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 1),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                }
-                              });
-                            }
-                          } else {
-                            // Show error message
-                            if (mounted) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Error',
-                                    controller.message.value.isNotEmpty 
-                                        ? controller.message.value 
-                                        : 'Failed to add reaction. Please try again.',
-                                    backgroundColor: Colors.red,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 2),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                }
-                              });
-                            }
-                          }
-                          // Wait a bit for snackbar to show, then close dialog
-                          await Future.delayed(const Duration(milliseconds: 300));
-                          if (mounted && Navigator.canPop(context)) {
-                            final dialogContext = Get.overlayContext;
-                            if (dialogContext != null) {
-                              Navigator.of(dialogContext, rootNavigator: true).pop();
-                            } else if (context.mounted) {
-                              Navigator.of(context, rootNavigator: true).pop();
-                            }
-                          }
-                        } : null,
+                        onTap: null, // Handled by _EmojiButtonWithLoading
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           decoration: BoxDecoration(
@@ -2627,6 +2664,57 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                               context,
                               emojiData,
                               size: 48,
+                              onTap: isValidEmoji ? () async {
+                                FocusScope.of(context).unfocus();
+                                final success = await controller.addEmojiReaction(blogId, emoji!);
+                                if (success) {
+                                  // Show success message
+                                  if (mounted) {
+                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                      if (mounted) {
+                                        Get.snackbar(
+                                          'Success',
+                                          'Reaction added',
+                                          backgroundColor: Colors.green,
+                                          colorText: Colors.white,
+                                          duration: const Duration(seconds: 1),
+                                          margin: const EdgeInsets.all(16),
+                                        );
+                                      }
+                                    });
+                                  }
+                                  
+                                  // Close dialog after delay
+                                  await Future.delayed(const Duration(milliseconds: 300));
+                                  if (mounted && Navigator.canPop(context)) {
+                                    final dialogContext = Get.overlayContext;
+                                    if (dialogContext != null) {
+                                      Navigator.of(dialogContext, rootNavigator: true).pop();
+                                    } else if (context.mounted) {
+                                      Navigator.of(context, rootNavigator: true).pop();
+                                    }
+                                  }
+                                } else {
+                                  // Show error
+                                   if (mounted) {
+                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                      if (mounted) {
+                                        Get.snackbar(
+                                          'Error',
+                                          controller.message.value.isNotEmpty 
+                                              ? controller.message.value 
+                                              : 'Failed to add reaction. Please try again.',
+                                          backgroundColor: Colors.red,
+                                          colorText: Colors.white,
+                                          duration: const Duration(seconds: 2),
+                                          margin: const EdgeInsets.all(16),
+                                        );
+                                      }
+                                    });
+                                  }
+                                }
+                                return success;
+                              } : null,
                             ),
                           ),
                         ),
@@ -2729,4 +2817,3 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     );
   }
 }
-

@@ -175,8 +175,8 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
       Get.snackbar(
         'Error',
         'Failed to pick video: ${e.toString()}',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
       );
     }
   }
@@ -367,8 +367,8 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
               controller.message.value.isNotEmpty 
                   ? controller.message.value 
                   : 'Video uploaded successfully!',
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
+              backgroundColor: AppTheme.iconscolor,
+              colorText: Colors.black,
               snackPosition: SnackPosition.BOTTOM,
               duration: const Duration(seconds: 2),
               icon: const Icon(Icons.check_circle, color: Colors.white),
@@ -381,12 +381,12 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
       // Wait a bit for snackbar to show, then navigate
       await Future.delayed(const Duration(milliseconds: 1000));
       
-      // Navigate back
+      // Robust Navigation back to Dashboard
       if (mounted) {
         if (Get.isRegistered<MainDashboardController>()) {
           Get.find<MainDashboardController>().changeIndex(3);
         }
-        Get.back();
+        Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
       }
     } else {
       // Show error message
@@ -462,7 +462,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                   // Form Fields - Scrollable
                   Container(
                     constraints: BoxConstraints(
-                      maxHeight: ResponsiveHelper.screenHeight(context) * 0.45,
+                      maxHeight: ResponsiveHelper.screenHeight(context) * 0.4,
                     ),
                     child: SingleChildScrollView(
                       padding: EdgeInsets.symmetric(
@@ -680,7 +680,6 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         ],
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.max,
         children: [
           // Header - Compact
           Padding(
@@ -846,16 +845,23 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                                           child: VideoPlayer(_previewController!),
                                         ),
                                       )
-                                    : Container(
-                                        color: Colors.black87,
-                                        child: Center(
-                                          child: Icon(
-                                            Icons.video_library_rounded,
-                                            size: ResponsiveHelper.iconSize(context, mobile: 64),
-                                            color: Colors.white70,
+                                    : thumbnailFile != null
+                                        ? Image.file(
+                                            thumbnailFile!,
+                                            fit: BoxFit.cover,
+                                            width: double.infinity,
+                                            height: double.infinity,
+                                          )
+                                        : Container(
+                                            color: Colors.black87,
+                                            child: Center(
+                                              child: Icon(
+                                                Icons.video_library_rounded,
+                                                size: ResponsiveHelper.iconSize(context, mobile: 64),
+                                                color: Colors.white70,
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
                               ),
                             ),
                             
@@ -1034,9 +1040,8 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                   ),
                 ),
               ),
-
-    )
-          )
+            ),
+          ),
         ],
       ),
     );
@@ -1185,7 +1190,6 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                       ),
                 ],
               ),
-            ),
-    );
+    ));
   }
 }

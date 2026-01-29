@@ -319,6 +319,9 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
   }
 
   Future<void> _submitMoment() async {
+    // Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+    
     // Check for terms acceptance
     final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
     if (!hasAcceptedFactors) {
@@ -450,6 +453,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.themeColor,
+      resizeToAvoidBottomInset: true,
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(
           ResponsiveHelper.safeHeight(
@@ -536,13 +540,15 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
           ),
         ),
       ),
-      body: GetBuilder<GalleryController>(
-        init: Get.isRegistered<GalleryController>() 
-            ? Get.find<GalleryController>() 
-            : Get.put(GalleryController()),
-        builder: (controller) => SingleChildScrollView(
-          padding: ResponsiveHelper.padding(context, all: 16),
-          child: Column(
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: GetBuilder<GalleryController>(
+          init: Get.isRegistered<GalleryController>() 
+              ? Get.find<GalleryController>() 
+              : Get.put(GalleryController()),
+          builder: (controller) => SingleChildScrollView(
+            padding: ResponsiveHelper.padding(context, all: 16),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Image Preview Section - Enhanced
@@ -1404,6 +1410,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

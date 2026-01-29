@@ -744,10 +744,35 @@ class _GalleryScreenState extends State<GalleryScreen> {
     final fruitTag = photo['fruit_tag'] as String?;
     
     return GestureDetector(
-      onTap: () => Get.toNamed(
-        Routes.PHOTO_DETAILS,
-        arguments: photo['id'],
-      ),
+      onTap: () async {
+        // Show loading indicator
+        Get.dialog(
+          const Center(
+            child: CircularProgressIndicator(
+              color: Color(0xFF8B4513),
+            ),
+          ),
+          barrierDismissible: false,
+        );
+
+        try {
+          // Load details before navigating (to ensure data is ready)
+          await controller.loadPhotoDetails(photo['id']);
+        } catch (e) {
+          print('Error loading photo details: $e');
+        } finally {
+          // Close loading indicator
+          if (Get.isDialogOpen ?? false) {
+            Get.back();
+          }
+        }
+
+        // Navigate to details
+        Get.toNamed(
+          Routes.PHOTO_DETAILS,
+          arguments: photo['id'],
+        );
+      },
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,

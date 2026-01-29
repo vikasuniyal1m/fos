@@ -1270,11 +1270,22 @@ class GroupChatScreen extends StatelessWidget {
 
   /// Format time ago
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -1285,7 +1296,7 @@ class GroupChatScreen extends StatelessWidget {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -1293,7 +1304,7 @@ class GroupChatScreen extends StatelessWidget {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -1437,6 +1448,7 @@ class GroupChatScreen extends StatelessWidget {
   void _showCommentsDialog(BuildContext context, GroupPostsController controller, Map<String, dynamic> post) {
     final postId = post['id'] as int;
     final commentController = TextEditingController();
+    final ScrollController dialogScrollController = ScrollController();
     
     // Load comments
     controller.loadPostComments(postId);
@@ -1490,6 +1502,7 @@ class GroupChatScreen extends StatelessWidget {
                   }
                   
                   return ListView.builder(
+                    controller: dialogScrollController,
                     itemCount: controller.postComments.length,
                     itemBuilder: (context, index) {
                       final comment = controller.postComments[index];
@@ -1520,6 +1533,9 @@ class GroupChatScreen extends StatelessWidget {
                     onPressed: () async {
                       if (commentController.text.trim().isEmpty) return;
                       
+                      // FIX: Dismiss keyboard immediately
+                      FocusScope.of(context).unfocus();
+
                       final success = await controller.addComment(
                         postId,
                         commentController.text.trim(),
@@ -1527,6 +1543,17 @@ class GroupChatScreen extends StatelessWidget {
                       
                       if (success) {
                         commentController.clear();
+                        
+                        // Scroll to bottom to show latest comment
+                        await Future.delayed(const Duration(milliseconds: 300));
+                        if (dialogScrollController.hasClients) {
+                          dialogScrollController.animateTo(
+                            dialogScrollController.position.maxScrollExtent,
+                            duration: const Duration(milliseconds: 500),
+                            curve: Curves.easeOut,
+                          );
+                        }
+
                         // Show success message
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           Get.snackbar(
@@ -1645,15 +1672,26 @@ class GroupChatScreen extends StatelessWidget {
   String _formatDate(String? dateStr) {
     if (dateStr == null) return '';
     try {
-      final date = DateTime.parse(dateStr);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateStr.endsWith('Z')) {
+        date = DateTime.parse('${dateStr}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateStr).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 7) {
         return '${date.day}/${date.month}/${date.year}';
       } else if (difference.inDays > 0) {
         return '${difference.inDays}d ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours}h ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes}m ago';

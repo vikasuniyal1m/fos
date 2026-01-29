@@ -157,7 +157,7 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       body: Container(
       color: Colors.black.withOpacity(0.7),
       child: Stack(
@@ -216,7 +216,7 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
               ),
             ),
           Positioned(
-            top: 80,
+            top: 40,
             right: 20,
             child: TextButton(
               onPressed: () async {

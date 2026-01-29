@@ -6,6 +6,7 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
 import 'package:fruitsofspirit/screens/video_details_screen.dart'; // Assuming live streams are played via VideoDetailsScreen
 import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/widgets/cached_image.dart';
 
 class LiveScreen extends StatefulWidget {
   const LiveScreen({Key? key}) : super(key: key);
@@ -112,28 +113,34 @@ class _LiveScreenState extends State<LiveScreen> {
           children: [
             Stack(
               children: [
-                if (thumbnailUrl != null)
-                  Image.network(
-                    'https://fruitofthespirit.templateforwebsites.com/$thumbnailUrl', // Adjust base URL if needed
-                    height: ResponsiveHelper.imageHeight(context, mobile: 200),
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
+                Builder(
+                  builder: (context) {
+                    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                    final thumbnailPath = stream['thumbnail_path'] as String?;
+                    final legacyThumbnail = stream['thumbnail'] as String?;
+
+                    String? thumbnailUrl;
+                    if (thumbnailPath != null && thumbnailPath.isNotEmpty) {
+                      thumbnailUrl = thumbnailPath.startsWith('http') ? thumbnailPath : baseUrl + (thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath);
+                    } else if (legacyThumbnail != null && legacyThumbnail.isNotEmpty) {
+                      thumbnailUrl = legacyThumbnail.startsWith('http') ? legacyThumbnail : baseUrl + (legacyThumbnail.startsWith('/') ? legacyThumbnail.substring(1) : legacyThumbnail);
+                    }
+
+                    return CachedImage(
+                      imageUrl: thumbnailUrl ?? '',
                       height: ResponsiveHelper.imageHeight(context, mobile: 200),
-                      color: Colors.grey[300],
-                      child: Center(
-                        child: Icon(Icons.live_tv, size: ResponsiveHelper.iconSize(context, mobile: 64), color: Colors.grey[600]),
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorWidget: Container(
+                        height: ResponsiveHelper.imageHeight(context, mobile: 200),
+                        color: Colors.grey[300],
+                        child: Center(
+                          child: Icon(Icons.live_tv, size: ResponsiveHelper.iconSize(context, mobile: 64), color: Colors.grey[600]),
+                        ),
                       ),
-                    ),
-                  )
-                else
-                  Container(
-                    height: ResponsiveHelper.imageHeight(context, mobile: 200),
-                    color: Colors.grey[300],
-                    child: Center(
-                      child: Icon(Icons.live_tv, size: ResponsiveHelper.iconSize(context, mobile: 64), color: Colors.grey[600]),
-                    ),
-                  ),
+                    );
+                  },
+                ),
                 Positioned(
                   top: ResponsiveHelper.spacing(context, 8),
                   left: ResponsiveHelper.spacing(context, 8),

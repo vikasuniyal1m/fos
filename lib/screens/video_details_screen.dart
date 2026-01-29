@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
+import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
@@ -37,8 +40,12 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   final expandedReplies = <int>{}; // Track which replies are expanded
   var userId = 0;
   var isLoading = false;
+  var _isSendingComment = false;
+  final Set<int> _sendingReplies = {};
   var comments = <Map<String, dynamic>>[];
   
+  static const String baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+
   // Video player state
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
@@ -74,12 +81,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         controller.loadQuickEmojis();
         _loadComments(videoId);
         
-        // Initialize video after video details are loaded
+      // Initialize video after video details are loaded
         if (controller.selectedVideo.isNotEmpty) {
           final video = controller.selectedVideo;
           final filePath = video['file_path'] as String? ?? '';
           if (filePath.isNotEmpty) {
-            final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
             final videoUrl = filePath.startsWith('http') 
                 ? filePath 
                 : baseUrl + (filePath.startsWith('/') ? filePath.substring(1) : filePath);
@@ -99,7 +105,6 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       final video = controller.selectedVideo;
       final filePath = video['file_path'] as String? ?? '';
       if (filePath.isNotEmpty) {
-        final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
         final videoUrl = filePath.startsWith('http') 
             ? filePath 
             : baseUrl + (filePath.startsWith('/') ? filePath.substring(1) : filePath);
@@ -113,6 +118,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   }
   
   Future<void> _initializeVideo(String videoUrl) async {
+    if (!mounted) return;
     try {
       setState(() {
         _hasVideoError = false;
@@ -134,6 +140,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       // Auto-play video
       await _videoController!.play();
       
+      if (!mounted) return;
       setState(() {
         _isVideoInitialized = true;
         _hasVideoError = false;
@@ -143,9 +150,20 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       print('✅ Video initialized successfully with AspectRatio: $_videoAspectRatio');
     } catch (e) {
       print('❌ Error initializing video: $e');
+      
+      // If it's a MediaCodec/ExoPlayer error, it might be a hardware capability issue
+      String userFriendlyError = e.toString();
+      if (userFriendlyError.contains('MediaCodecVideoRenderer') || 
+          userFriendlyError.contains('ExoPlaybackException')) {
+        userFriendlyError = 'The video format is not supported by your device hardware. This can happen with 60fps videos on some devices.';
+      } else if (userFriendlyError.contains('VideoError')) {
+        userFriendlyError = 'Video player encountered an error. Please check your internet connection and try again.';
+      }
+
+      if (!mounted) return;
       setState(() {
         _hasVideoError = true;
-        _videoError = e.toString();
+        _videoError = userFriendlyError;
         _isVideoInitialized = false;
       });
     }
@@ -220,14 +238,49 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     });
 
     if (_isFullScreen) {
-      // Logic for entering full screen (orientation change)
-      // This is often handled by the system or a plugin, 
-      // but we ensure our UI reacts gracefully.
+      // Hide status bar and navigation bar
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+      // Handle orientation based on video aspect ratio
+      if (_videoController != null && _videoController!.value.isInitialized) {
+        if (_videoController!.value.aspectRatio > 1.0) {
+          // Landscape video - force landscape
+          SystemChrome.setPreferredOrientations([
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]);
+        } else {
+          // Portrait video - allow all but keep current
+          SystemChrome.setPreferredOrientations([
+            DeviceOrientation.portraitUp,
+            DeviceOrientation.portraitDown,
+          ]);
+        }
+      }
+    } else {
+      // Exit full screen
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      // Reset to all orientations
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
     }
   }
 
   @override
   void dispose() {
+    // Reset orientations when leaving the screen
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
     _controlsTimer?.cancel();
     _videoController?.removeListener(_videoPlayerListener);
     _videoController?.dispose();
@@ -242,6 +295,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
 
   Future<void> _loadUserId() async {
     final id = await UserStorage.getUserId();
+    if (!mounted) return;
     if (id != null) {
       setState(() {
         userId = id;
@@ -269,112 +323,157 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   }
   
   Widget _buildVideoLoadingState() {
+    final video = controller.selectedVideo;
+    final thumbnailPath = video['thumbnail_path'] as String?;
+    final thumbnailUrl = thumbnailPath != null && thumbnailPath.isNotEmpty
+        ? (thumbnailPath.startsWith('http') ? thumbnailPath : baseUrl + (thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath))
+        : null;
+
     return Container(
       color: Colors.black,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-              strokeWidth: 3,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (thumbnailUrl != null)
+            CachedImage(
+              imageUrl: thumbnailUrl,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              errorWidget: const SizedBox.shrink(),
             ),
-            SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-            Text(
-              'Loading video...',
-              style: ResponsiveHelper.textStyle(
-                context,
-                fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                color: Colors.white70,
+          Container(
+            color: Colors.black.withOpacity(thumbnailUrl != null ? 0.4 : 1.0),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    color: AppTheme.iconscolor,
+                    strokeWidth: 3,
+                  ),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                  Text(
+                    'Loading video...',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
   
   Widget _buildVideoErrorState(String videoUrl) {
+    final video = controller.selectedVideo;
+    final thumbnailPath = video['thumbnail_path'] as String?;
+    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final thumbnailUrl = thumbnailPath != null && thumbnailPath.isNotEmpty
+        ? (thumbnailPath.startsWith('http') ? thumbnailPath : baseUrl + (thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath))
+        : null;
+
     return Container(
       color: Colors.black87,
-      child: Center(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
-                    shape: BoxShape.circle,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (thumbnailUrl != null)
+            CachedImage(
+              imageUrl: thumbnailUrl,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              errorWidget: const SizedBox.shrink(),
+            ),
+          Container(
+            color: Colors.black.withOpacity(thumbnailUrl != null ? 0.6 : 0.87),
+            child: Center(
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.error_outline_rounded,
+                          size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 64, desktop: 68),
+                          color: Colors.red[300],
+                        ),
+                      ),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
+                      Text(
+                        'Video Not Available',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 17, desktop: 18),
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
+                      Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 20 : 24),
+                        ),
+                        child: Text(
+                          _videoError ?? 'The video file may not exist or the URL is invalid. Please try again later.',
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
+                            color: Colors.white70,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 20 : 24)),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          _initializeVideo(videoUrl);
+                        },
+                        icon: Icon(Icons.refresh_rounded, size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22)),
+                        label: Text(
+                          'Retry',
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: ResponsiveHelper.spacing(context, 24),
+                            vertical: ResponsiveHelper.spacing(context, 12),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              ResponsiveHelper.borderRadius(context, mobile: 25),
+                            ),
+                          ),
+                          elevation: 4,
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Icon(
-                    Icons.error_outline_rounded,
-                    size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 64, desktop: 68),
-                    color: Colors.red[300],
-                  ),
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
-                Text(
-                  'Video Not Available',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 17, desktop: 18),
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
-                Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 20 : 24),
-                  ),
-                  child: Text(
-                    'The video file may not exist or the URL is invalid. Please try again later.',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
-                      color: Colors.white70,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 20 : 24)),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    _initializeVideo(videoUrl);
-                  },
-                  icon: Icon(Icons.refresh_rounded, size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22)),
-                  label: Text(
-                    'Retry',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: ResponsiveHelper.spacing(context, 24),
-                    vertical: ResponsiveHelper.spacing(context, 12),
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(
-                      ResponsiveHelper.borderRadius(context, mobile: 25),
-                    ),
-                  ),
-                  elevation: 4,
                 ),
               ),
-              ],
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -393,7 +492,10 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
           Center(
             child: AspectRatio(
               aspectRatio: _videoController!.value.aspectRatio,
-              child: VideoPlayer(_videoController!),
+              child: VideoPlayer(
+                _videoController!,
+                key: ValueKey(_videoController!.dataSource),
+              ),
             ),
           ),
           
@@ -499,6 +601,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   }
 
   Future<void> _loadComments(int videoId) async {
+    if (!mounted) return;
     setState(() {
       isLoading = true;
     });
@@ -529,6 +632,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
 
       flattenComments(commentsList);
       
+      if (!mounted) return;
       setState(() {
         comments = flattenedComments;
         isLoading = false;
@@ -547,7 +651,25 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         : commentController.text.trim();
 
     if (content.isEmpty) return;
+    
+    // Check if already sending this comment/reply
+    if (parentCommentId != null) {
+      if (_sendingReplies.contains(parentCommentId)) return;
+    } else {
+      if (_isSendingComment) return;
+    }
 
+    // FIX: Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+    
+    setState(() {
+      if (parentCommentId != null) {
+        _sendingReplies.add(parentCommentId);
+      } else {
+        _isSendingComment = true;
+      }
+    });
+    
     if (userId == 0) {
       Get.snackbar(
         'Error',
@@ -600,6 +722,16 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       // Expand parent comment if it's a reply
       if (parentCommentId != null) {
         expandedReplies.add(parentCommentId);
+      } else {
+        // Scroll to bottom to show latest comment
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+        }
       }
 
       Get.snackbar(
@@ -616,6 +748,16 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (parentCommentId != null) {
+            _sendingReplies.remove(parentCommentId);
+          } else {
+            _isSendingComment = false;
+          }
+        });
+      }
     }
   }
 
@@ -656,747 +798,278 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   @override
   Widget build(BuildContext context) {
     final videoId = Get.arguments as int? ?? 0;
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
 
-    return Scaffold(
-      backgroundColor: AppTheme.themeColor,
-      appBar: const StandardAppBar(
-        showBackButton: true,
-      ),
-      body: Obx(() {
-        if (controller.isLoading.value && controller.selectedVideo.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-            ),
-          );
+    return PopScope(
+      canPop: !_isFullScreen,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        if (_isFullScreen) {
+          _toggleFullScreen();
         }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        extendBodyBehindAppBar: true,
+        appBar: _isFullScreen ? null : const StandardAppBar(
+          showBackButton: true,
+        ),
+        body: Obx(() {
+          if (controller.isLoading.value && controller.selectedVideo.isEmpty) {
+            return Center(
+              child: CircularProgressIndicator(color: AppTheme.iconscolor),
+            );
+          }
 
-        if (controller.selectedVideo.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.error_outline,
-                  size: ResponsiveHelper.iconSize(context, mobile: 64),
-                  color: Colors.grey[400],
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                Text(
-                  'Video not found',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
+          if (controller.selectedVideo.isEmpty) {
+            return _buildEmptyState();
+          }
 
-        final video = controller.selectedVideo;
-        final filePath = video['file_path'] as String? ?? '';
-        final videoUrl = filePath.isNotEmpty 
-            ? (filePath.startsWith('http') ? filePath : baseUrl + (filePath.startsWith('/') ? filePath.substring(1) : filePath))
-            : '';
-        final isLiveVideo = video['status'] == 'Live' ||
-            video['stream_key'] != null ||
-            video['hls_url'] != null ||
-            video['rtmp_url'] != null;
-        
-        // Validate video URL before trying to play
-        if (!isLiveVideo && (videoUrl.isEmpty || !videoUrl.contains('.'))) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.video_library_outlined,
-                  size: ResponsiveHelper.iconSize(context, mobile: 64),
-                  color: Colors.grey[400],
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                Text(
-                  'Video URL not available',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                    color: Colors.grey[600],
-                  ),
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 8)),
-                Text(
-                  'Please check video file path',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                    color: Colors.grey[500],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
+          final video = controller.selectedVideo;
+          final filePath = video['file_path'] as String? ?? '';
+          final videoUrl = filePath.isNotEmpty
+              ? (filePath.startsWith('http') ? filePath : baseUrl + (filePath.startsWith('/') ? filePath.substring(1) : filePath))
+              : '';
+          final isLiveVideo = video['status'] == 'Live' ||
+              video['stream_key'] != null ||
+              video['hls_url'] != null ||
+              video['rtmp_url'] != null;
 
-        return Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          Widget mainVideoWidget = isLiveVideo
+              ? LiveVideoPlayer(liveStream: video, autoPlay: true, showControls: true)
+              : videoUrl.isNotEmpty
+                  ? _buildVideoPlayer(videoUrl)
+                  : Center(child: Image.network(ImageConfig.videoThumbnail, fit: BoxFit.cover));
+
+          return Stack(
+            children: [
+              // Normal View
+              if (!_isFullScreen)
+                Column(
                   children: [
-                    // Video Player Area
-                    AspectRatio(
-                      aspectRatio: (MediaQuery.of(context).orientation == Orientation.landscape && _isFullScreen)
-                          ? MediaQuery.of(context).size.aspectRatio
-                          : (MediaQuery.of(context).orientation == Orientation.landscape) ? 21 / 9 : 16 / 9,
-                      child: Container(
-                        width: double.infinity,
-                        color: Colors.black,
-                        child: isLiveVideo
-                            ? LiveVideoPlayer(
-                                liveStream: video,
-                                autoPlay: true,
-                                showControls: true,
-                              )
-                            : videoUrl.isNotEmpty
-                                ? _buildVideoPlayer(videoUrl)
-                                : Image.network(
-                                    ImageConfig.videoThumbnail,
-                                    fit: BoxFit.cover,
-                                  ),
-                      ),
-                    ),
-
-                    // Video Info Card - Matching Home Page Theme
-                    Container(
-                      margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(
-                          ResponsiveHelper.borderRadius(context, mobile: 20),
+                    const SizedBox(height: kToolbarHeight + 30),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: _scrollController,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AspectRatio(
+                              key: const ValueKey('video_aspect_ratio'),
+                              aspectRatio: (MediaQuery.of(context).orientation == Orientation.landscape)
+                                  ? MediaQuery.of(context).size.aspectRatio
+                                  : 16 / 9,
+                              child: mainVideoWidget,
+                            ),
+                            _buildVideoInfoAndComments(video, videoId),
+                          ],
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            spreadRadius: 0,
-                            blurRadius: 20,
-                            offset: const Offset(0, 6),
-                          ),
-                          BoxShadow(
-                            color: const Color(0xFF8B4513).withOpacity(0.05),
-                            spreadRadius: 2,
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Header with User Info
-                          Container(
-                            padding: ResponsiveHelper.padding(
-                              context,
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white,
-                                  Colors.grey[50]!,
-                                ],
-                              ),
-                              borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(
-                                  ResponsiveHelper.borderRadius(context, mobile: 20),
-                                ),
-                                topRight: Radius.circular(
-                                  ResponsiveHelper.borderRadius(context, mobile: 20),
-                                ),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                // Profile Picture
-                                Container(
-                                  width: ResponsiveHelper.imageWidth(
-                                    context,
-                                    mobile: 48,
-                                    tablet: 52,
-                                    desktop: 56,
-                                  ),
-                                  height: ResponsiveHelper.imageWidth(
-                                    context,
-                                    mobile: 48,
-                                    tablet: 52,
-                                    desktop: 56,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        const Color(0xFF8B4513).withOpacity(0.2),
-                                        const Color(0xFF5F4628).withOpacity(0.1),
-                                      ],
-                                    ),
-                                    border: Border.all(
-                                      color: const Color(0xFF8B4513).withOpacity(0.3),
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: ClipOval(
-                                    child: video['profile_photo'] != null &&
-                                            (video['profile_photo'] as String).isNotEmpty
-                                        ? CachedImage(
-                                            imageUrl: (video['profile_photo'] as String).startsWith('http://') || (video['profile_photo'] as String).startsWith('https://')
-                                                ? (video['profile_photo'] as String)
-                                                : baseUrl + (video['profile_photo'] as String),
-                                            width: double.infinity,
-                                            height: double.infinity,
-                                            fit: BoxFit.cover,
-                                            errorWidget: Icon(
-                                              Icons.person_rounded,
-                                              size: ResponsiveHelper.iconSize(context, mobile: 24),
-                                              color: AppTheme.iconscolor,
-                                            ),
-                                          )
-                                        : Icon(
-                                            Icons.person_rounded,
-                                            size: ResponsiveHelper.iconSize(context, mobile: 24),
-                                            color: AppTheme.iconscolor,
-                                          ),
-                                  ),
-                                ),
-                                SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        video['user_name'] as String? ?? video['name'] as String? ?? 'Anonymous',
-                                        style: ResponsiveHelper.textStyle(
-                                          context,
-                                          fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black,
-                                        ),
-                                      ),
-                                      SizedBox(height: ResponsiveHelper.spacing(context, 2)),
-                                      Text(
-                                        'Blogger',
-                                        style: ResponsiveHelper.textStyle(
-                                          context,
-                                          fontSize: ResponsiveHelper.fontSize(context, mobile: 13),
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                // Share Button
-                                InkWell(
-                                  onTap: () async {
-                                    final success = await controller.shareVideo(videoId);
-                                    if (success) {
-                                      final shareUrl = '$baseUrl/share/video/$videoId';
-                                      final uri = Uri.parse(shareUrl);
-                                      if (await canLaunchUrl(uri)) {
-                                        await launchUrl(uri, mode: LaunchMode.externalApplication);
-                                      } else {
-                                        Get.snackbar(
-                                          'Share Link',
-                                          shareUrl,
-                                          backgroundColor: Colors.blue,
-                                          colorText: Colors.white,
-                                          duration: const Duration(seconds: 5),
-                                        );
-                                      }
-                                    } else {
-                                      Get.snackbar(
-                                        'Error',
-                                        controller.message.value,
-                                        backgroundColor: Colors.red,
-                                        colorText: Colors.white,
-                                      );
-                                    }
-                                  },
-                                  borderRadius: BorderRadius.circular(
-                                    ResponsiveHelper.borderRadius(context, mobile: 8),
-                                  ),
-                                  child: Container(
-                                    padding: ResponsiveHelper.padding(
-                                      context,
-                                      all: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.iconscolor.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(context, mobile: 8),
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      Icons.share_rounded,
-                                      size: ResponsiveHelper.iconSize(context, mobile: 22),
-                                      color: AppTheme.iconscolor,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          // Content Section
-                          Padding(
-                            padding: ResponsiveHelper.padding(
-                              context,
-                              all: 16,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Title
-                                if (video['title'] != null)
-                                  Padding(
-                                    padding: EdgeInsets.only(
-                                      bottom: ResponsiveHelper.spacing(context, 8),
-                                    ),
-                                    child: Text(
-                                      video['title'] as String? ?? 'Untitled Video',
-                                      style: ResponsiveHelper.textStyle(
-                                        context,
-                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 20),
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.black,
-                                      ),
-                                    ),
-                                  ),
-
-                                // Fruit Tag
-                                if (video['fruit_tag'] != null)
-                                  Container(
-                                    margin: EdgeInsets.only(
-                                      bottom: ResponsiveHelper.spacing(context, 12),
-                                    ),
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: ResponsiveHelper.spacing(context, 14),
-                                      vertical: ResponsiveHelper.spacing(context, 8),
-                                    ),
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          const Color(0xFF8B4513).withOpacity(0.15),
-                                          const Color(0xFF8B4513).withOpacity(0.08),
-                                        ],
-                                      ),
-                                      borderRadius: BorderRadius.circular(
-                                        ResponsiveHelper.borderRadius(context, mobile: 25),
-                                      ),
-                                      border: Border.all(
-                                        color: const Color(0xFF8B4513).withOpacity(0.3),
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.local_fire_department_rounded,
-                                          size: ResponsiveHelper.iconSize(context, mobile: 16),
-                                          color: AppTheme.iconscolor,
-                                        ),
-                                        SizedBox(width: ResponsiveHelper.spacing(context, 6)),
-                                        Text(
-                                          video['fruit_tag'] as String,
-                                          style: ResponsiveHelper.textStyle(
-                                            context,
-                                            fontSize: ResponsiveHelper.fontSize(context, mobile: 13),
-                                            fontWeight: FontWeight.bold,
-                                            color: AppTheme.iconscolor,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
-                                // Description
-                                if (video['description'] != null)
-                                  Text(
-                                    video['description'] as String? ?? '',
-                                    style: ResponsiveHelper.textStyle(
-                                      context,
-                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 15),
-                                      color: Colors.black87,
-                                      height: 1.6,
-                                    ),
-                                  ),
-
-                                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-
-                                // Emoji Reactions Section
-                                _buildEmojiReactions(context, videoId, controller),
-                              ],
-                            ),
-                          ),
-                        ],
                       ),
                     ),
-
-                    // Comments Section
-                    Container(
-                      margin: EdgeInsets.only(
-                        bottom: ResponsiveHelper.spacing(context, 12),
-                        left: ResponsiveHelper.spacing(context, 12),
-                        right: ResponsiveHelper.spacing(context, 12),
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(
-                          ResponsiveHelper.borderRadius(context, mobile: 20),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            spreadRadius: 0,
-                            blurRadius: 20,
-                            offset: const Offset(0, 6),
-                          ),
-                          BoxShadow(
-                            color: const Color(0xFF8B4513).withOpacity(0.05),
-                            spreadRadius: 2,
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Comments Header
-                          Container(
-                            padding: ResponsiveHelper.padding(
-                              context,
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white,
-                                  Colors.grey[50]!,
-                                ],
-                              ),
-                              borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(
-                                  ResponsiveHelper.borderRadius(context, mobile: 20),
-                                ),
-                                topRight: Radius.circular(
-                                  ResponsiveHelper.borderRadius(context, mobile: 20),
-                                ),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: EdgeInsets.all(
-                                    ResponsiveHelper.spacing(context, 8),
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        const Color(0xFF8B4513).withOpacity(0.15),
-                                        const Color(0xFF8B4513).withOpacity(0.08),
-                                      ],
-                                    ),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.comment_rounded,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 22),
-                                    color: AppTheme.iconscolor,
-                                  ),
-                                ),
-                                SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Comments',
-                                        style: ResponsiveHelper.textStyle(
-                                          context,
-                                          fontSize: ResponsiveHelper.fontSize(context, mobile: 18),
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black,
-                                        ),
-                                      ),
-                                      Text(
-                                        '${comments.length} ${comments.length == 1 ? 'comment' : 'comments'}',
-                                        style: ResponsiveHelper.textStyle(
-                                          context,
-                                          fontSize: ResponsiveHelper.fontSize(context, mobile: 13),
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                _buildVideoOptions(context, video),
-                              ],
-                            ),
-                          ),
-
-                          // Comments List
-                          Builder(
-                            builder: (context) {
-                              // Filter top-level comments
-                              final topLevelComments = comments.where((comment) {
-                                final parentId = comment['parent_comment_id'];
-                                if (parentId == null) return true;
-                                if (parentId is int) return parentId == 0;
-                                if (parentId is String) {
-                                  final parsed = int.tryParse(parentId);
-                                  return parsed == null || parsed == 0;
-                                }
-                                return false;
-                              }).toList();
-
-                              if (topLevelComments.isEmpty) {
-                                return Padding(
-                                  padding: ResponsiveHelper.padding(context, all: 24),
-                                  child: Center(
-                                    child: Column(
-                                      children: [
-                                        Icon(
-                                          Icons.chat_bubble_outline,
-                                          size: ResponsiveHelper.iconSize(context, mobile: 48),
-                                          color: Colors.grey[400],
-                                        ),
-                                        SizedBox(height: ResponsiveHelper.spacing(context, 12)),
-                                        Text(
-                                          'No comments yet',
-                                          style: ResponsiveHelper.textStyle(
-                                            context,
-                                            fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                                            color: Colors.grey[600],
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                                        Text(
-                                          'Be the first to comment!',
-                                          style: ResponsiveHelper.textStyle(
-                                            context,
-                                            fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                                            color: Colors.grey[500],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }
-
-                              return Column(
-                                children: topLevelComments.map(
-                                  (comment) => _buildCommentItem(
-                                    context,
-                                    comment,
-                                    videoId,
-                                  ),
-                                ).toList(),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Bottom spacing for comment input
-                    SizedBox(height: ResponsiveHelper.spacing(context, 80)),
+                    _buildCommentInputBar(videoId),
                   ],
                 ),
-              ),
-            ),
 
-            // Comment Input Bar
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 15,
-                    spreadRadius: 2,
-                    offset: const Offset(0, -4),
+              // Full Screen Overlay
+              if (_isFullScreen)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black,
+                    child: mainVideoWidget,
                   ),
-                  BoxShadow(
-                    color: const Color(0xFF8B4513).withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
+                ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.video_library_outlined, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text('Video not found', style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  // New helper to wrap the rest of the UI
+  Widget _buildVideoInfoAndComments(Map<String, dynamic> video, int videoId) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Info Card
+        Container(
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 6)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildWriterHeader(video, videoId),
+              _buildVideoDetails(video),
+            ],
+          ),
+        ),
+        _buildEmojiReactions(context, videoId, controller),
+        _buildCommentsSection(videoId),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  Widget _buildWriterHeader(Map<String, dynamic> video, int videoId) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundImage: video['profile_photo'] != null && (video['profile_photo'] as String).isNotEmpty
+                ? NetworkImage(video['profile_photo'].startsWith('http') ? video['profile_photo'] : baseUrl + video['profile_photo'])
+                : null,
+            child: video['profile_photo'] == null ? const Icon(Icons.person) : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(video['user_name'] ?? 'Anonymous', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const Text('Blogger', style: TextStyle(color: Colors.grey, fontSize: 13)),
+              ],
+            ),
+          ),
+          _buildShareButton(videoId),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShareButton(int videoId) {
+    return InkWell(
+      onTap: () {
+        final video = controller.selectedVideo;
+        final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+        final thumbnailPath = video['thumbnail_path'] as String? ?? '';
+        final filePath = video['file_path'] as String? ?? '';
+        final mediaUrl = thumbnailPath.isNotEmpty 
+            ? baseUrl + thumbnailPath 
+            : (filePath.isNotEmpty ? baseUrl + filePath : null);
+
+        ShareHelper.shareContent(
+          contentType: 'video',
+          contentId: videoId,
+          title: video['title'] ?? 'Video',
+          content: video['description'],
+          mediaUrl: mediaUrl,
+        );
+      },
+
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: AppTheme.iconscolor.withOpacity(0.1), shape: BoxShape.circle),
+        child: Icon(Icons.share_rounded, size: 22, color: AppTheme.iconscolor),
+      ),
+    );
+  }
+
+  Widget _buildVideoDetails(Map<String, dynamic> video) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(video['title'] ?? 'Untitled', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          if ((video['description'] ?? '').isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(video['description'], style: const TextStyle(color: Colors.black54, fontSize: 14)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommentsSection(int videoId) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Text('Comments (${comments.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ),
+        if (isLoading)
+          const Center(child: CircularProgressIndicator())
+        else if (comments.isEmpty)
+          const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('No comments yet')))
+        else
+          Column(
+            children: comments
+                .where((c) => c['parent_comment_id'] == null || c['parent_comment_id'] == 0)
+                .map((c) => _buildCommentItem(context, c, videoId))
+                .toList(),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCommentInputBar(int videoId) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -2))]),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: TextField(
+                  controller: commentController,
+                  decoration: InputDecoration(
+                    hintText: userId > 0 ? 'Write a comment...' : 'Login to comment',
+                    prefixIcon: IconButton(
+                      icon: const Icon(Icons.emoji_emotions_outlined),
+                      onPressed: () => _showEmojiPicker(context, videoId, controller),
+                    ),
+                    border: InputBorder.none,
                   ),
-                ],
-              ),
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: ResponsiveHelper.padding(
-                    context,
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      // User Avatar
-                      if (userId > 0)
-                        Container(
-                          width: ResponsiveHelper.imageWidth(
-                            context,
-                            mobile: 36,
-                            tablet: 40,
-                            desktop: 44,
-                          ),
-                          height: ResponsiveHelper.imageWidth(
-                            context,
-                            mobile: 36,
-                            tablet: 40,
-                            desktop: 44,
-                          ),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.grey[300],
-                          ),
-                          child: Icon(
-                            Icons.person,
-                            size: ResponsiveHelper.iconSize(context, mobile: 20),
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      if (userId > 0)
-                        SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                      
-                      // Comment Input
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.grey[100]!,
-                                Colors.grey[50]!,
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(
-                              ResponsiveHelper.borderRadius(context, mobile: 28),
-                            ),
-                            border: Border.all(
-                              color: userId > 0
-                                  ? const Color(0xFF8B4513).withOpacity(0.2)
-                                  : Colors.grey[300]!,
-                              width: 1.5,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: TextField(
-                            controller: commentController,
-                            decoration: InputDecoration(
-                              hintText: userId > 0
-                                  ? 'Write a comment...'
-                                  : 'Login to comment',
-                              hintStyle: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                                color: Colors.grey[600],
-                              ),
-                                prefixIcon: IconButton(
-                                  icon: const Icon(
-                                    Icons.emoji_emotions_outlined,
-                                    color: Color(0xFF8B4513),
-                                  ),
-                                  onPressed: () => _showEmojiPicker(context, videoId, controller),
-                                ),
-                                border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: ResponsiveHelper.spacing(context, 16),
-                                  vertical: ResponsiveHelper.spacing(context, 12),
-                                ),
-                            ),
-                            enabled: userId > 0,
-                            maxLines: null,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: userId > 0
-                                ? (_) => _addComment(videoId)
-                                : null,
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: ResponsiveHelper.spacing(context, 8)),
-                      // Send Button
-                      InkWell(
-                        onTap: userId > 0
-                            ? () => _addComment(videoId)
-                            : null,
-                        borderRadius: BorderRadius.circular(
-                          ResponsiveHelper.borderRadius(context, mobile: 20),
-                        ),
-                        child: Container(
-                          padding: ResponsiveHelper.padding(
-                            context,
-                            all: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: userId > 0
-                                  ? [
-                                      const Color(0xD2D6D6D6),
-                                      const Color(0xFFFFFFFF),
-                                    ]
-                                  : [
-                                      Colors.grey[400]!,
-                                      Colors.grey[500]!,
-                                    ],
-                            ),
-                            borderRadius: BorderRadius.circular(
-                              ResponsiveHelper.borderRadius(context, mobile: 20),
-                            ),
-                            boxShadow: userId > 0
-                                ? [
-                                    BoxShadow(
-                                      color: const Color(0xFFFFFFFF).withOpacity(0.3),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Icon(
-                            Icons.send_rounded,
-                            size: ResponsiveHelper.iconSize(context, mobile: 20),
-                            color: AppTheme.iconscolor,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  enabled: userId > 0 && !_isSendingComment,
+                  maxLines: null,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: userId > 0 && !_isSendingComment ? (_) => _addComment(videoId) : null,
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            _isSendingComment
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  )
+                : IconButton(
+                    icon: Icon(Icons.send_rounded, color: AppTheme.iconscolor),
+                    onPressed: userId > 0 ? () => _addComment(videoId) : null,
+                  ),
           ],
-        );
-      }),
+        ),
+      ),
     );
   }
 
@@ -1700,37 +1373,55 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                 ),
               ),
               maxLines: null,
+              enabled: !_sendingReplies.contains(parentCommentId),
               textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _addComment(videoId, parentCommentId: parentCommentId),
+              onSubmitted: (_) => !_sendingReplies.contains(parentCommentId) 
+                  ? _addComment(videoId, parentCommentId: parentCommentId) 
+                  : null,
             ),
           ),
         ),
         SizedBox(width: ResponsiveHelper.spacing(context, 8)),
-        InkWell(
-          onTap: () => _addComment(videoId, parentCommentId: parentCommentId),
-          borderRadius: BorderRadius.circular(
-            ResponsiveHelper.borderRadius(context, mobile: 16),
-          ),
-          child: Container(
-            padding: ResponsiveHelper.padding(context, all: 10),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFF8B4513),
-                  const Color(0xFF5F4628),
-                ],
+        _sendingReplies.contains(parentCommentId)
+            ? SizedBox(
+                width: 38,
+                height: 38,
+                child: Center(
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppTheme.iconscolor,
+                    ),
+                  ),
+                ),
+              )
+            : InkWell(
+                onTap: () => _addComment(videoId, parentCommentId: parentCommentId),
+                borderRadius: BorderRadius.circular(
+                  ResponsiveHelper.borderRadius(context, mobile: 16),
+                ),
+                child: Container(
+                  padding: ResponsiveHelper.padding(context, all: 10),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF8B4513),
+                        const Color(0xFF5F4628),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(
+                      ResponsiveHelper.borderRadius(context, mobile: 16),
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.send_rounded,
+                    size: ResponsiveHelper.iconSize(context, mobile: 18),
+                    color: Colors.white,
+                  ),
+                ),
               ),
-              borderRadius: BorderRadius.circular(
-                ResponsiveHelper.borderRadius(context, mobile: 16),
-              ),
-            ),
-            child: Icon(
-              Icons.send_rounded,
-              size: ResponsiveHelper.iconSize(context, mobile: 18),
-              color: Colors.white,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -2415,10 +2106,22 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   }
 
   String _getTimeAgo(String? dateTime) {
-    if (dateTime == null || dateTime.isEmpty) return '';
+    if (dateTime == null || dateTime.isEmpty) return 'Just now';
     try {
-      final date = DateTime.parse(dateTime);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      // Appending 'Z' tells Dart to parse this as UTC, then we convert to Local.
+      DateTime date;
+      if (!dateTime.endsWith('Z')) {
+        date = DateTime.parse('${dateTime}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateTime).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -2427,7 +2130,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         return '${(difference.inDays / 30).floor()} month${(difference.inDays / 30).floor() > 1 ? 's' : ''} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''} ago';
@@ -2435,7 +2138,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -2444,7 +2147,8 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
+      isScrollControlled: true,
+      builder: (sheetContext) => Container(
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(
@@ -2487,7 +2191,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                   mainAxisSpacing: ResponsiveHelper.spacing(context, 8),
                 ),
                 itemCount: controller.availableEmojis.length,
-                itemBuilder: (context, index) {
+                itemBuilder: (gridContext, index) {
                   final emoji = controller.availableEmojis[index];
                   // Try multiple fallbacks: emoji_char -> code -> name (base fruit name)
                   String? emojiChar = emoji['emoji_char'] as String?;
@@ -2529,8 +2233,8 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                         Get.snackbar(
                           'Success',
                           'Reaction added',
-                          backgroundColor: Colors.green,
-                          colorText: Colors.white,
+                          backgroundColor: AppTheme.iconscolor,
+                          colorText: Colors.black,
                           duration: const Duration(seconds: 1),
                         );
                       } else {

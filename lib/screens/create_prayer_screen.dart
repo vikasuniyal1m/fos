@@ -142,6 +142,9 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   
   Future<void> _submitPrayer() async {
     if (_isSubmitting) return; // Prevent multiple submissions
+    
+    // Dismiss keyboard
+    FocusScope.of(context).unfocus();
 
     // Check for terms acceptance
     final hasAcceptedFactors = await TermsService.hasAcceptedTerms();

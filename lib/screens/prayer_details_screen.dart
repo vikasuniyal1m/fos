@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
@@ -27,7 +29,10 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
   final commentController = TextEditingController();
+  final scrollController = ScrollController();
   int? currentUserId;
+  bool _isSending = false;
+  final Set<int> _sendingReplies = {};
 
   @override
   void initState() {
@@ -47,6 +52,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   @override
   void dispose() {
     commentController.dispose();
+    scrollController.dispose();
     for (var controller in replyControllers.values) {
       controller.dispose();
     }
@@ -55,11 +61,25 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
 
   /// Format time ago
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      // Appending 'Z' tells Dart to parse this as UTC, then we convert to Local.
+      // This fixes the "5 hours ago" issue (UTC vs IST difference).
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
+      // If date is in the future (due to clock skew), clamp to now
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+      
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -70,7 +90,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -78,7 +98,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -115,7 +135,26 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: const StandardAppBar(showBackButton: true),
+      appBar: StandardAppBar(
+        showBackButton: true,
+        rightActions: [
+          StandardAppBar.buildActionIcon(
+            context,
+            icon: Icons.share_rounded,
+            onTap: () {
+              final prayer = controller.selectedPrayer;
+              final isAnonymous = prayer['is_anonymous'] == 1 || prayer['is_anonymous'] == true;
+              ShareHelper.shareContent(
+                contentType: 'prayer',
+                contentId: prayer['id'] is int ? prayer['id'] : int.tryParse(prayer['id'].toString()) ?? 0,
+                title: 'Prayer Request from ${isAnonymous ? 'Anonymous' : (prayer['user_name'] ?? 'Anonymous')}',
+                content: prayer['content'],
+              );
+            },
+          ),
+        ],
+      ),
+
       body: Obx(() {
         if (controller.isLoading.value && controller.selectedPrayer.isEmpty) {
           return Center(
@@ -225,6 +264,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                               color: AppTheme.iconscolor,
                 backgroundColor: Colors.white,
                 child: SingleChildScrollView(
+                  controller: scrollController,
                   physics: const AlwaysScrollableScrollPhysics(), // Enable scroll even when content is small
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -410,8 +450,8 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                     
                     const SizedBox(height: 20),
                     
-                    // Emoji Reactions Section
-                    if (prayer['allow_encouragement'] == 1)
+                    // Emoji Reactions Section - Show if allowed (default true) OR if there are already reactions
+                    if (prayer['allow_encouragement']?.toString() != '0' || controller.prayerEmojiReactions.isNotEmpty)
                       _buildEmojiReactions(context, prayerId, controller),
                     
                     const SizedBox(height: 24),
@@ -570,27 +610,30 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                             width: 1,
                           ),
                         ),
-                        child: TextField(
-                          controller: commentController,
-                          decoration: InputDecoration(
-                            hintText: 'Write a response...',
-                            hintStyle: TextStyle(
-                              color: AppTheme.iconscolor,
-                              fontSize: 14,
+                          child: TextField(
+                            controller: commentController,
+                            decoration: InputDecoration(
+                              hintText: 'Write a response...',
+                              hintStyle: TextStyle(
+                                color: AppTheme.iconscolor,
+                                fontSize: 14,
+                              ),
+                              enabled: !_isSending,
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              prefixIcon: IconButton(
+                                icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFF8B4513)),
+                                onPressed: () => _showEmojiPicker(context, prayerId, controller),
+                              ),
                             ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            prefixIcon: IconButton(
-                              icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFF8B4513)),
-                              onPressed: () => _showEmojiPicker(context, prayerId, controller),
-                            ),
+                            maxLines: null,
+                            enabled: !_isSending,
+                            textInputAction: TextInputAction.send,
+                            onSubmitted: (_) => _handleSendComment(prayerId),
                           ),
-                          maxLines: null,
-                          textInputAction: TextInputAction.newline,
-                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -617,43 +660,24 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () async {
-                            if (commentController.text.trim().isEmpty) return;
-                            
-                            final success = await controller.addComment(
-                              prayerId,
-                              commentController.text.trim(),
-                            );
-                            
-                            if (success) {
-                              commentController.clear();
-                              Get.snackbar(
-                                'Success',
-                                'Response added successfully',
-                                backgroundColor: Colors.green,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 2),
-                                icon: const Icon(Icons.check_circle, color: Colors.white),
-                              );
-                            } else {
-                              Get.snackbar(
-                                'Error',
-                                controller.message.value,
-                                backgroundColor: Colors.red,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 2),
-                                icon: const Icon(Icons.error, color: Colors.white),
-                              );
-                            }
-                          },
+                          onTap: () => _handleSendComment(prayerId),
                           borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 24 : 28),
                           child: Padding(
                             padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
-                            child: Icon(
-                              Icons.send_rounded,
-                              color: Colors.white,
-                              size: ResponsiveHelper.fontSize(context, mobile: 24),
-                            ),
+                            child: _isSending
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.send_rounded,
+                                    color: Colors.white,
+                                    size: ResponsiveHelper.fontSize(context, mobile: 24),
+                                  ),
                           ),
                         ),
                       ),
@@ -666,6 +690,120 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
         );
       }),
     );
+  }
+
+  Future<void> _handleSendComment(int prayerId) async {
+    if (commentController.text.trim().isEmpty || _isSending) return;
+    
+    // Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+    
+    setState(() {
+      _isSending = true;
+    });
+    
+    try {
+      final success = await controller.addComment(
+        prayerId,
+        commentController.text.trim(),
+      );
+      
+      if (success) {
+        commentController.clear();
+        
+        // Reload comments to show new comment
+        await controller.loadPrayerDetails(prayerId);
+        
+        // Scroll to bottom to show latest comment
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (scrollController.hasClients) {
+          scrollController.animateTo(
+            scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+        }
+        
+        Get.snackbar(
+          'Success',
+          'Response added successfully',
+          backgroundColor: AppTheme.iconscolor,
+          colorText: Colors.black,
+          duration: const Duration(seconds: 2),
+          icon: const Icon(Icons.check_circle, color: Colors.white),
+        );
+      } else {
+        Get.snackbar(
+          'Error',
+          controller.message.value,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 2),
+          icon: const Icon(Icons.error, color: Colors.white),
+        );
+      }
+    } catch (e) {
+      print("Error adding comment: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handleSendReply(int prayerId, int parentCommentId, TextEditingController replyController) async {
+    if (replyController.text.trim().isEmpty || _sendingReplies.contains(parentCommentId)) return;
+
+    setState(() {
+      _sendingReplies.add(parentCommentId);
+    });
+
+    try {
+      final success = await controller.addComment(
+        prayerId,
+        replyController.text.trim(),
+        parentCommentId: parentCommentId,
+      );
+
+      if (success) {
+        replyController.clear();
+        setState(() {
+          showReplyInput[parentCommentId] = false;
+          // Auto-expand parent to show the new reply
+          expandedReplies.add(parentCommentId);
+        });
+
+        // Force reload comments to show the new reply
+        await controller.loadPrayerComments(prayerId);
+        
+        Get.snackbar(
+          'Success',
+          'Reply added successfully',
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 1),
+          icon: const Icon(Icons.check_circle, color: Colors.white),
+        );
+      } else {
+        Get.snackbar(
+          'Error',
+          controller.message.value,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 2),
+        );
+      }
+    } catch (e) {
+      print("Error adding reply: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sendingReplies.remove(parentCommentId);
+        });
+      }
+    }
   }
 
   Widget _buildCommentCard(BuildContext context, Map<String, dynamic> comment, int prayerId) {
@@ -1109,14 +1247,60 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: isValidEmoji ? () async {
-                          final success = await controller.addEmojiReaction(prayerId, emoji!);
-                          if (success) {
+                          // Show a loading indicator
+                          showDialog(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (loadingContext) => Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: CircularProgressIndicator(
+                                  color: AppTheme.iconscolor,
+                                  strokeWidth: 3,
+                                ),
+                              ),
+                            ),
+                          );
+
+                          try {
+                            final success = await controller.addEmojiReaction(prayerId, emoji!);
+
+                            // Close loading indicator
+                            Get.back();
+
+                            if (success) {
+                              Get.snackbar(
+                                'Success',
+                                'Reaction added',
+                                backgroundColor: AppTheme.iconscolor,
+                                colorText: Colors.black,
+                                duration: const Duration(seconds: 1),
+                                margin: const EdgeInsets.all(16),
+                              );
+                            } else {
+                              Get.snackbar(
+                                'Error',
+                                controller.message.value.isNotEmpty
+                                    ? controller.message.value
+                                    : 'Failed to add reaction. Please try again.',
+                                backgroundColor: Colors.red,
+                                colorText: Colors.white,
+                                duration: const Duration(seconds: 2),
+                                margin: const EdgeInsets.all(16),
+                              );
+                            }
+                          } catch (e) {
+                            Get.back();
                             Get.snackbar(
-                              'Success',
-                              'Reaction added',
-                              backgroundColor: Colors.green,
+                              'Error',
+                              'Failed to add reaction',
+                              backgroundColor: Colors.red,
                               colorText: Colors.white,
-                              duration: const Duration(seconds: 1),
+                              margin: const EdgeInsets.all(16),
                             );
                           }
                         } : null,
@@ -1182,8 +1366,13 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                           // Find matching emoji
                           for (var emoji in controller.availableEmojis) {
                             final emojiCharFromList = emoji['emoji_char'] as String? ?? '';
-                            if (emojiCharFromList.trim() == emojiChar.trim() || 
-                                emojiCharFromList == emojiChar) {
+                            final emojiNameFromList = emoji['name'] as String? ?? '';
+                            final emojiIdFromList = emoji['id']?.toString() ?? '';
+
+                            if (emojiCharFromList.trim() == emojiChar.trim() ||
+                                emojiCharFromList == emojiChar ||
+                                emojiNameFromList.toLowerCase().contains(emojiChar.toLowerCase()) ||
+                                (emojiIdFromList.isNotEmpty && emojiIdFromList == emojiChar)) {
                               fruitEmoji = emoji;
                               break;
                             }
@@ -1277,6 +1466,12 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                     }
                     // Strategy 4: Match by ID
                     if (emojiIdFromList.isNotEmpty && emojiIdFromList == emojiKey) {
+                      fruitEmoji = emoji;
+                      break;
+                    }
+                    // Strategy 5: Match by Name (base fruit name)
+                    final emojiNameFromList = emoji['name'] as String? ?? '';
+                    if (emojiNameFromList.isNotEmpty && emojiNameFromList.toLowerCase().contains(emojiKey.toLowerCase())) {
                       fruitEmoji = emoji;
                       break;
                     }
@@ -1435,7 +1630,8 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                 final emojiCodeFromList = emoji['code'] as String? ?? '';
                                 final emojiImageUrlFromList = emoji['image_url'] as String? ?? '';
                                 final emojiIdFromList = emoji['id']?.toString() ?? '';
-                                
+                                final emojiNameFromList = emoji['name'] as String? ?? '';
+
                                 // Strategy 1: Match by emoji_char
                                 if (emojiCharFromList.isNotEmpty && 
                                     (emojiCharFromList.trim() == emojiChar.trim() || emojiCharFromList == emojiChar)) {
@@ -1448,7 +1644,12 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                   fruitEmoji = emoji;
                                   break;
                                 }
-                                // Strategy 3: Match by image_url
+                                // Strategy 3: Match by ID
+                                if (emojiIdFromList.isNotEmpty && emojiIdFromList == emojiChar) {
+                                  fruitEmoji = emoji;
+                                  break;
+                                }
+                                // Strategy 4: Match by image_url
                                 if (emojiImageUrlFromList.isNotEmpty) {
                                   String? keyFilename;
                                   String? listFilename;
@@ -1472,8 +1673,8 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                     break;
                                   }
                                 }
-                                // Strategy 4: Match by ID
-                                if (emojiIdFromList.isNotEmpty && emojiIdFromList == emojiChar) {
+                                // Strategy 5: Match by Name (base fruit name)
+                                if (emojiNameFromList.isNotEmpty && emojiNameFromList.toLowerCase().contains(emojiChar.toLowerCase())) {
                                   fruitEmoji = emoji;
                                   break;
                                 }
@@ -1618,6 +1819,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
       replyControllers[parentCommentId] = TextEditingController();
     }
     final replyController = replyControllers[parentCommentId]!;
+    final isSending = _sendingReplies.contains(parentCommentId);
     
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1634,6 +1836,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
           Expanded(
             child: TextField(
               controller: replyController,
+              enabled: !isSending,
               decoration: InputDecoration(
                 hintText: 'Write a reply...',
                 hintStyle: TextStyle(
@@ -1647,7 +1850,8 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                 ),
               ),
               maxLines: null,
-              textInputAction: TextInputAction.newline,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _handleSendReply(prayerId, parentCommentId, replyController),
               style: const TextStyle(fontSize: 13),
             ),
           ),
@@ -1655,60 +1859,28 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
           Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: () async {
-                if (replyController.text.trim().isEmpty) return;
-                
-                print('📤 Sending reply: parentCommentId=$parentCommentId, content=${replyController.text.trim().substring(0, replyController.text.trim().length > 20 ? 20 : replyController.text.trim().length)}...');
-                
-                final success = await controller.addComment(
-                  prayerId,
-                  replyController.text.trim(),
-                  parentCommentId: parentCommentId,
-                );
-                
-                if (success) {
-                  print('✅ Reply added successfully, reloading comments...');
-                  replyController.clear();
-                  setState(() {
-                    showReplyInput[parentCommentId] = false;
-                    // Auto-expand parent to show the new reply
-                    expandedReplies.add(parentCommentId);
-                  });
-                  
-                  // Force reload comments to show the new reply
-                  await controller.loadPrayerComments(prayerId);
-                  setState(() {}); // Refresh UI
-                  
-                  Get.snackbar(
-                    'Success',
-                    'Reply added successfully',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 1),
-                    icon: const Icon(Icons.check_circle, color: Colors.white),
-                  );
-                } else {
-                  Get.snackbar(
-                    'Error',
-                    controller.message.value,
-                    backgroundColor: Colors.red,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
-                  );
-                }
-              },
+              onTap: isSending ? null : () => _handleSendReply(prayerId, parentCommentId, replyController),
               borderRadius: BorderRadius.circular(20),
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                              color: AppTheme.iconscolor,
+                  color: isSending ? Colors.grey : AppTheme.iconscolor,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Icon(
-                  Icons.send,
-                  color: Colors.white,
-                  size: 18,
-                ),
+                child: isSending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Icon(
+                        Icons.send,
+                        color: Colors.white,
+                        size: 18,
+                      ),
               ),
             ),
           ),
@@ -2356,42 +2528,61 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: isValidEmoji ? () async {
-                          final success = await controller.addEmojiReaction(prayerId, emojiChar!);
-                          if (success) {
-                            // Show success message FIRST (before closing dialog)
-                            if (mounted) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Success',
-                                    'Reaction added',
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 1),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                }
-                              });
-                            }
-                          } else {
-                            // Show error message
-                            if (mounted) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Error',
-                                    controller.message.value.isNotEmpty 
-                                        ? controller.message.value 
-                                        : 'Failed to add reaction. Please try again.',
-                                    backgroundColor: Colors.red,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 2),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                }
-                              });
-                            }
+                          // Close emoji picker bottom sheet using targeted context
+                          final dialogContext = Get.overlayContext;
+                          if (dialogContext != null) {
+                            Navigator.of(dialogContext, rootNavigator: true).pop();
+                          } else if (context.mounted) {
+                            Navigator.of(context, rootNavigator: true).pop();
                           }
+
+                          // Show a loading indicator
+                          showDialog(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (loadingContext) => Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: CircularProgressIndicator(
+                                  color: AppTheme.iconscolor,
+                                  strokeWidth: 3,
+                                ),
+                              ),
+                            ),
+                          );
+
+
+                            final success = await controller.addEmojiReaction(prayerId, emojiChar!);
+
+                            // Close loading indicator
+                            Get.back();
+
+                            if (success) {
+                              Get.snackbar(
+                                'Success',
+                                'Reaction added',
+                                backgroundColor: Colors.green,
+                                colorText: Colors.white,
+                                duration: const Duration(seconds: 1),
+                                margin: const EdgeInsets.all(16),
+                              );
+                            } else {
+                              Get.snackbar(
+                                'Error',
+                                controller.message.value.isNotEmpty
+                                    ? controller.message.value
+                                    : 'Failed to add reaction. Please try again.',
+                                backgroundColor: Colors.red,
+                                colorText: Colors.white,
+                                duration: const Duration(seconds: 2),
+                                margin: const EdgeInsets.all(16),
+                              );
+                            }
+
                           // Wait a bit for snackbar to show, then close dialog
                           await Future.delayed(const Duration(milliseconds: 300));
                           if (mounted && Navigator.canPop(context)) {

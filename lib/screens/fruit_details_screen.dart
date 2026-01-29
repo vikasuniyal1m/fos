@@ -13,6 +13,8 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 
+import '../utils/app_theme.dart';
+
 /// Fruit Details Screen
 /// Shows stories, videos, photos related to a specific fruit
 class FruitDetailsScreen extends StatefulWidget {
@@ -829,16 +831,16 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
               Get.snackbar(
                 'Recorded',
                 'Your feeling has been recorded',
-                backgroundColor: Colors.green,
-                colorText: Colors.white,
+                backgroundColor: AppTheme.iconscolor,
+                colorText: Colors.black,
                 duration: const Duration(seconds: 2),
               );
             } else {
               Get.snackbar(
                 'Login Required',
                 'Please login to record your feeling',
-                backgroundColor: Colors.orange,
-                colorText: Colors.white,
+                backgroundColor: AppTheme.iconscolor,
+                colorText: Colors.black,
               );
             }
           } catch (e) {

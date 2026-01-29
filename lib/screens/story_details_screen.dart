@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
 import 'package:fruitsofspirit/services/stories_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
@@ -119,6 +121,25 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       Get.snackbar('Login Required', 'Please login to react', backgroundColor: Colors.orange);
       return;
     }
+    // Show a loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (loadingContext) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: CircularProgressIndicator(
+            color: const Color(0xFF8B4513),
+            strokeWidth: 3,
+          ),
+        ),
+      ),
+    );
+
     try {
       await EmojisService.useEmoji(
         userId: userId,
@@ -343,6 +364,9 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
     
     if (text.isEmpty) return;
 
+    // FIX: Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+
     try {
       print('📤 Adding ${parentCommentId != null ? "REPLY" : "COMMENT"}: storyId=$storyId, parentCommentId=$parentCommentId, content=${text.substring(0, text.length > 50 ? 50 : text.length)}...');
       
@@ -474,11 +498,22 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
   }
 
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -489,7 +524,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -497,7 +532,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -549,7 +584,47 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
               onPressed: () => Get.back(),
             ),
           ),
-        title: Row(
+          actions: [
+            Container(
+              margin: EdgeInsets.symmetric(
+                horizontal: ResponsiveHelper.spacing(context, 8),
+                vertical: ResponsiveHelper.spacing(context, 8),
+              ),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: Icon(
+                  Icons.share_rounded,
+                  color: const Color(0xFF8B4513),
+                  size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
+                ),
+                onPressed: () {
+                  final isTestimony = _isTestimony(story);
+                  final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                  String? storyMediaUrl;
+                  if (story['file_path'] != null && (story['file_path'] as String).isNotEmpty) {
+                    final path = story['file_path'] as String;
+                    storyMediaUrl = path.startsWith('http') ? path : baseUrl + path;
+                  } else if (story['image_url'] != null && (story['image_url'] as String).isNotEmpty) {
+                    final path = story['image_url'] as String;
+                    storyMediaUrl = path.startsWith('http') ? path : baseUrl + path;
+                  }
+
+                  ShareHelper.shareContent(
+                    contentType: isTestimony ? 'testimony' : 'story',
+                    contentId: story['id'] is int ? story['id'] : int.tryParse(story['id'].toString()) ?? 0,
+                    title: story['title'] ?? (isTestimony ? 'Testimony' : 'Story'),
+                    content: story['testimony'] ?? story['content'],
+                    mediaUrl: storyMediaUrl,
+                  );
+                },
+              ),
+            ),
+          ],
+          title: Row(
+
           children: [
             Builder(
               builder: (context) {
@@ -2549,7 +2624,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                         childAspectRatio: 1,
                       ),
                       itemCount: availableEmojis.length,
-                      itemBuilder: (context, index) {
+                      itemBuilder: (gridContext, index) {
                         final emojiData = availableEmojis[index];
                         String? emoji = emojiData['emoji_char'] as String?;
                         if (emoji == null || emoji.trim().isEmpty) {

@@ -436,61 +436,47 @@ class GroupsScreen extends GetView<GroupsController> {
                               });
                             }
                           } else {
-                            final groupId = group['id'] as int;
+                              // Show loading indicator
+                              Get.dialog(
+                                const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                                barrierDismissible: false,
+                              );
 
-                            // Show loading indicator (non-dismissible so it can't be left half-open)
-                            Get.dialog(
-                              const Center(
-                                child: CircularProgressIndicator(),
-                              ),
-                              barrierDismissible: false,
-                            );
+                              // Load group details
+                              await controller.loadGroupDetails(group['id'] as int);
 
-                            try {
-                              // Load group details before navigation
-                              await controller.loadGroupDetails(groupId);
-                            } finally {
-                              // Always dismiss loader safely (avoid popping the screen)
-                              if (Get.isDialogOpen ?? false) {
-                                // Use Navigator pop so we don't trigger GetX snackbar closing
-                                // (Get.back() can close snackbars first and leave this loader stuck)
-                                final dialogContext = Get.overlayContext;
-                                if (dialogContext != null) {
-                                  Navigator.of(dialogContext, rootNavigator: true).pop();
-                                } else if (context.mounted) {
-                                  Navigator.of(context, rootNavigator: true).pop();
-                                }
-                                // Allow the dialog route to fully pop before pushing next route
-                                await Future.delayed(const Duration(milliseconds: 50));
-                              }
-                            }
+                              // Dismiss loading indicator
+                              Get.back(); // Dismiss the dialog
 
-                            if (controller.selectedGroup.isNotEmpty) {
-                              // Get category and play jingle before navigation
-                              final category = group['category'] as String? ?? '';
-                              if (category.isNotEmpty) {
+                              if (controller.selectedGroup.value != null) {
+                                // Get category and play jingle before navigation
+                                final category = group['category'] as String? ?? '';
+                                print('🔊 Group category: $category');
+                                if (category.isNotEmpty) {
                                 final jingleService = Get.find<JingleService>();
-                                jingleService.startJingle(category);
+                                  // Pre-load the jingle specifically for this category
+                                  jingleService.startJingle(category);
+                                }
+                                // Navigation to Group Details
+                                Get.toNamed(Routes.GROUP_CHAT, arguments: group['id']);
+                              } else {
+                                // Show error if group details failed to load
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  Get.snackbar(
+                                    'Error',
+                                    controller.message.value.isNotEmpty
+                                        ? controller.message.value
+                                        : 'Failed to load group details. Please try again.',
+                                    backgroundColor: Colors.red,
+                                    colorText: Colors.white,
+                                    snackPosition: SnackPosition.BOTTOM,
+                                    duration: const Duration(seconds: 3),
+                                    margin: const EdgeInsets.all(16),
+                                  );
+                                });
                               }
-
-                              // Await so that when coming back, state is clean and no loader is left visible
-                              await Get.toNamed(Routes.GROUP_CHAT, arguments: groupId);
-                            } else {
-                              // Show error if group details failed to load
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                Get.snackbar(
-                                  'Error',
-                                  controller.message.value.isNotEmpty
-                                      ? controller.message.value
-                                      : 'Failed to load group details. Please try again.',
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
-                                  snackPosition: SnackPosition.BOTTOM,
-                                  duration: const Duration(seconds: 3),
-                                  margin: const EdgeInsets.all(16),
-                                );
-                              });
-                            }
                           }
                         },
                         icon: Icon(
@@ -533,14 +519,21 @@ class GroupsScreen extends GetView<GroupsController> {
                             barrierDismissible: false,
                           );
 
-                          final groupId = group['id'] as int;
-
                           try {
                             // Load group details
-                            await controller.loadGroupDetails(groupId);
+                            await controller.loadGroupDetails(group['id'] as int);
+                            // Dismiss loading indicator
+                            Get.back();
+                            // Navigate to details page
+                            Get.toNamed(
+                              Routes.GROUP_DETAILS,
+                              arguments: group['id'],
+                            );
                           } catch (e) {
+                            // Dismiss loading indicator
+                            Get.back();
                             // Show error message
-                            Get.snackbar(
+                          /*  Get.snackbar(
                               'Error',
                               'Failed to load group details: ${e.toString().replaceAll('Exception: ', '')}',
                               backgroundColor: Colors.red,
@@ -548,7 +541,7 @@ class GroupsScreen extends GetView<GroupsController> {
                               snackPosition: SnackPosition.BOTTOM,
                               duration: const Duration(seconds: 3),
                               margin: const EdgeInsets.all(16),
-                            );
+                            );*/
                             return;
                           } finally {
                             // Always dismiss loader without touching GetX snackbars
@@ -565,7 +558,7 @@ class GroupsScreen extends GetView<GroupsController> {
                           // Navigate to details page
                           await Get.toNamed(
                             Routes.GROUP_DETAILS,
-                            arguments: groupId,
+                            arguments: group['id'],
                           );
                         },
                         icon: Icon(

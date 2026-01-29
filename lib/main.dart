@@ -202,33 +202,30 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       locale: context.locale,
       initialRoute: Routes.SPLASH,
       getPages: AppPages.routes,
+      debugShowCheckedModeBanner: false,
       builder: (context, child) {
-        // Clamp textScaleFactor for better accessibility while preventing UI breaks
+        // Safe access to MediaQuery
         final mediaQueryData = MediaQuery.of(context);
-        final constrainedTextScaleFactor = mediaQueryData.textScaleFactor.clamp(0.9, 1.3);
+        final isTablet = mediaQueryData.size.width >= 600;
 
-        // Detect device type first (before ScreenUtilInit)
-        final screenWidth = mediaQueryData.size.width;
-        final isTablet = screenWidth >= 600;
-
-        // Wrap with ScreenUtilInit for responsive design (tablets use 768x1024, mobile uses 375x812)
         return ScreenUtilInit(
           designSize: isTablet ? const Size(768, 1024) : const Size(375, 812),
           minTextAdapt: true,
           splitScreenMode: true,
-          builder: (context, child) {
-            // Initialize ScreenSize utility after ScreenUtilInit
+          builder: (context, _) {
+            // Initialize ScreenSize utility
             ScreenSize.init(context);
+            
+            // Clamp textScaleFactor for better accessibility
+            final constrainedTextScaleFactor = mediaQueryData.textScaleFactor.clamp(0.9, 1.3);
 
             return MediaQuery(
               data: mediaQueryData.copyWith(textScaleFactor: constrainedTextScaleFactor),
               child: child!,
             );
           },
-          child: child,
         );
       },
-      debugShowCheckedModeBanner: false,
     );
   }
 }

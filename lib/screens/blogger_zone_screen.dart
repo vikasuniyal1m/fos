@@ -109,8 +109,8 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                 'Approval Pending',
                 'Waiting for approval from admin. You cannot create posts until your blogger request is approved.',
                 snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.orange.withOpacity(0.9),
-                colorText: Colors.white,
+                backgroundColor: AppTheme.iconscolor,
+                colorText: Colors.black,
                 duration: const Duration(seconds: 3),
               );
             },
@@ -142,8 +142,8 @@ class BloggerZoneScreen extends GetView<BlogsController> {
               'Become a Blogger',
               'Requesting blogger access...',
               snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: AppTheme.iconscolor.withOpacity(0.9),
-              colorText: Colors.white,
+              backgroundColor: AppTheme.iconscolor,
+              colorText: Colors.black,
               duration: const Duration(seconds: 2),
             );
             
@@ -155,8 +155,8 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                 'Request Sent',
                 'Your blogger request has been sent. Admin will review your request.',
                 snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.green.withOpacity(0.9),
-                colorText: Colors.white,
+                backgroundColor: AppTheme.iconscolor,
+                colorText: Colors.black,
                 duration: const Duration(seconds: 3),
               );
             } else {
@@ -432,10 +432,22 @@ class BloggerZoneScreen extends GetView<BlogsController> {
   }
   
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
+    
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -446,7 +458,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -454,7 +466,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -811,8 +823,8 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                   Get.snackbar(
                     'Success',
                     'Request sent successfully! Admin will review your request.',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
+                    backgroundColor: AppTheme.iconscolor,
+                    colorText: Colors.black,
                     duration: const Duration(seconds: 3),
                   );
                 } else {

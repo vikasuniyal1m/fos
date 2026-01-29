@@ -8,6 +8,7 @@ import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
+import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
 
 /// Videos Screen
 /// Displays list of videos with filters
@@ -189,20 +190,35 @@ class _VideosScreenState extends State<VideosScreen> {
                   children: [
                     // Background Image
                     Positioned.fill(
-                      child: CachedImage(
-                        imageUrl: _getThumbnailUrl(thumbnailPath),
-                        fit: BoxFit.cover,
-                        errorWidget: Image.network(
-                          ImageConfig.videoThumbnail,
-                          fit: BoxFit.cover,
-                        ),
-                        placeholder: Container(
-                          color: Colors.grey[200],
-                          child: const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        ),
-                      ),
+                      child: _getThumbnailUrl(video) != ImageConfig.videoThumbnail
+                          ? CachedImage(
+                              imageUrl: _getThumbnailUrl(video),
+                              fit: BoxFit.cover,
+                              errorWidget: _getVideoUrl(video) != null
+                                  ? CustomVideoThumbnail(
+                                      videoUrl: _getVideoUrl(video)!,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Image.network(
+                                      ImageConfig.videoThumbnail,
+                                      fit: BoxFit.cover,
+                                    ),
+                              placeholder: Container(
+                                color: Colors.grey[200],
+                                child: const Center(
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                            )
+                          : _getVideoUrl(video) != null
+                              ? CustomVideoThumbnail(
+                                  videoUrl: _getVideoUrl(video)!,
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.network(
+                                  ImageConfig.videoThumbnail,
+                                  fit: BoxFit.cover,
+                                ),
                     ),
                     // Pending Badge
                     if (isPending)
@@ -314,15 +330,70 @@ class _VideosScreenState extends State<VideosScreen> {
     );
   }
 
-  String _getThumbnailUrl(String? path) {
-    if (path == null || path.isEmpty) return ImageConfig.videoThumbnail;
-    if (path.startsWith('http')) return path;
+  String _getThumbnailUrl(Map<String, dynamic> video) {
+    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+
+    // Priority 1: Check thumbnail_path (from database - generated during upload)
+    if (video['thumbnail_path'] != null && (video['thumbnail_path'] as String).isNotEmpty) {
+      final thumbnailPath = video['thumbnail_path'] as String;
+      if (!thumbnailPath.startsWith('http')) {
+        final cleanPath = thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath;
+        return baseUrl + cleanPath;
+      }
+      return thumbnailPath;
+    }
     
-    // If path starts with /, remove it to avoid double slashes with baseUrl
-    // If path starts with 'uploads/', it is relative to domain
+    // Priority 2: Check thumbnail (legacy field)
+    if (video['thumbnail'] != null && (video['thumbnail'] as String).isNotEmpty) {
+      final thumbnail = video['thumbnail'] as String;
+      if (!thumbnail.startsWith('http')) {
+        final cleanPath = thumbnail.startsWith('/') ? thumbnail.substring(1) : thumbnail;
+        return baseUrl + cleanPath;
+      }
+      return thumbnail;
+    }
+
+    // Priority 3: Check if file_path is an image (not a video)
+    if (video['file_path'] != null) {
+      final filePath = video['file_path'].toString();
+      final lowerPath = filePath.toLowerCase();
+      if (!lowerPath.endsWith('.mp4') &&
+          !lowerPath.endsWith('.mov') &&
+          !lowerPath.endsWith('.avi') &&
+          !lowerPath.endsWith('.webm') &&
+          !lowerPath.endsWith('.mkv')) {
+        if (!filePath.startsWith('http')) {
+          final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+          return baseUrl + cleanPath;
+        }
+        return filePath;
+      }
+    }
     
-    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
-    return 'https://fruitofthespirit.templateforwebsites.com/$cleanPath';
+    // Fallback
+    return ImageConfig.videoThumbnail;
+  }
+
+  String? _getVideoUrl(Map<String, dynamic> video) {
+    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    if (video['file_path'] != null) {
+      final filePath = video['file_path'].toString();
+      if (filePath.isNotEmpty) {
+        final lowerPath = filePath.toLowerCase();
+        if (lowerPath.endsWith('.mp4') ||
+            lowerPath.endsWith('.mov') ||
+            lowerPath.endsWith('.avi') ||
+            lowerPath.endsWith('.webm') ||
+            lowerPath.endsWith('.mkv')) {
+          if (filePath.startsWith('http')) {
+            return filePath;
+          }
+          final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+          return baseUrl + cleanPath;
+        }
+      }
+    }
+    return null;
   }
 }
 

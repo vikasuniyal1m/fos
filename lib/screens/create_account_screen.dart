@@ -35,7 +35,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
+
   final _formKey = GlobalKey<FormState>();
+  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
   @override
   void dispose() {
@@ -49,8 +51,15 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
 
   Future<void> _createAccount() async {
     if (!_formKey.currentState!.validate()) {
+      setState(() {
+        _autoValidateMode = AutovalidateMode.onUserInteraction;
+      });
       return;
     }
+    
+    setState(() {
+      _autoValidateMode = AutovalidateMode.onUserInteraction;
+    });
 
     if (!_agreeToTerms) {
       Get.snackbar(
@@ -784,6 +793,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                 padding: ResponsiveHelper.safePadding(context, horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20),
             child: Form(
               key: _formKey,
+              autovalidateMode: _autoValidateMode,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -861,6 +871,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'name') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Email Input
@@ -884,7 +902,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     },
                     decoration: InputDecoration(
                       prefixIcon: const Icon(Icons.email, color: AppTheme.iconscolor),
-                      hintText: "Email (Optional if phone provided)",
+                      hintText: "Email ",
                       filled: true,
                       fillColor: Colors.white,
                       border: OutlineInputBorder(
@@ -908,6 +926,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'email') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Phone Input
@@ -973,6 +999,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'phone') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Password Input
@@ -1029,6 +1063,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'password') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Confirm Password Input
@@ -1086,6 +1128,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'confirm_password') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Role Selection Dropdown

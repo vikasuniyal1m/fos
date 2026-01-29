@@ -893,8 +893,8 @@ class ProfileScreen extends GetView<ProfileController> {
         'Logged Out',
         'You have been successfully logged out',
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green.withOpacity(0.8),
-        colorText: Colors.white,
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
         duration: const Duration(seconds: 2),
         icon: const Icon(Icons.check_circle, color: Colors.white),
       );

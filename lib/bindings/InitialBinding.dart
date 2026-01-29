@@ -10,14 +10,13 @@ import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/controllers/main_dashboard_controller.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
-
-// New Imports
 import 'package:fruitsofspirit/controllers/group_chat_controller.dart';
 import 'package:fruitsofspirit/controllers/group_posts_controller.dart';
 import 'package:fruitsofspirit/controllers/prayer_reminders_controller.dart';
 import 'package:fruitsofspirit/controllers/onboarding_controller.dart';
 import 'package:fruitsofspirit/controllers/phone_auth_controller.dart';
 import 'package:fruitsofspirit/controllers/forgot_password_controller.dart';
+import 'package:fruitsofspirit/controllers/reset_password_controller.dart';
 
 class InitialBinding extends Bindings {
   @override
@@ -83,5 +82,6 @@ class InitialBinding extends Bindings {
     if (!Get.isRegistered<JingleService>()) {
       Get.put(JingleService(), permanent: true);
     }
+
   }
 }

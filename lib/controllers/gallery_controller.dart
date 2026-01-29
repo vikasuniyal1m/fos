@@ -80,6 +80,7 @@ class GalleryController extends GetxController {
     if (refresh) {
       currentPage.value = 0;
       _isDataLoaded = false; // Reset loaded flag on refresh
+      photos.clear(); // Clear all photos when refreshing
     }
 
     isLoading.value = true;
@@ -144,6 +145,7 @@ class GalleryController extends GetxController {
   /// Load single photo with comments
   Future<void> loadPhotoDetails(int photoId) async {
     isLoading.value = true;
+    selectedPhoto.value = {}; // Clear previous photo to show loader
     message.value = '';
 
     try {

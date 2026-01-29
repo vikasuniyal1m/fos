@@ -23,9 +23,12 @@ import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
-import 'package:fruitsofspirit/widgets/video_frame_thumbnail.dart';
+import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
 
 import '../utils/app_theme.dart';
+import '../widgets/video_frame_thumbnail.dart';
 import 'IntroVideoScreen.dart';
 
 class HomeScreen extends GetView<HomeController> {
@@ -33,82 +36,160 @@ class HomeScreen extends GetView<HomeController> {
 
   @override
   Widget build(BuildContext context) {
+    return _buildBody(context);
+  }
+
+  // Helper method for blogger zone navigation with loading
+  static Future<void> navigateToBloggerZone(BuildContext context) async {
+    // Show loading dialog
+    Get.dialog(
+      Center(
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: CircularProgressIndicator(
+            color: AppTheme.iconscolor,
+            strokeWidth: 3,
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
+    try {
+      BlogsController blogsController;
+      if (Get.isRegistered<BlogsController>()) {
+        blogsController = Get.find<BlogsController>();
+      } else {
+        blogsController = Get.put(BlogsController());
+      }
+
+      blogsController.filterUserId.value = 0;
+      await blogsController.loadAvailableEmojis();
+      await blogsController.loadQuickEmojis();
+      await blogsController.loadBlogs(refresh: true);
+
+      // Close loading dialog
+      Get.back();
+
+      // Navigate to Blogger Zone
+      Get.toNamed(Routes.BLOGGER_ZONE);
+    } catch (e) {
+      // Close loading dialog if open
+      if (Get.isDialogOpen ?? false) {
+        Get.back();
+      }
+      print('Error loading blogs: $e');
+      Get.snackbar(
+        'Error',
+        'Failed to load Blogger Zone. Please try again.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.withOpacity(0.8),
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  // Helper method for gallery navigation with loading
+  static Future<void> navigateToGallery(BuildContext context) async {
+    // Show loading dialog
+    Get.dialog(
+      Center(
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: CircularProgressIndicator(
+            color: AppTheme.iconscolor,
+            strokeWidth: 3,
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
+    try {
+      GalleryController galleryController;
+      if (Get.isRegistered<GalleryController>()) {
+        galleryController = Get.find<GalleryController>();
+      } else {
+        galleryController = Get.put(GalleryController(), permanent: true);
+      }
+
+      await galleryController.loadPhotos(refresh: true);
+
+      // Close loading dialog
+      Get.back();
+
+      // Navigate to Gallery
+      Get.toNamed(Routes.GALLERY);
+    } catch (e) {
+      // Close loading dialog if open
+      if (Get.isDialogOpen ?? false) {
+        Get.back();
+      }
+      print('Error loading gallery: $e');
+      Get.toNamed(Routes.GALLERY); // Still navigate as fallback
+    }
+  }
+
+  // Helper method for story details navigation with loading
+  static Future<void> navigateToStoryDetails(BuildContext context, int storyId) async {
+    // Show loading dialog
+    Get.dialog(
+      Center(
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: CircularProgressIndicator(
+            color: AppTheme.iconscolor,
+            strokeWidth: 3,
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
+    try {
+      GalleryController galleryController;
+      if (Get.isRegistered<GalleryController>()) {
+        galleryController = Get.find<GalleryController>();
+      } else {
+        galleryController = Get.put(GalleryController(), permanent: true);
+      }
+
+      await galleryController.loadPhotoDetails(storyId);
+
+      // Close loading dialog
+      Get.back();
+
+      // Navigate to Story Details
+      Get.toNamed(Routes.STORY_DETAILS, arguments: storyId);
+    } catch (e) {
+      // Close loading dialog if open
+      if (Get.isDialogOpen ?? false) {
+        Get.back();
+      }
+      print('Error loading story details: $e');
+      Get.toNamed(Routes.STORY_DETAILS, arguments: storyId);
+    }
+  }
+
+  Widget _buildBody(BuildContext context) {
     return Stack(
       children: [
-        PopScope(
-          canPop: Navigator.of(context).canPop(), // Allow pop if navigation history exists
-          onPopInvoked: (didPop) async {
-        if (didPop) return;
-
-        // If we can't pop, we're at root - show exit confirmation
-        if (!Navigator.of(context).canPop()) {
-          final shouldExit = await Get.dialog<bool>(
-            AlertDialog(
-              title: Text(
-                'Exit App?',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-              ),
-              content: Text(
-                'Do you want to exit the app?',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                  color: Colors.black,
-                ),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Get.back(result: false),
-                  child: Text(
-                    'Cancel',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => Get.back(result: true),
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF8B4513),
-                  ),
-                  child: Text(
-                    'Exit',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            barrierDismissible: false,
-          );
-          
-          // If user confirmed exit, exit the app
-          if (shouldExit == true) {
-            SystemNavigator.pop();
-          }
-        } else {
-          // We can pop, so just go back normally
-          Get.back();
-        }
-      },
-      child: Scaffold(
-        // backgroundColor: const Color(0xFFF8F9FA),
-        backgroundColor: AppTheme.themeColor,
-        appBar: const StandardAppBar(),
+        Scaffold(
+          // backgroundColor: const Color(0xFFF8F9FA),
+          backgroundColor: AppTheme.themeColor,
+          appBar: const StandardAppBar(),
         body: Obx(() {
           // Show loading indicator ONLY if no cached data exists
           // If cache exists, data shows instantly, no loading indicator
@@ -195,32 +276,48 @@ class HomeScreen extends GetView<HomeController> {
                             Material(
                               color: Colors.transparent,
                               child: InkWell(
-                                onTap: () async {
-                                  try {
-                                    // Get e-commerce URL from backend
-                                    final ecommerceData = await EcommerceService.getEcommerceUrl();
-                                    final ecommerceUrl = ecommerceData['url'] as String? ?? 'https://your-ecommerce-app-url.com';
+                                  onTap: () async {
+                                    try {
+                                      // Platform specific redirection for Play Store/App Store
+                                      String url = '';
+                                      if (GetPlatform.isAndroid) {
+                                        url = 'https://play.google.com/store/apps/details?id=com.fosproduction.ecommerceapp';
+                                      } else if (GetPlatform.isIOS) {
+                                        url = 'https://apps.apple.com/app/your-app-id'; // Placeholder for iOS URL
+                                      }
 
-                                    final uri = Uri.parse(ecommerceUrl);
-                                    if (await canLaunchUrl(uri)) {
-                                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                                    } else {
+                                      if (url.isNotEmpty) {
+                                        final uri = Uri.parse(url);
+                                        if (await canLaunchUrl(uri)) {
+                                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                          return;
+                                        }
+                                      }
+
+                                      // Fallback to backend logic if platform specific URL fails
+                                      final ecommerceData = await EcommerceService.getEcommerceUrl();
+                                      final ecommerceUrl = ecommerceData['url'] as String? ?? 'https://your-ecommerce-app-url.com';
+
+                                      final uri = Uri.parse(ecommerceUrl);
+                                      if (await canLaunchUrl(uri)) {
+                                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                      } else {
+                                        Get.snackbar(
+                                          'E-Commerce',
+                                          'E-commerce URL is not configured. Please contact admin.',
+                                          backgroundColor: Colors.orange,
+                                          colorText: Colors.white,
+                                        );
+                                      }
+                                    } catch (e) {
                                       Get.snackbar(
-                                        'E-Commerce',
-                                        'E-commerce URL is not configured. Please contact admin.',
-                                        backgroundColor: Colors.orange,
+                                        'Error',
+                                        'Failed to open e-commerce: $e',
+                                        backgroundColor: Colors.red,
                                         colorText: Colors.white,
                                       );
                                     }
-                                  } catch (e) {
-                                    Get.snackbar(
-                                      'Error',
-                                      'Failed to open e-commerce: $e',
-                                      backgroundColor: Colors.red,
-                                      colorText: Colors.white,
-                                    );
-                                  }
-                                },
+                                  },
                                 borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
                                 child: Container(
                                   padding: ResponsiveHelper.padding(
@@ -566,7 +663,6 @@ class HomeScreen extends GetView<HomeController> {
 
       }),
       // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
-      ),
     )]);
 
 
@@ -604,7 +700,7 @@ class HomeScreen extends GetView<HomeController> {
 
   /// Build emoji display widget - ONLY shows fruit images from uploads/images/128-128 or 256-256
   /// NO emoji characters/smiley faces - only fruit images
-  static Widget buildEmojiDisplay(BuildContext context, Map<String, dynamic> emoji, {double? size}) {
+  static Widget buildEmojiDisplay(BuildContext context, Map<String, dynamic> emoji, {double? size, Future<dynamic> Function()? onTap}) {
     final emojiChar = emoji['emoji_char'] as String? ?? '';
     final emojiName = (emoji['name'] as String? ?? '').toLowerCase();
     
@@ -625,7 +721,10 @@ class HomeScreen extends GetView<HomeController> {
       } else if (!fullImageUrl.startsWith('http://') && !fullImageUrl.startsWith('https://')) {
         fullImageUrl = 'https://fruitofthespirit.templateforwebsites.com/uploads/$fullImageUrl';
       }
-      print('✅ buildEmojiDisplay: Using database image_url (Priority 1): $fullImageUrl');
+
+      // Ensure spaces are encoded early
+      fullImageUrl = fullImageUrl.replaceAll(' ', '%20');
+      print('✅ buildEmojiDisplay: Using Priority 1 URL: $fullImageUrl');
     }
     
     // Priority 2: Try to get fruit image from emoji character using new fruit reaction images
@@ -678,22 +777,29 @@ class HomeScreen extends GetView<HomeController> {
       }
     }
     
+    Widget imageWidget;
     // If we have an image URL, show it (NO emoji character fallback)
     if (fullImageUrl != null && fullImageUrl.isNotEmpty) {
-      // Replace spaces with %20 for URL encoding
-      fullImageUrl = fullImageUrl.replaceAll(' ', '%20');
-      
-      return CachedImage(
+      imageWidget = CachedImage(
         imageUrl: fullImageUrl,
         height: size == null ? null : imageSize,
         width: size == null ? null : imageSize,
         fit: BoxFit.contain,
         errorWidget: _buildPlaceholderIcon(context, imageSize),
       );
+    } else {
+      // Last resort: Show placeholder icon (NO emoji characters)
+      imageWidget = _buildPlaceholderIcon(context, imageSize);
     }
-    
-    // Last resort: Show placeholder icon (NO emoji characters)
-    return _buildPlaceholderIcon(context, imageSize);
+
+    if (onTap != null) {
+      return _EmojiLoadingWrapper(
+        size: imageSize,
+        onTap: onTap,
+        child: imageWidget,
+      );
+    }
+    return imageWidget;
   }
   
   /// Build placeholder icon (replaces emoji character fallback)
@@ -1041,14 +1147,14 @@ class HomeScreen extends GetView<HomeController> {
                       if (value == 'view') {
                         Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']);
                       } else if (value == 'share') {
-                        // Share functionality can be added here
-                        Get.snackbar(
-                          'Info',
-                          'Share feature coming soon',
-                          backgroundColor: Colors.blue,
-                          colorText: Colors.white,
+                        ShareHelper.shareContent(
+                          contentType: 'prayer',
+                          contentId: prayer['id'] is int ? prayer['id'] : int.tryParse(prayer['id'].toString()) ?? 0,
+                          title: 'Prayer Request from ${userName == 'Anonymous' ? 'a friend' : userName}',
+                          content: prayerContent,
                         );
                       }
+
                     },
                     itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                       PopupMenuItem<String>(
@@ -1500,7 +1606,7 @@ class HomeScreen extends GetView<HomeController> {
                               ),
                       )
                     : videoUrl != null
-                        ? VideoFrameThumbnail(
+                        ? CustomVideoThumbnail(
                             videoUrl: videoUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
@@ -1653,7 +1759,12 @@ class HomeScreen extends GetView<HomeController> {
                 ),
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 InkWell(
-                  onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+                  onTap: () => ShareHelper.shareContent(
+                    contentType: 'video',
+                    contentId: video['id'] is int ? video['id'] : int.tryParse(video['id'].toString()) ?? 0,
+                    title: title,
+                    mediaUrl: imageUrl,
+                  ),
                   borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                   child: Container(
                     padding: ResponsiveHelper.padding(context, all: 10),
@@ -1664,6 +1775,7 @@ class HomeScreen extends GetView<HomeController> {
                     child: Icon(Icons.share_rounded, size: ResponsiveHelper.iconSize(context, mobile: 22), color: AppTheme.iconscolor),
                   ),
                 ),
+
               ],
             ),
           ),
@@ -1713,9 +1825,9 @@ class HomeScreen extends GetView<HomeController> {
             GestureDetector(
               onTap: () {
                 if (story['id'] != null) {
-                  Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+                  navigateToStoryDetails(context, story['id']);
                 } else {
-                  Get.toNamed(Routes.GALLERY);
+                  navigateToGallery(context);
                 }
               },
               child: CachedImage(
@@ -1769,9 +1881,9 @@ class HomeScreen extends GetView<HomeController> {
                   child: InkWell(
                     onTap: () {
                       if (story['id'] != null) {
-                        Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+                        navigateToStoryDetails(context, story['id']);
                       } else {
-                        Get.toNamed(Routes.GALLERY);
+                        navigateToGallery(context);
                       }
                     },
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
@@ -1800,9 +1912,9 @@ class HomeScreen extends GetView<HomeController> {
                   child: InkWell(
                     onTap: () {
                       if (story['id'] != null) {
-                        Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+                        navigateToStoryDetails(context, story['id']);
                       } else {
-                        Get.toNamed(Routes.GALLERY);
+                        navigateToGallery(context);
                       }
                     },
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
@@ -1828,13 +1940,12 @@ class HomeScreen extends GetView<HomeController> {
                 ),
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 InkWell(
-                  onTap: () {
-                    if (story['id'] != null) {
-                      Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
-                    } else {
-                      Get.toNamed(Routes.GALLERY);
-                    }
-                  },
+                  onTap: () => ShareHelper.shareContent(
+                    contentType: 'story',
+                    contentId: story['id'] is int ? story['id'] : int.tryParse(story['id'].toString()) ?? 0,
+                    title: title,
+                    mediaUrl: imageUrl,
+                  ),
                   borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                   child: Container(
                     padding: ResponsiveHelper.padding(context, all: 10),
@@ -1845,6 +1956,7 @@ class HomeScreen extends GetView<HomeController> {
                     child: Icon(Icons.share_rounded, size: ResponsiveHelper.iconSize(context, mobile: 22), color: AppTheme.iconscolor),
                   ),
                 ),
+
               ],
             ),
           ),
@@ -2077,7 +2189,7 @@ class HomeScreen extends GetView<HomeController> {
                       imageUrl: imageUrl!,
                       fit: BoxFit.cover,
                       errorWidget: videoUrl != null
-                          ? VideoFrameThumbnail(
+                          ? CustomVideoThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: width,
@@ -2102,7 +2214,7 @@ class HomeScreen extends GetView<HomeController> {
                             ),
                     )
                   : videoUrl != null
-                      ? VideoFrameThumbnail(
+                      ? CustomVideoThumbnail(
                           videoUrl: videoUrl,
                           fit: BoxFit.cover,
                           width: width,
@@ -2262,7 +2374,7 @@ class HomeScreen extends GetView<HomeController> {
                           height: videoHeight,
                           fit: BoxFit.cover,
                           errorWidget: videoUrl != null
-                              ? VideoFrameThumbnail(
+                              ? CustomVideoThumbnail(
                                   videoUrl: videoUrl,
                                   fit: BoxFit.cover,
                                   width: videoWidth,
@@ -2289,7 +2401,7 @@ class HomeScreen extends GetView<HomeController> {
                                 ),
                         )
                       : videoUrl != null
-                          ? VideoFrameThumbnail(
+                          ? CustomVideoThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: videoWidth,
@@ -2713,22 +2825,7 @@ class HomeScreen extends GetView<HomeController> {
             },
           );
     } else if (action.route == Routes.BLOGGER_ZONE) {
-      onTap = () {
-        try {
-          final blogsController = Get.find<BlogsController>();
-          blogsController.filterUserId.value = 0;
-          // Performance: Only refresh if filter changed
-          if (blogsController.filterUserId.value != 0) {
-            // Performance: Only refresh if needed
-            if (blogsController.blogs.isEmpty) {
-              blogsController.loadBlogs(refresh: true);
-            }
-          }
-        } catch (e) {
-          Get.put(BlogsController());
-        }
-        Get.toNamed(action.route);
-      };
+      onTap = () => HomeScreen.navigateToBloggerZone(context);
     } else {
       onTap = () => Get.toNamed(action.route);
     }
@@ -2954,19 +3051,7 @@ class HomeScreen extends GetView<HomeController> {
     } else if (label.contains('Prayer') || label.contains('prayer')) {
       onTap = () => Get.toNamed(Routes.CREATE_PRAYER);
     } else if (label.contains('Blogger') || label.contains('blogger')) {
-      onTap = () {
-        try {
-          final blogsController = Get.find<BlogsController>();
-          blogsController.filterUserId.value = 0;
-          // Performance: Only refresh if needed
-          if (blogsController.blogs.isEmpty) {
-            blogsController.loadBlogs(refresh: true);
-          }
-        } catch (e) {
-          Get.put(BlogsController());
-        }
-        Get.toNamed(Routes.BLOGGER_ZONE);
-      };
+      onTap = () => HomeScreen.navigateToBloggerZone(context);
     } else if (label.contains('Fruit') || label.contains('fruit')) {
       onTap = () {
         // Reload user feeling when coming back from fruits screen
@@ -3455,10 +3540,21 @@ class HomeScreen extends GetView<HomeController> {
   }
 
   String _getTimeAgo(String? dateTimeString) {
-    if (dateTimeString == null || dateTimeString.isEmpty) return '';
+    if (dateTimeString == null || dateTimeString.isEmpty) return 'Just now';
     try {
-      final date = DateTime.parse(dateTimeString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateTimeString.endsWith('Z')) {
+        date = DateTime.parse('${dateTimeString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateTimeString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       if (difference.inDays > 365) {
         final years = (difference.inDays / 365).floor();
@@ -3468,7 +3564,7 @@ class HomeScreen extends GetView<HomeController> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -3476,7 +3572,7 @@ class HomeScreen extends GetView<HomeController> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -3988,7 +4084,7 @@ class HomeScreen extends GetView<HomeController> {
                     width: cardWidth,
                     fit: BoxFit.cover,
                     errorWidget: videoUrl != null
-                        ? VideoFrameThumbnail(
+                        ? CustomVideoThumbnail(
                             videoUrl: videoUrl,
                             fit: BoxFit.cover,
                             width: cardWidth,
@@ -4015,7 +4111,7 @@ class HomeScreen extends GetView<HomeController> {
                           ),
                   )
                 : videoUrl != null
-                    ? VideoFrameThumbnail(
+                    ? CustomVideoThumbnail(
                         videoUrl: videoUrl,
                         fit: BoxFit.cover,
                         width: cardWidth,
@@ -6524,19 +6620,7 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
                   ],
                 ),
                 TextButton(
-                  onPressed: () {
-                    try {
-                      final blogsController = Get.find<BlogsController>();
-                      blogsController.filterUserId.value = 0;
-                      // Performance: Only refresh if needed
-          if (blogsController.blogs.isEmpty) {
-            blogsController.loadBlogs(refresh: true);
-          }
-                    } catch (e) {
-                      Get.put(BlogsController());
-                    }
-                    Get.toNamed(Routes.BLOGGER_ZONE);
-                  },
+                  onPressed: () => HomeScreen.navigateToBloggerZone(context),
                   child: Text(
                     'View All',
                     style: ResponsiveHelper.textStyle(
@@ -6714,7 +6798,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                       height: double.infinity,
                       fit: BoxFit.cover,
                       errorWidget: videoUrl != null
-                          ? VideoFrameThumbnail(
+                          ? CustomVideoThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: double.infinity,
@@ -6741,7 +6825,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                             ),
                     )
                   : videoUrl != null
-                      ? VideoFrameThumbnail(
+                      ? CustomVideoThumbnail(
                           videoUrl: videoUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,
@@ -7500,8 +7584,8 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
     
     return GestureDetector(
       onTap: () {
-        // Open Stories screen (all stories)
-        Get.toNamed(Routes.STORIES);
+        // Open Gallery screen (all moments)
+        HomeScreen.navigateToGallery(context);
       },
       child: Container(
         margin: ResponsiveHelper.padding(context, horizontal: 6),
@@ -7601,10 +7685,10 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
       onTap: () {
         // Open the specific story/post details when tapped
         if (photo['id'] != null) {
-          Get.toNamed(Routes.STORY_DETAILS, arguments: photo['id']);
+          HomeScreen.navigateToStoryDetails(context, photo['id']);
         } else {
-          // Fallback to Stories screen if no id
-          Get.toNamed(Routes.STORIES);
+          // Fallback to Gallery screen if no id
+          HomeScreen.navigateToGallery(context);
         }
       },
       child: Container(
@@ -7836,17 +7920,7 @@ class _QuickActionsCarouselWidgetState extends State<_QuickActionsCarouselWidget
             if (label.contains('Prayer') || label.contains('prayer')) {
               Get.toNamed(Routes.CREATE_PRAYER);
             } else if (label.contains('Blogger') || label.contains('blogger')) {
-              try {
-                final blogsController = Get.find<BlogsController>();
-                blogsController.filterUserId.value = 0;
-                // Performance: Only refresh if needed
-          if (blogsController.blogs.isEmpty) {
-            blogsController.loadBlogs(refresh: true);
-          }
-              } catch (e) {
-                Get.put(BlogsController());
-              }
-              Get.toNamed(Routes.BLOGGER_ZONE);
+              HomeScreen.navigateToBloggerZone(context);
             } else if (label.contains('Fruit') || label.contains('fruit')) {
               Get.toNamed(Routes.FRUITS);
               } else if (label.contains('Group') || label.contains('group')) {
@@ -7883,6 +7957,61 @@ class _QuickActionsCarouselWidgetState extends State<_QuickActionsCarouselWidget
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _EmojiLoadingWrapper extends StatefulWidget {
+  final Widget child;
+  final Future<dynamic> Function()? onTap;
+  final double size;
+
+  const _EmojiLoadingWrapper({
+    Key? key,
+    required this.child,
+    this.onTap,
+    required this.size,
+  }) : super(key: key);
+
+  @override
+  State<_EmojiLoadingWrapper> createState() => _EmojiLoadingWrapperState();
+}
+
+class _EmojiLoadingWrapperState extends State<_EmojiLoadingWrapper> {
+  bool _isLoading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap == null || _isLoading ? null : () async {
+        FocusScope.of(context).unfocus();
+        if (mounted) setState(() => _isLoading = true);
+        try {
+          await widget.onTap!();
+        } catch (e) {
+          debugPrint('Error in emoji tap: $e');
+        } finally {
+          if (mounted) setState(() => _isLoading = false);
+        }
+      },
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Opacity(
+            opacity: _isLoading ? 0.5 : 1.0,
+            child: widget.child,
+          ),
+          if (_isLoading)
+            SizedBox(
+              width: widget.size * 0.6,
+              height: widget.size * 0.6,
+              child: const CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+              ),
+            ),
+        ],
       ),
     );
   }

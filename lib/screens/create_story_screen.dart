@@ -11,6 +11,7 @@ import 'package:fruitsofspirit/services/terms_service.dart';
 import 'package:fruitsofspirit/screens/terms_acceptance_screen.dart';
 
 import '../routes/app_pages.dart';
+import '../utils/app_theme.dart';
 
 /// Create Story Screen
 /// Professional, user-friendly design matching home page style
@@ -117,8 +118,8 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
       Get.snackbar(
         'Error',
         'Please login first',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
@@ -178,8 +179,8 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
             Get.snackbar(
               'Success',
               'Story created successfully. Waiting for admin approval.',
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
+              backgroundColor: AppTheme.iconscolor,
+              colorText: Colors.black,
               snackPosition: SnackPosition.BOTTOM,
               duration: const Duration(seconds: 2),
               margin: const EdgeInsets.all(16),

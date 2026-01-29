@@ -75,22 +75,26 @@ class _FruitsScreenState extends State<FruitsScreen> {
       final prefsCachedVariants = await CacheService.getCachedList('fruits_screen_all_variants');
       
       if (prefsCachedFruits.isNotEmpty) {
-        setState(() {
-          fruitEmojis = List<Map<String, dynamic>>.from(prefsCachedFruits);
-          allFruitVariants = List<Map<String, dynamic>>.from(prefsCachedVariants);
-          isLoadingEmojis = false;
-        });
+        if (mounted) {
+          setState(() {
+            fruitEmojis = List<Map<String, dynamic>>.from(prefsCachedFruits);
+            allFruitVariants = List<Map<String, dynamic>>.from(prefsCachedVariants);
+            isLoadingEmojis = false;
+          });
+        }
         print('✅ Loaded ${fruitEmojis.length} fruits from SharedPreferences cache (instant display)');
         return;
       }
       
       // If static cache is available, use it temporarily
       if (_isEmojisLoaded && _cachedFruitEmojis.isNotEmpty) {
-        setState(() {
-          fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
-          allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
-          isLoadingEmojis = true; // Keep loading state to show we're refreshing
-        });
+        if (mounted) {
+          setState(() {
+            fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
+            allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
+            isLoadingEmojis = true; // Keep loading state to show we're refreshing
+          });
+        }
         print('📋 Showing static cached fruit emojis temporarily (${fruitEmojis.length} items) while loading fresh data...');
       }
     } catch (e) {
@@ -360,11 +364,13 @@ class _FruitsScreenState extends State<FruitsScreen> {
       }
       
       // Update UI with fresh data (not from cache reference)
-      setState(() {
-        fruitEmojis = freshFruitEmojis;
-        allFruitVariants = freshAllVariants;
-        isLoadingEmojis = false;
-      });
+      if (mounted) {
+        setState(() {
+          fruitEmojis = freshFruitEmojis;
+          allFruitVariants = freshAllVariants;
+          isLoadingEmojis = false;
+        });
+      }
       
       print('✅ Fresh fruit emojis loaded and cached (${fruitEmojis.length} items)');
       print('✅ Cache updated with latest data');
@@ -374,19 +380,23 @@ class _FruitsScreenState extends State<FruitsScreen> {
       
       // If we have cached data, use it even on error
       if (_isEmojisLoaded && _cachedFruitEmojis.isNotEmpty) {
-        setState(() {
-          fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
-          allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
-          isLoadingEmojis = false;
-        });
+        if (mounted) {
+          setState(() {
+            fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
+            allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
+            isLoadingEmojis = false;
+          });
+        }
         print('✅ Using cached data after error');
       } else {
         // No cached data - set empty list
-        setState(() {
-          fruitEmojis = [];
-          allFruitVariants = [];
-          isLoadingEmojis = false;
-        });
+        if (mounted) {
+          setState(() {
+            fruitEmojis = [];
+            allFruitVariants = [];
+            isLoadingEmojis = false;
+          });
+        }
       }
     }
   }
@@ -596,8 +606,8 @@ class _FruitsScreenState extends State<FruitsScreen> {
       Get.snackbar(
         'No Variants',
         'No variants found for $fruitName',
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
       );
       return;
     }
@@ -928,157 +938,122 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                 
                                 // Priority 1: Use code (like "meekness_grapes_03") - BEST for API
                                 final variantCode = variant['code'] as String?;
+                                final emojiChar = variant['emoji_char'] as String?;
+                                final imageUrl = variant['image_url'] as String?;
+                                final name = variant['name'] as String?;
+
                                 if (variantCode != null && variantCode.toString().trim().isNotEmpty) {
                                   emojiValue = variantCode.toString().trim();
-                                  print('✅ Using variant code: $emojiValue');
-                                } 
-                                // Priority 2: Use emoji_char if available (for emoji-based)
-                                else {
-                                  final emojiChar = variant['emoji_char'] as String?;
-                                  if (emojiChar != null && emojiChar.toString().trim().isNotEmpty) {
-                                    emojiValue = emojiChar.toString().trim();
-                                    print('✅ Using variant emoji_char: $emojiValue');
-                                  }
-                                  // Priority 3: Use full image_url (API can match by image URL)
-                                   else {
-                                    final imageUrl = variant['image_url'] as String?;
-                                    if (imageUrl != null && imageUrl.toString().trim().isNotEmpty) {
-                                      emojiValue = imageUrl.toString().trim();
-                                      print('✅ Using variant image_url: $emojiValue');
-                                    }
-                                    // Priority 4: Fallback to name (least reliable for API)
-                                    else {
-                                      emojiValue = variant['name'] as String?;
-                                      print('✅ Using variant name: $emojiValue');
-                                    }
-                                  }
+                                } else if (emojiChar != null && emojiChar.toString().trim().isNotEmpty) {
+                                  emojiValue = emojiChar.toString().trim();
+                                } else if (imageUrl != null && imageUrl.toString().trim().isNotEmpty) {
+                                  emojiValue = imageUrl.toString().trim();
+                                } else {
+                                  emojiValue = name;
                                 }
-                                
-                                if (emojiValue != null) {
-                                  // Extract emoji value from variant
-                                  // Priority: code > emoji_char > image_url (full) > name
-                                  String? emojiValueForApi;
-                                  
-                                  // Priority 1: Use code (like "meekness_grapes_03") - BEST for API
-                                  final variantCode = variant['code'] as String?;
-                                  if (variantCode != null && variantCode.toString().trim().isNotEmpty) {
-                                    emojiValueForApi = variantCode.toString().trim();
-                                  } 
-                                  // Priority 2: Use emoji_char if available
-                                  else {
-                                    final emojiChar = variant['emoji_char'] as String?;
-                                    if (emojiChar != null && emojiChar.toString().trim().isNotEmpty) {
-                                      emojiValueForApi = emojiChar.toString().trim();
+
+                                if (emojiValue != null && emojiValue.isNotEmpty) {
+                                  try {
+                                    // STEP 1: Save to database via API
+                                    print('🍎 FRUIT UPDATE: Saving to database: $emojiValue');
+
+                                    // Add a small delay so the user actually sees the loader (UX improvement)
+                                    // otherwise successful calls might be too fast and look glitchy
+                                    await Future.delayed(const Duration(milliseconds: 800));
+
+                                    await EmojisService.useEmoji(
+                                      userId: userId,
+                                      emoji: emojiValue,
+                                    );
+
+                                    // STEP 2: Update local storage
+                                    await widget.homeController.updateUserFeeling(emojiValue, emojiData: variant);
+
+                                    // Close Loading Dialog
+                                    if (Get.isDialogOpen ?? false) Get.back();
+
+                                    // Close Variants Dialog
+                                    if (mounted) {
+                                      Navigator.of(context).pop();
                                     }
-                                    // Priority 3: Use full image_url
-                                    else {
-                                      final imageUrl = variant['image_url'] as String?;
-                                      if (imageUrl != null && imageUrl.toString().trim().isNotEmpty) {
-                                        emojiValueForApi = imageUrl.toString().trim();
+
+                                    // Go to Dashboard
+                                    if (Get.currentRoute != Routes.DASHBOARD) {
+                                      if (Get.isRegistered<MainDashboardController>()) {
+                                        Get.find<MainDashboardController>().changeIndex(0);
+                                        Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
+                                      } else {
+                                        Get.offAllNamed(Routes.DASHBOARD);
                                       }
-                                      // Priority 4: Fallback to name
-                                      else {
-                                        emojiValueForApi = variant['name'] as String?;
-                                      }
+                                    } else {
+                                      // Already on dashboard, just update index
+                                       if (Get.isRegistered<MainDashboardController>()) {
+                                        Get.find<MainDashboardController>().changeIndex(0);
+                                       }
                                     }
-                                  }
-                                  
-                                  if (emojiValueForApi != null && emojiValueForApi.isNotEmpty) {
+
+                                    // Show success message
+                                    Get.snackbar(
+                                      'Success',
+                                      'Feeling updated successfully!',
+                                      snackPosition: SnackPosition.BOTTOM,
+                                      backgroundColor: AppTheme.iconscolor,
+                                      colorText: Colors.black,
+                                      duration: const Duration(seconds: 2),
+                                      margin: const EdgeInsets.all(10),
+                                      borderRadius: 10,
+                                    );
+
+                                  } catch (e) {
+                                    print('❌ API Error: $e, falling back to local storage');
+
+                                    // Fallback: save locally
                                     try {
-                                      // STEP 1: Save to database FIRST (via API)
-                                      print('🍎 FRUIT ISSUE: 💾 STEP 1: Saving to database via API...');
-                                      print('🍎 FRUIT ISSUE:   - userId: $userId');
-                                      print('🍎 FRUIT ISSUE:   - emojiValueForApi: $emojiValueForApi');
-                                      print('🍎 FRUIT ISSUE:   - variant name: ${variant['name']}');
-                                      print('🍎 FRUIT ISSUE:   - variant ID: ${variant['id']}');
-                                      final apiResponse = await EmojisService.useEmoji(
-                                        userId: userId,
-                                        emoji: emojiValueForApi,
-                                      );
-                                      print('🍎 FRUIT ISSUE: ✅ Emoji saved to database successfully. Response: $apiResponse');
-                                      
-                                      // STEP 2: Update local storage IMMEDIATELY with variant data
-                                      // This ensures instant UI update and persistence
-                                      print('🍎 FRUIT ISSUE: 💾 STEP 2: Saving to local storage with variant data...');
-                                      print('🍎 FRUIT ISSUE:   - Calling updateUserFeeling with emoji: $emojiValueForApi');
-                                      print('🍎 FRUIT ISSUE:   - Variant data: name=${variant['name']}, id=${variant['id']}');
-                                      await widget.homeController.updateUserFeeling(emojiValueForApi, emojiData: variant);
-                                      print('🍎 FRUIT ISSUE: ✅ Emoji saved to local storage successfully');
-                                      
-                                      // Close dialog - check if still mounted
-                                      if (mounted) {
-                                        Navigator.of(context).pop();
-                                      }
-                                      
-                                      // STEP 3: Don't reload from API immediately - trust local storage
-                                      // The local storage already has the correct data with proper emoji_details
-                                      print('✅ STEP 3: Skipping API reload - local storage has correct data');
-                                      print('✅ UI should show the selected variant: ${variant['name']}');
-                                      
-                                      // Navigate to dashboard after fruit selection to show bottom nav
-                                      if (Get.isRegistered<MainDashboardController>()) {
-                                        Get.find<MainDashboardController>().changeIndex(0);
-                                        if (Get.currentRoute != Routes.DASHBOARD) {
-                                          Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
-                                        }
-                                      } else {
-                                        Get.offAllNamed(Routes.DASHBOARD);
-                                      }
-                                      
-                                      // Show success message
-                                      Get.snackbar(
-                                        'Success',
-                                        'Feeling updated successfully!',
-                                        snackPosition: SnackPosition.BOTTOM,
-                                        backgroundColor: Colors.green,
-                                        colorText: Colors.white,
-                                        duration: const Duration(seconds: 2),
-                                      );
-                                    } catch (e) {
-                                      print('❌ Error saving emoji: $e');
-                                      
-                                      // Even if API fails, save to local storage for offline support
-                                      print('💾 Saving to local storage as fallback...');
-                                      try {
-                                        await widget.homeController.updateUserFeeling(emojiValueForApi, emojiData: variant);
-                                        print('✅ Saved to local storage as fallback');
-                                      } catch (localError) {
-                                        print('❌ Error saving to local storage: $localError');
-                                      }
-                                      
-                                      // Close dialog on error
-                                      if (mounted) {
-                                        Navigator.of(context).pop();
-                                      }
-                                      
-                                      // Navigate to dashboard after fruit selection (even on error) to show bottom nav
-                                      if (Get.isRegistered<MainDashboardController>()) {
-                                        Get.find<MainDashboardController>().changeIndex(0);
-                                        if (Get.currentRoute != Routes.DASHBOARD) {
-                                          Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
-                                        }
-                                      } else {
-                                        Get.offAllNamed(Routes.DASHBOARD);
-                                      }
-                                      
-                                      // Show warning message
-                                      Get.snackbar(
-                                        'Warning',
-                                        'Saved locally. Will sync when online.',
-                                        snackPosition: SnackPosition.BOTTOM,
-                                        backgroundColor: Colors.orange,
-                                        colorText: Colors.white,
-                                        duration: const Duration(seconds: 2),
-                                      );
+                                      await widget.homeController.updateUserFeeling(emojiValue, emojiData: variant);
+                                    } catch (_) {}
+
+                                    // Close Loader
+                                    if (Get.isDialogOpen ?? false) Get.back();
+
+                                    // Close Variants Dialog
+                                    if (mounted) {
+                                      Navigator.of(context).pop();
                                     }
-                                  } else {
-                                    print('❌ Could not determine emojiValue for variant: ${variant['name']}');
+
+                                    // Go to Dashboard
+                                    if (Get.currentRoute != Routes.DASHBOARD) {
+                                      if (Get.isRegistered<MainDashboardController>()) {
+                                        Get.find<MainDashboardController>().changeIndex(0);
+                                        Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
+                                      } else {
+                                        Get.offAllNamed(Routes.DASHBOARD);
+                                      }
+                                    }
+
+                                    Get.snackbar(
+                                      'Saved',
+                                      'Feeling saved locally.',
+                                      snackPosition: SnackPosition.BOTTOM,
+                                      backgroundColor: AppTheme.iconscolor,
+                                      colorText: Colors.black,
+                                      duration: const Duration(seconds: 2),
+                                    );
                                   }
                                 } else {
-                                  print('❌ Could not determine emojiValue for variant: ${variant['name']}');
+                                  // Close Loader
+                                  if (Get.isDialogOpen ?? false) Get.back();
+
+                                  // Get.snackbar(
+                                  //   'Error',
+                                  //   'Invalid fruit data',
+                                  //   backgroundColor: Colors.red,
+                                  //   colorText: Colors.white,
+                                  // );
                                 }
                               } else {
-                                print('⚠️ User not logged in, cannot record fruit selection.');
+                                // Close Loader
+                                if (Get.isDialogOpen ?? false) Get.back();
+
                                 Get.snackbar(
                                   'Login Required',
                                   'Please login to select fruits.',
@@ -1087,13 +1062,16 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                 );
                               }
                             } catch (e) {
-                              print('❌ Error recording fruit selection: $e');
-                              Get.snackbar(
-                                'Error',
-                                'Failed to record fruit selection: ${e.toString().replaceAll('Exception: ', '')}',
-                                backgroundColor: Colors.redAccent,
-                                colorText: Colors.white,
-                              );
+                              // Close Loader logic
+                              if (Get.isDialogOpen ?? false) Get.back();
+
+                              print('❌ Critical Error: $e');
+                              // Get.snackbar(
+                              //   'Error',
+                              //   'Something went wrong. Please try again.',
+                              //   backgroundColor: Colors.redAccent,
+                              //   colorText: Colors.white,
+                              // );
                             }
                           },
                               borderRadius: BorderRadius.circular(ScreenSize.borderRadiusMedium),

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
 import 'package:flutter/scheduler.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
@@ -34,6 +36,8 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   double _photoHeight = 350.0; // Initial photo height
   double _minPhotoHeight = 100.0; // Minimum collapsed height
   double _maxPhotoHeight = 350.0; // Maximum expanded height
+  bool _isSendingComment = false; // Track comment sending state
+
 
   @override
   void initState() {
@@ -119,11 +123,22 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
 
   /// Format time ago
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -134,7 +149,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -142,7 +157,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -172,6 +187,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.themeColor,
+      resizeToAvoidBottomInset: true,
       appBar: const StandardAppBar(
         showBackButton: true,
       ),
@@ -226,41 +242,47 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         return Column(
           children: [
             // Photo Display - Animated based on scroll (Social Media Style)
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 100),
-              curve: Curves.easeOut,
-              height: _photoHeight.clamp(_minPhotoHeight, _maxPhotoHeight),
-              child: GestureDetector(
-                onTap: () {
-                  // Show full screen image preview when tapped
-                  if (imageUrl != null) {
-                    _showImagePreview(context, imageUrl, photo);
-                  }
-                },
-                child: Container(
-                  color: Colors.black,
-                  child: imageUrl != null
-                      ? Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Center(
-                              child: Icon(
-                                Icons.broken_image,
-                                size: ResponsiveHelper.iconSize(context, mobile: 64),
-                                color: Colors.white,
-                              ),
-                            );
-                          },
-                        )
-                      : Center(
-                          child: Icon(
-                            Icons.image_not_supported,
-                            size: ResponsiveHelper.iconSize(context, mobile: 64),
-                            color: Colors.white,
+            Flexible(
+              flex: 0,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 100),
+                curve: Curves.easeOut,
+                height: _photoHeight.clamp(_minPhotoHeight, _maxPhotoHeight),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.5,
+                ),
+                child: GestureDetector(
+                  onTap: () {
+                    // Show full screen image preview when tapped
+                    if (imageUrl != null) {
+                      _showImagePreview(context, imageUrl, photo);
+                    }
+                  },
+                  child: Container(
+                    color: Colors.black,
+                    child: imageUrl != null
+                        ? Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Icon(
+                                  Icons.broken_image,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 64),
+                                  color: Colors.white,
+                                ),
+                              );
+                            },
+                          )
+                        : Center(
+                            child: Icon(
+                              Icons.image_not_supported,
+                              size: ResponsiveHelper.iconSize(context, mobile: 64),
+                              color: Colors.white,
+                            ),
                           ),
-                        ),
+                  ),
                 ),
               ),
             ),
@@ -596,16 +618,20 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                   // Share Button
                                   InkWell(
                                     onTap: () {
-                                      // TODO: Implement share functionality
-                                      Get.snackbar(
-                                        'Share',
-                                        'Share functionality coming soon',
-                                        snackPosition: SnackPosition.BOTTOM,
-                                        backgroundColor: Colors.grey[800],
-                                        colorText: Colors.white,
-                                        duration: const Duration(seconds: 2),
+                                      final photo = controller.selectedPhoto;
+                                      final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                                      final filePath = photo['file_path'] as String? ?? '';
+                                      final photoUrl = filePath.isNotEmpty ? baseUrl + filePath : null;
+
+                                      ShareHelper.shareContent(
+                                        contentType: 'photo',
+                                        contentId: photoId,
+                                        title: 'Photo from ${photo['user_name'] ?? 'Anonymous'}',
+                                        content: photo['testimony'],
+                                        mediaUrl: photoUrl,
                                       );
                                     },
+
                                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
                                     child: Padding(
                                       padding: ResponsiveHelper.padding(context, all: 8),
@@ -892,16 +918,39 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             child: Material(
                               color: Colors.transparent,
                               child: InkWell(
-                                onTap: () async {
+                                onTap: _isSendingComment ? null : () async {
                               if (commentController.text.trim().isEmpty) return;
                               
+                              // FIX: Dismiss keyboard immediately
+                              FocusScope.of(context).unfocus();
+                              
+                              setState(() {
+                                _isSendingComment = true;
+                              });
+
                               final success = await controller.addComment(
                                 photoId,
                                 commentController.text.trim(),
                               );
                               
+                              if (mounted) {
+                                setState(() {
+                                  _isSendingComment = false;
+                                });
+                              }
+                              
                               if (success) {
                                 commentController.clear();
+                                
+                                // Scroll to bottom to show latest comment
+                                await Future.delayed(const Duration(milliseconds: 300));
+                                if (_scrollController.hasClients) {
+                                  _scrollController.animateTo(
+                                    _scrollController.position.maxScrollExtent,
+                                    duration: const Duration(milliseconds: 500),
+                                    curve: Curves.easeOut,
+                                  );
+                                }
                                 Get.snackbar(
                                   'Success',
                                   'Comment added successfully',
@@ -923,11 +972,20 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                 borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 24)),
                                 child: Container(
                                   padding: ResponsiveHelper.padding(context, all: 12),
-                                  child: Icon(
-                                    Icons.send,
-                                    color: Colors.white,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 24),
-                                  ),
+                                  child: _isSendingComment
+                                      ? SizedBox(
+                                          width: ResponsiveHelper.iconSize(context, mobile: 24),
+                                          height: ResponsiveHelper.iconSize(context, mobile: 24),
+                                          child: const CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        )
+                                      : Icon(
+                                          Icons.send,
+                                          color: Colors.white,
+                                          size: ResponsiveHelper.iconSize(context, mobile: 24),
+                                        ),
                                 ),
                               ),
                             ),
@@ -1264,6 +1322,9 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
               onTap: () async {
                 if (replyController.text.trim().isEmpty) return;
                 
+                // FIX: Dismiss keyboard immediately
+                FocusScope.of(context).unfocus();
+
                 final success = await controller.addComment(
                   photoId,
                   replyController.text.trim(),
@@ -1904,6 +1965,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: isValidEmoji ? () async {
+                          FocusScope.of(context).unfocus(); // Dismiss keyboard when emoji is tapped
                           print('🍎 GALLERY EMOJI: ========== EMOJI SELECTION START ==========');
                           print('🍎 GALLERY EMOJI: User tapped quick emoji: $emoji');
                           print('🍎 GALLERY EMOJI:   - emojiData: name=${emojiData['name']}, id=${emojiData['id']}');

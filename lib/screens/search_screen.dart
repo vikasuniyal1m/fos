@@ -2,14 +2,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/search_service.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
-import 'package:fruitsofspirit/widgets/video_frame_thumbnail.dart';
+import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 
 /// Search Screen
@@ -821,13 +823,22 @@ class _SearchScreenState extends State<SearchScreen> {
                         if (value == 'view') {
                           onTap();
                         } else if (value == 'share') {
-                          Get.snackbar(
-                            'Info',
-                            'Share feature coming soon',
-                            backgroundColor: Colors.blue,
-                            colorText: Colors.white,
+                          final shareType = type.toLowerCase() == 'prayer' ? 'prayer' : 
+                                           type.toLowerCase() == 'video' ? 'video' :
+                                           type.toLowerCase() == 'photo' ? 'photo' :
+                                           type.toLowerCase() == 'blog' ? 'blog' : 'story';
+                          
+                          ShareHelper.shareContent(
+                            contentType: shareType,
+                            contentId: item['id'] is int ? item['id'] : int.tryParse(item['id'].toString()) ?? 0,
+                            title: type.toLowerCase() == 'prayer' ? 'Prayer Request from $userName' : 
+                                   (item['title'] ?? item['description'] ?? type),
+                            content: type.toLowerCase() == 'prayer' ? prayerContent : 
+                                     (item['body'] ?? item['testimony'] ?? item['content']),
                           );
                         }
+
+
                       },
                       itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                         PopupMenuItem<String>(
@@ -981,7 +992,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           width: double.infinity,
                           fit: BoxFit.cover,
                           errorWidget: videoUrl != null
-                              ? VideoFrameThumbnail(
+                              ? CustomVideoThumbnail(
                                   videoUrl: videoUrl,
                                   fit: BoxFit.cover,
                                   height: thumbnailHeight,
@@ -1008,7 +1019,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ),
                         )
                       : videoUrl != null
-                          ? VideoFrameThumbnail(
+                          ? CustomVideoThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               height: thumbnailHeight,
@@ -1161,7 +1172,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                   SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                   InkWell(
-                    onTap: onTap,
+                    onTap: () => ShareHelper.shareContent(
+                      contentType: 'video',
+                      contentId: item['id'] is int ? item['id'] : int.tryParse(item['id'].toString()) ?? 0,
+                      title: title,
+                    ),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                     child: Container(
                       padding: ResponsiveHelper.padding(context, all: 10),
@@ -1172,6 +1187,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       child: Icon(Icons.share_rounded, size: ResponsiveHelper.iconSize(context, mobile: 22), color: AppTheme.iconscolor),
                     ),
                   ),
+
                 ],
               ),
             ),
@@ -1400,10 +1416,21 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   String _getTimeAgo(String? dateTimeString) {
-    if (dateTimeString == null || dateTimeString.isEmpty) return '';
+    if (dateTimeString == null || dateTimeString.isEmpty) return 'Just now';
     try {
-      final date = DateTime.parse(dateTimeString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateTimeString.endsWith('Z')) {
+        date = DateTime.parse('${dateTimeString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateTimeString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       if (difference.inDays > 365) {
         final years = (difference.inDays / 365).floor();
@@ -1413,7 +1440,7 @@ class _SearchScreenState extends State<SearchScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -1421,7 +1448,7 @@ class _SearchScreenState extends State<SearchScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 }
