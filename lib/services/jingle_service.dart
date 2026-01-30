@@ -45,13 +45,9 @@ class JingleService extends GetxController {
     final url = _getJingleUrl(category);
     if (url.isEmpty) return;
     try {
-      final fileInfo = await DefaultCacheManager().getFileFromCache(url);
-      if (fileInfo != null) {
-        _cachedFiles[category] = fileInfo.file.path;
-      } else {
-        final file = await DefaultCacheManager().getSingleFile(url);
-        _cachedFiles[category] = file.path;
-      }
+      // Skip pre-caching to avoid network issues
+      // Just ensure the category is in the cachedFiles map with the URL
+      _cachedFiles[category] = url;
     } catch (e) {
       print('⚠️ Error pre-caching jingle for $category: $e');
     }

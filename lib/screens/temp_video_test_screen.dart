@@ -215,16 +215,9 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
             top: 40,
             right: 20,
             child: TextButton(
-              onPressed: () async {
-                await IntroService.incrementVideoPlayCount();
-                if (mounted) { // Check if the widget is still mounted before calling setState
-                  setState(() {
-                    _showCheckbox = IntroService.shouldShowCheckbox();
-                  });
-                }
-                if (!IntroService.shouldShowCheckbox()) {
-                  widget.onVideoFinished?.call();
-                }
+              onPressed: () {
+                // Don't increment play count when skipping
+                widget.onVideoFinished?.call();
               },
               child: const Text(
                 'Skip',
