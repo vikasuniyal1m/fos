@@ -38,6 +38,7 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
       return;
     }
 
+    // Initialize controller first
     _controller = VideoPlayerController.asset('assets/themsong.mp4')
       ..initialize().then((_) {
         setState(() {
@@ -54,19 +55,14 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
       debugPrint("Controller started listner ${_controller}");
 
       if (_controller.value.position == _controller.value.duration) {
-        // Video finished playing
+        // Video finished playing - increment count and show checkbox if needed
         await IntroService.incrementVideoPlayCount();
-        if (mounted) { // Check if the widget is still mounted before calling setState
+        if (mounted) {
           setState(() {
             _showCheckbox = IntroService.shouldShowCheckbox();
           });
         }
-
-        if (!IntroService.shouldShowCheckbox()) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            widget.onVideoFinished?.call();
-          });
-        }
+        debugPrint("Video finished playing - incremented count");
       }
     });
   }

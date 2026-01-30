@@ -442,18 +442,6 @@ class PrayersController extends GetxController {
     final moderationCheck = ContentModerationService.checkContent(content);
     if (!moderationCheck['isClean']) {
       message.value = moderationCheck['message'];
-      
-      Get.snackbar(
-        'Community Guidelines',
-        moderationCheck['message'],
-        backgroundColor: const Color(0xFF5D4037),
-        colorText: Colors.white,
-        icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
-        mainButton: TextButton(
-          onPressed: () => Get.toNamed(Routes.TERMS),
-          child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
-        ),
-      );
       return false;
     }
 
@@ -867,19 +855,11 @@ class PrayersController extends GetxController {
   }
 
   
-  /// Show moderation snackbar
+  /// Show moderation snackbar - This method is called from UI, so context will be passed from there
+  /// Note: This method should be called from UI layer with proper context
   void _showModerationSnackbar(String message) {
-    Get.snackbar(
-      'Community Guidelines',
-      message,
-      backgroundColor: const Color(0xFF5D4037),
-      colorText: Colors.white,
-      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
-      mainButton: TextButton(
-        onPressed: () => Get.toNamed(Routes.TERMS),
-        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
-      ),
-    );
+    // This method is now just a placeholder - moderation messages will be shown through the UI layer's _showCustomSnackbar
+    this.message.value = message;
   }
 }
 

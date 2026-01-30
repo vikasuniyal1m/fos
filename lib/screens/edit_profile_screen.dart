@@ -79,7 +79,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Scaffold(
       backgroundColor: AppTheme.themeColor,
       appBar: const StandardAppBar(
-        showBackButton: false,
+        showBackButton: true,
       ),
       body: Obx(() {
         if (controller.isLoading.value && controller.profile.isEmpty) {

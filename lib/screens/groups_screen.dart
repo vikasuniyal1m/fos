@@ -13,6 +13,49 @@ import '../utils/app_theme.dart';
 /// Displays list of groups
 class GroupsScreen extends GetView<GroupsController> {
   const GroupsScreen({Key? key}) : super(key: key);
+  
+  /// Show a simple snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            // Error dot indicator
+            if (isError) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                margin: const EdgeInsets.only(right: 12),
+              ),
+            ],
+            // Message text
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+        ),
+        margin: EdgeInsets.all(AppTheme.spacingMD),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -268,7 +311,9 @@ class GroupsScreen extends GetView<GroupsController> {
                 top: Radius.circular(12),
               ),
               child: SizedBox( // Use SizedBox to give a fixed height
-                height: MediaQuery.of(context).size.height * 0.2, // Use a percentage of screen height
+                height: ResponsiveHelper.isMobile(context) 
+                    ? MediaQuery.of(context).size.height * 0.15 // Smaller height for mobile
+                    : MediaQuery.of(context).size.height * 0.2, // Use a percentage of screen height
                 width: double.infinity,
                 child: CachedImage(
                   imageUrl: imageUrl,
@@ -348,6 +393,8 @@ class GroupsScreen extends GetView<GroupsController> {
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -379,7 +426,7 @@ class GroupsScreen extends GetView<GroupsController> {
                 
                 // Description
                 if (description.isNotEmpty) ...[
-                  SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 8 : 10)),
+                  SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
                   Text(
                     description,
                     style: ResponsiveHelper.textStyle(
@@ -392,7 +439,7 @@ class GroupsScreen extends GetView<GroupsController> {
                   ),
                 ],
                 
-                SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
+                SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
                 
                 // Action Buttons
                 Row(
@@ -406,34 +453,12 @@ class GroupsScreen extends GetView<GroupsController> {
                             if (success) {
                               // Show success message
                               WidgetsBinding.instance.addPostFrameCallback((_) {
-                                Get.snackbar(
-                                  'Success',
-                                  controller.message.value.isNotEmpty 
-                                      ? controller.message.value 
-                                      : 'Joined group successfully',
-                                  backgroundColor: Colors.green,
-                                  colorText: Colors.white,
-                                  snackPosition: SnackPosition.BOTTOM,
-                                  duration: const Duration(seconds: 2),
-                                  margin: const EdgeInsets.all(16),
-                                );
+                                final messageText = controller.message.value.isNotEmpty 
+                                    ? controller.message.value 
+                                    : 'Joined group successfully';
+                                _showCustomSnackbar(context, messageText, isError: false);
                               });
                               controller.refresh();
-                            } else {
-                              // Show error message
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                Get.snackbar(
-                                  'Error',
-                                  controller.message.value.isNotEmpty 
-                                      ? controller.message.value 
-                                      : 'Failed to join group. Please try again.',
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
-                                  snackPosition: SnackPosition.BOTTOM,
-                                  duration: const Duration(seconds: 3),
-                                  margin: const EdgeInsets.all(16),
-                                );
-                              });
                             }
                           } else {
                               // Show loading indicator
@@ -444,38 +469,32 @@ class GroupsScreen extends GetView<GroupsController> {
                                 barrierDismissible: false,
                               );
 
-                              // Load group details
-                              await controller.loadGroupDetails(group['id'] as int);
+                              try {
+                                // Load group details
+                                await controller.loadGroupDetails(group['id'] as int);
 
-                              // Dismiss loading indicator
-                              Get.back(); // Dismiss the dialog
-
-                              if (controller.selectedGroup.value != null) {
-                                // Get category and play jingle before navigation
-                                final category = group['category'] as String? ?? '';
-                                print('🔊 Group category: $category');
-                                if (category.isNotEmpty) {
-                                final jingleService = Get.find<JingleService>();
-                                  // Pre-load the jingle specifically for this category
-                                  jingleService.startJingle(category);
+                                // Dismiss loading indicator BEFORE navigating
+                                if (Get.isDialogOpen ?? false) {
+                                  Get.back();
                                 }
-                                // Navigation to Group Details
-                                Get.toNamed(Routes.GROUP_CHAT, arguments: group['id']);
-                              } else {
-                                // Show error if group details failed to load
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  Get.snackbar(
-                                    'Error',
-                                    controller.message.value.isNotEmpty
-                                        ? controller.message.value
-                                        : 'Failed to load group details. Please try again.',
-                                    backgroundColor: Colors.red,
-                                    colorText: Colors.white,
-                                    snackPosition: SnackPosition.BOTTOM,
-                                    duration: const Duration(seconds: 3),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                });
+
+                                if (controller.selectedGroup.value != null) {
+                                  // Get category and play jingle before navigation
+                                  final category = group['category'] as String? ?? '';
+                                  print('🔊 Group category: $category');
+                                  if (category.isNotEmpty) {
+                                  final jingleService = Get.find<JingleService>();
+                                    // Pre-load the jingle specifically for this category
+                                    jingleService.startJingle(category);
+                                  }
+                                  // Navigation to Group Details
+                                  Get.toNamed(Routes.GROUP_CHAT, arguments: group['id']);
+                                }
+                              } catch (e) {
+                                // Dismiss loading indicator in case of error
+                                if (Get.isDialogOpen ?? false) {
+                                  Get.back();
+                                }
                               }
                           }
                         },
@@ -522,16 +541,20 @@ class GroupsScreen extends GetView<GroupsController> {
                           try {
                             // Load group details
                             await controller.loadGroupDetails(group['id'] as int);
-                            // Dismiss loading indicator
-                            Get.back();
+                            // Dismiss loading indicator BEFORE navigating
+                            if (Get.isDialogOpen ?? false) {
+                              Get.back();
+                            }
                             // Navigate to details page
                             Get.toNamed(
                               Routes.GROUP_DETAILS,
                               arguments: group['id'],
                             );
                           } catch (e) {
-                            // Dismiss loading indicator
-                            Get.back();
+                            // Dismiss loading indicator in case of error
+                            if (Get.isDialogOpen ?? false) {
+                              Get.back();
+                            }
                             // Show error message
                           /*  Get.snackbar(
                               'Error',
@@ -543,23 +566,7 @@ class GroupsScreen extends GetView<GroupsController> {
                               margin: const EdgeInsets.all(16),
                             );*/
                             return;
-                          } finally {
-                            // Always dismiss loader without touching GetX snackbars
-                            if (Get.isDialogOpen ?? false) {
-                              final dialogContext = Get.overlayContext;
-                              if (dialogContext != null) {
-                                Navigator.of(dialogContext, rootNavigator: true).pop();
-                              } else if (context.mounted) {
-                                Navigator.of(context, rootNavigator: true).pop();
-                              }
-                            }
                           }
-
-                          // Navigate to details page
-                          await Get.toNamed(
-                            Routes.GROUP_DETAILS,
-                            arguments: group['id'],
-                          );
                         },
                         icon: Icon(
                           Icons.info_outline,
@@ -577,9 +584,12 @@ class GroupsScreen extends GetView<GroupsController> {
                         ),
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(color: AppTheme.iconscolor, width: 1.5),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          padding: ResponsiveHelper.padding(
+                            context,
+                            vertical: ResponsiveHelper.isMobile(context) ? 8 : 10,
+                          ),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                           ),
                         ),
                       ),

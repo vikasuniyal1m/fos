@@ -26,6 +26,10 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
   final TextEditingController titleController = TextEditingController();
   final TextEditingController bodyController = TextEditingController();
   
+  // Initialize pickers once in state
+  final ImagePicker _picker = ImagePicker();
+  final ImageCropper _cropper = ImageCropper();
+  
   File? selectedImage;
   String selectedCategory = 'Spiritual';
   String selectedLanguage = 'en';
@@ -47,43 +51,29 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    // Open gallery first - this is the critical part that needs to be fast
+    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
 
     if (pickedFile != null) {
-      final croppedFile = await ImageCropper().cropImage(
+      // Only initialize cropper if we have an image - reduces initial delay
+      final croppedFile = await _cropper.cropImage(
         sourcePath: pickedFile.path,
+        // Simplified UI settings to essential options only
         uiSettings: [
           AndroidUiSettings(
             toolbarTitle: 'Crop Image',
             toolbarColor: AppTheme.iconscolor,
             toolbarWidgetColor: Colors.white,
             initAspectRatio: CropAspectRatioPreset.original,
-            lockAspectRatio: false, // Allow free cropping
-            hideBottomControls: false,
-            statusBarColor: AppTheme.iconscolor, // Match status bar color
-            activeControlsWidgetColor: AppTheme.iconscolor,
-            aspectRatioPresets: [
-              CropAspectRatioPreset.square,
-              CropAspectRatioPreset.ratio3x2,
-              CropAspectRatioPreset.ratio4x3,
-              CropAspectRatioPreset.ratio16x9,
-              CropAspectRatioPreset.original,
-            ],
+            lockAspectRatio: false,
+            // Removed unnecessary settings
           ),
           IOSUiSettings(
             title: 'Crop Image',
-            aspectRatioLockEnabled: false, // Allow free cropping
+            aspectRatioLockEnabled: false,
             doneButtonTitle: 'Done',
             cancelButtonTitle: 'Cancel',
-            minimumAspectRatio: 1.0,
-            aspectRatioPresets: [
-              CropAspectRatioPreset.square,
-              CropAspectRatioPreset.ratio3x2,
-              CropAspectRatioPreset.ratio4x3,
-              CropAspectRatioPreset.ratio16x9,
-              CropAspectRatioPreset.original,
-            ],
+            // Removed unnecessary settings
           ),
         ],
       );
@@ -102,6 +92,40 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
     });
   }
 
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false, Color? backgroundColor, Color? textColor, Icon? icon, Duration? duration}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            if (icon != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: icon,
+              ),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: textColor ?? Colors.white)),
+                  Text(message, style: TextStyle(color: textColor ?? Colors.white)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: backgroundColor ?? (isError ? Colors.red : AppTheme.iconscolor),
+        duration: duration ?? const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   Future<void> _submitBlog() async {
     print('[_submitBlog] function called.');
 
@@ -118,34 +142,34 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
     }
     // Validation
     if (titleController.text.trim().isEmpty) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Suggestion',
         'Please enter blog title',
         backgroundColor: Colors.orange.shade300,
-        colorText: Colors.black,
-        snackPosition: SnackPosition.BOTTOM,
+        textColor: Colors.black,
       );
       return;
     }
 
     if (bodyController.text.trim().isEmpty) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Suggestion',
         'Please enter blog content',
         backgroundColor: Colors.orange.shade300,
-        colorText: Colors.black,
-        snackPosition: SnackPosition.BOTTOM,
+        textColor: Colors.black,
       );
       return;
     }
 
     if (bodyController.text.trim().length < 50) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Suggestion',
         'Blog content must be at least 50 characters long.',
         backgroundColor: Colors.orange.shade300,
-        colorText: Colors.black,
-        snackPosition: SnackPosition.BOTTOM,
+        textColor: Colors.black,
       );
       return;
     }
@@ -163,16 +187,15 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
 
       // Show success message
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Success',
           controller.message.value.isNotEmpty
               ? controller.message.value
               : 'Blog created successfully! Waiting for approval.',
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.iconscolor,
+          textColor: Colors.black,
           duration: const Duration(seconds: 2),
-          margin: const EdgeInsets.all(16),
           icon: const Icon(Icons.check_circle, color: Colors.white),
         );
       }
@@ -201,26 +224,19 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
             final errorMsg = controller.message.value;
             final isModeration = errorMsg.contains('community guidelines');
 
-            Get.snackbar(
+            _showCustomSnackbar(
+              context,
               isModeration ? 'Community Standard' : 'Community Suggestion',
               errorMsg.isNotEmpty 
                   ? errorMsg 
                   : 'Action could not be completed. Please try again.',
               backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.orange.shade300,
-              colorText: isModeration ? Colors.white : Colors.black,
+              textColor: isModeration ? Colors.white : Colors.black,
               icon: Icon(
                 isModeration ? Icons.security_rounded : Icons.tips_and_updates_outlined,
                 color: isModeration ? const Color(0xFFC79211) : Colors.black,
                 size: 28,
               ),
-              snackPosition: SnackPosition.BOTTOM,
-              duration: Duration(seconds: isModeration ? 5 : 3),
-              margin: const EdgeInsets.all(16),
-              borderRadius: 12,
-              mainButton: isModeration ? TextButton(
-                onPressed: () => Get.toNamed(Routes.TERMS),
-                child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
-              ) : null,
             );
           }
         });
@@ -471,6 +487,11 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                   contentPadding: ResponsiveHelper.padding(context, all: 16),
                 ),
                 maxLength: 200,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  // Dismiss keyboard when Done is pressed
+                  FocusManager.instance.primaryFocus?.unfocus();
+                },
               ),
               SizedBox(height: ResponsiveHelper.spacing(context, 24)),
 
@@ -502,6 +523,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                             ),
                           ),
                           child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             value: selectedCategory,
                             decoration: InputDecoration(
                               border: InputBorder.none,
@@ -554,6 +576,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                             ),
                           ),
                           child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             value: selectedLanguage,
                             decoration: InputDecoration(
                               border: InputBorder.none,
@@ -637,6 +660,11 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                   fillColor: Colors.white,
                   contentPadding: ResponsiveHelper.padding(context, all: 16),
                 ),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  // Dismiss keyboard when Done is pressed
+                  FocusManager.instance.primaryFocus?.unfocus();
+                },
               ),
               SizedBox(height: ResponsiveHelper.spacing(context, 8)),
               if (bodyController.text.trim().length < 50)

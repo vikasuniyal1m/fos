@@ -65,6 +65,45 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
     super.dispose();
   }
 
+  void _showCustomSnackbar(BuildContext context, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            if (isError) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                margin: const EdgeInsets.only(right: 12),
+              ),
+            ],
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+        ),
+        margin: EdgeInsets.all(AppTheme.spacingMD),
+      ),
+    );
+  }
+
   Future<void> _pickImage() async {
     final image = await _picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
@@ -335,13 +374,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
     }
 
     if (_selectedPhoto == null) {
-      Get.snackbar(
-        'Error',
-        'Please select a photo',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
-      );
+      _showCustomSnackbar(context, 'Please select a photo', isError: true);
       return;
     }
 
@@ -378,17 +411,17 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
       if (success) {
         // Show success message
         if (mounted) {
-          Get.snackbar(
-            'Success',
-            controller.message.value.isNotEmpty 
-                ? controller.message.value 
-                : 'Photo uploaded successfully!',
-            backgroundColor: Colors.green,
-            colorText: Colors.white,
-            duration: const Duration(seconds: 2),
-            icon: const Icon(Icons.check_circle, color: Colors.white),
-            margin: const EdgeInsets.all(16),
-          );
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _showCustomSnackbar(
+                context,
+                controller.message.value.isNotEmpty 
+                    ? controller.message.value 
+                    : 'Photo uploaded successfully!',
+                isError: false
+              );
+            }
+          });
         }
         
         // Navigate back to previous screen immediately
@@ -396,7 +429,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
           if (Get.isRegistered<MainDashboardController>()) {
             Get.find<MainDashboardController>().changeIndex(4);
           }
-          Get.back();
+          Navigator.pop(context); // Use Flutter's built-in Navigator instead of Get.back()
         }
       } else {
         // Show error message
@@ -404,28 +437,12 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               final errorMsg = controller.message.value;
-              final isModeration = errorMsg.contains('community guidelines');
-
-              Get.snackbar(
-                isModeration ? 'Community Standard' : 'Notice',
-                errorMsg.isNotEmpty 
-                    ? errorMsg 
+              _showCustomSnackbar(
+                context,
+                errorMsg.isNotEmpty
+                    ? errorMsg
                     : 'Action could not be completed. Please try again.',
-                backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
-                colorText: Colors.white,
-                icon: Icon(
-                  isModeration ? Icons.security_rounded : Icons.info_outline,
-                  color: isModeration ? const Color(0xFFC79211) : Colors.white,
-                  size: 28,
-                ),
-                snackPosition: SnackPosition.BOTTOM,
-                duration: Duration(seconds: isModeration ? 5 : 3),
-                margin: const EdgeInsets.all(16),
-                borderRadius: 12,
-                mainButton: isModeration ? TextButton(
-                  onPressed: () => Get.toNamed(Routes.TERMS),
-                  child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
-                ) : null,
+                isError: true
               );
             }
           });
@@ -437,14 +454,9 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
         Get.back();
       }
       
-      Get.snackbar(
-        'Error',
-        'Failed to upload photo: ${e.toString()}',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-        icon: const Icon(Icons.error, color: Colors.white),
-      );
+      if (mounted) {
+        _showCustomSnackbar(context, 'Failed to upload photo: ${e.toString()}', isError: true);
+      }
       print('Error in _submitMoment: $e');
     }
   }

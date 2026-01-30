@@ -6,6 +6,7 @@ import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/services/profile_service.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Blogs Controller
@@ -72,6 +73,35 @@ class BlogsController extends GetxController {
     }
   }
 
+  /// Refresh user data from server to get latest role and status
+  Future<void> refreshUserData() async {
+    if (userId.value == 0) {
+      await _loadUserData();
+    }
+
+    if (userId.value == 0) {
+      return;
+    }
+
+    try {
+      // Get fresh profile data from server
+      final profileData = await ProfileService.getProfile(userId.value);
+      
+      // Update local storage with fresh data
+      await UserStorage.updateUser(profileData);
+      
+      // Update observable values for UI
+      userRole.value = profileData['role'] as String? ?? 'User';
+      userStatus.value = profileData['status'] as String? ?? 'Active';
+      
+      print('✅ User data refreshed from server: Role=${userRole.value}, Status=${userStatus.value}');
+    } catch (e) {
+      print('⚠️ Failed to refresh user data: $e');
+      // Fall back to local storage if server call fails
+      await _loadUserData();
+    }
+  }
+
   /// Load blogs
   Future<void> loadBlogs({bool refresh = false}) async {
     // Performance: Skip if already loading
@@ -94,6 +124,8 @@ class BlogsController extends GetxController {
     if (refresh) {
       currentPage.value = 0;
       _isDataLoaded = false;
+      // Refresh user data on explicit refresh to get latest role/status
+      await refreshUserData();
     }
 
     _isLoading = true;
@@ -620,8 +652,8 @@ class BlogsController extends GetxController {
       await BlogsService.requestBloggerAccess(userId: userId.value);
       message.value = 'Request sent successfully. Admin will review your request.';
       
-      // Reload user data to check if role changed
-      await _loadUserData();
+      // Refresh user data from server to get latest role/status
+      await refreshUserData();
       
       return true;
     } catch (e) {

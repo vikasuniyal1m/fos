@@ -23,6 +23,43 @@ class GroupChatScreen extends StatelessWidget {
     required this.groupId,
     this.useRealChat = true, // Default to real chat
   }) : super(key: key);
+  
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -343,13 +380,11 @@ class GroupChatScreen extends StatelessWidget {
         if (hasPendingRequest) {
           return FloatingActionButton(
             onPressed: () {
-              Get.snackbar(
+              _showCustomSnackbar(
+                context,
                 'Approval Pending',
                 'Waiting for approval from admin. You cannot create posts until your blogger request is approved.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.orange.withOpacity(0.9),
-                colorText: Colors.white,
-                duration: const Duration(seconds: 3),
+                isError: true,
               );
             },
             backgroundColor: Colors.grey,
@@ -360,13 +395,10 @@ class GroupChatScreen extends StatelessWidget {
         // For regular users, show button with message
         return FloatingActionButton(
           onPressed: () {
-            Get.snackbar(
+            _showCustomSnackbar(
+              context,
               'Become a Blogger',
               'Please request to become a blogger to create posts.',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: const Color(0xFF8B4513).withOpacity(0.9),
-              colorText: Colors.white,
-              duration: const Duration(seconds: 3),
             );
           },
           backgroundColor: const Color(0xFF8B4513),
@@ -955,6 +987,43 @@ class GroupChatScreen extends StatelessWidget {
     String selectedType = 'text';
     File? selectedImage;
     final eventDateController = TextEditingController();
+    
+    // Helper function to show snackbar from dialog context
+    void showSnackbar(String title, String message, {bool isError = false}) {
+      if (!context.mounted) return;
+      
+      // Close any existing snackbars
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red : Colors.green,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
 
     Get.dialog(
       Dialog(
@@ -1094,11 +1163,10 @@ class GroupChatScreen extends StatelessWidget {
                           ? null
                           : () async {
                               if (contentController.text.trim().isEmpty) {
-                                Get.snackbar(
+                                showSnackbar(
                                   'Error',
                                   'Please enter post content',
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
+                                  isError: true,
                                 );
                                 return;
                               }
@@ -1116,15 +1184,11 @@ class GroupChatScreen extends StatelessWidget {
                               if (success) {
                                 // Show success message FIRST (before navigation)
                                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  Get.snackbar(
+                                  showSnackbar(
                                     'Success',
                                     controller.message.value.isNotEmpty 
                                         ? controller.message.value 
                                         : 'Post created successfully!',
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 2),
-                                    margin: const EdgeInsets.all(16),
                                   );
                                 });
                                 
@@ -1138,15 +1202,12 @@ class GroupChatScreen extends StatelessWidget {
                               } else {
                                 // Show error message
                                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  Get.snackbar(
+                                  showSnackbar(
                                     'Error',
                                     controller.message.value.isNotEmpty 
                                         ? controller.message.value 
                                         : 'Failed to create post. Please try again.',
-                                    backgroundColor: Colors.red,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 3),
-                                    margin: const EdgeInsets.all(16),
+                                    isError: true,
                                   );
                                 });
                               }
@@ -1169,6 +1230,43 @@ class GroupChatScreen extends StatelessWidget {
   }
 
   void _showReactionPicker(BuildContext context, GroupPostsController controller, int postId) {
+    // Helper function to show snackbar from bottom sheet context
+    void showSnackbar(String title, String message, {bool isError = false}) {
+      if (!context.mounted) return;
+      
+      // Close any existing snackbars
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red : Colors.green,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+    
     Get.bottomSheet(
       Container(
         padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
@@ -1209,27 +1307,20 @@ class GroupChatScreen extends StatelessWidget {
                       if (success) {
                         // Show success message (brief)
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          Get.snackbar(
+                          showSnackbar(
                             'Success',
                             'Reaction added',
-                            backgroundColor: Colors.green,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 1),
-                            margin: const EdgeInsets.all(16),
                           );
                         });
                       } else {
                         // Show error message
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          Get.snackbar(
+                          showSnackbar(
                             'Error',
                             controller.message.value.isNotEmpty 
                                 ? controller.message.value 
                                 : 'Failed to add reaction. Please try again.',
-                            backgroundColor: Colors.red,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 2),
-                            margin: const EdgeInsets.all(16),
+                            isError: true,
                           );
                         });
                       }
@@ -1450,6 +1541,43 @@ class GroupChatScreen extends StatelessWidget {
     final commentController = TextEditingController();
     final ScrollController dialogScrollController = ScrollController();
     
+    // Helper function to show snackbar from dialog context
+    void showSnackbar(String title, String message, {bool isError = false}) {
+      if (!context.mounted) return;
+      
+      // Close any existing snackbars
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red : Colors.green,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+    
     // Load comments
     controller.loadPostComments(postId);
     
@@ -1556,27 +1684,20 @@ class GroupChatScreen extends StatelessWidget {
 
                         // Show success message
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          Get.snackbar(
+                          showSnackbar(
                             'Success',
                             'Comment added successfully',
-                            backgroundColor: Colors.green,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 2),
-                            margin: const EdgeInsets.all(16),
                           );
                         });
                       } else {
                         // Show error message
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          Get.snackbar(
+                          showSnackbar(
                             'Error',
                             controller.message.value.isNotEmpty 
                                 ? controller.message.value 
                                 : 'Failed to add comment. Please try again.',
-                            backgroundColor: Colors.red,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 3),
-                            margin: const EdgeInsets.all(16),
+                            isError: true,
                           );
                         });
                       }

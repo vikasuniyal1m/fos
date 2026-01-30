@@ -3,8 +3,56 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/reset_password_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 
-class ResetPasswordScreen extends StatelessWidget {
+class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({Key? key}) : super(key: key);
+
+  @override
+  State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
+}
+
+class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
+  void _showCustomSnackbar(String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red.withOpacity(0.9) : const Color(0xFF9F9467),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -101,11 +149,15 @@ class ResetPasswordScreen extends StatelessWidget {
                 Obx(
                   () => SizedBox(
                     width: double.infinity,
-                    height: ResponsiveHelper.buttonHeight(context, mobile: 48),
+                    height: ResponsiveHelper.buttonHeight(
+                      context, 
+                      mobile: 50,
+                      tablet: 56,
+                    ),
                     child: ElevatedButton(
                       onPressed: controller.isLoading.value
                           ? null
-                          : () => controller.resetPassword(),
+                          : () => controller.resetPassword(context, _showCustomSnackbar),
                       style: ResponsiveHelper.adaptiveButtonStyle(
                         context,
                         backgroundColor: const Color(0xFF9F9467),
@@ -118,6 +170,7 @@ class ResetPasswordScreen extends StatelessWidget {
                           return const Color(0xFF9F9467);
                         }),
                         elevation: MaterialStateProperty.all(4),
+                        shadowColor: MaterialStateProperty.all(const Color(0xFF9F9467).withOpacity(0.4)),
                         shape: MaterialStateProperty.all(
                           RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -125,7 +178,14 @@ class ResetPasswordScreen extends StatelessWidget {
                         ),
                       ),
                       child: controller.isLoading.value
-                          ? const CircularProgressIndicator(color: Colors.white)
+                          ? SizedBox(
+                              height: ResponsiveHelper.iconSize(context, mobile: 20),
+                              width: ResponsiveHelper.iconSize(context, mobile: 20),
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
                           : Text(
                               "Reset Password",
                               style: ResponsiveHelper.textStyle(
@@ -141,7 +201,7 @@ class ResetPasswordScreen extends StatelessWidget {
                 // Back to Login Link
                 Center(
                   child: TextButton(
-                    onPressed: () => Get.back(),
+                    onPressed: () => Navigator.of(context).pop(),
                     child: Text(
                       "Back",
                       style: TextStyle(

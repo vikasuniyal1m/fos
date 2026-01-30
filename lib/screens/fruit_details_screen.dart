@@ -36,6 +36,43 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   var userId = 0;
   String? fruitName;
 
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -62,7 +99,9 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   Future<void> _loadFruitDetails() async {
     final fruitData = Get.arguments;
     if (fruitData == null) {
-      Get.back();
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
       return;
     }
 
@@ -89,12 +128,14 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
       setState(() {
         isLoading = false;
       });
-      Get.snackbar(
-        'Error',
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        _showCustomSnackbar(
+          context,
+          'Error',
+          e.toString().replaceAll('Exception: ', ''),
+          isError: true,
+        );
+      }
     }
   }
 
@@ -215,7 +256,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
               color: const Color(0xFF8B4513),
               size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
             ),
-            onPressed: () => Get.back(),
+            onPressed: () => Navigator.of(context).pop(),
           ),
           title: Text(
             fruitName ?? 'Fruit Details',
@@ -828,20 +869,22 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
                 userId: userId,
                 emoji: emojiChar.toString(),
               );
-              Get.snackbar(
-                'Recorded',
-                'Your feeling has been recorded',
-                backgroundColor: AppTheme.iconscolor,
-                colorText: Colors.black,
-                duration: const Duration(seconds: 2),
-              );
+              if (mounted) {
+                _showCustomSnackbar(
+                  context,
+                  'Recorded',
+                  'Your feeling has been recorded',
+                );
+              }
             } else {
-              Get.snackbar(
-                'Login Required',
-                'Please login to record your feeling',
-                backgroundColor: AppTheme.iconscolor,
-                colorText: Colors.black,
-              );
+              if (mounted) {
+                _showCustomSnackbar(
+                  context,
+                  'Login Required',
+                  'Please login to record your feeling',
+                  isError: true,
+                );
+              }
             }
           } catch (e) {
             print('Error recording emoji: $e');

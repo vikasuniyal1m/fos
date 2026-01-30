@@ -15,21 +15,65 @@ class GroupDetailsScreen extends GetView<GroupsController> {
   final int? groupId;
   const GroupDetailsScreen({Key? key, this.groupId}) : super(key: key);
 
+  /// Show a simple snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            // Error dot indicator
+            if (isError) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                margin: const EdgeInsets.only(right: 12),
+              ),
+            ],
+            // Message text
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+        ),
+        margin: EdgeInsets.all(AppTheme.spacingMD),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final int? currentGroupId = groupId ?? Get.arguments as int?;
     final int effectiveGroupId = currentGroupId ?? 0;
     
-    // Only load if group is not already loaded
-    if (effectiveGroupId > 0 && (controller.selectedGroup.isEmpty || controller.selectedGroup['id'] != effectiveGroupId)) {
+    // Always load group details when navigating to this screen
+    // This ensures fresh data is loaded every time the screen is accessed
+    if (effectiveGroupId > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        // Only load if not already loaded
+        // Ensure user groups are loaded for membership check
         if (controller.userGroups.isEmpty) {
           await controller.loadUserGroups();
         }
-        if (controller.selectedGroup.isEmpty || controller.selectedGroup['id'] != effectiveGroupId) {
-          await controller.loadGroupDetails(effectiveGroupId);
-        }
+        // Always load group details regardless of current state
+        // This fixes the issue where group content wasn't loading on navigation
+        await controller.loadGroupDetails(effectiveGroupId);
       });
     }
 
@@ -87,11 +131,19 @@ class GroupDetailsScreen extends GetView<GroupsController> {
         final category = group['category'] as String? ?? 'General';
         final memberCount = controller.groupMembers.length;
 
-        return SingleChildScrollView(
-          padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        return RefreshIndicator(
+          onRefresh: () async {
+            // Refresh group details when user pulls down
+            await controller.loadGroupDetails(effectiveGroupId);
+          },
+          color: AppTheme.iconscolor,
+          backgroundColor: Colors.white,
+          child: SingleChildScrollView(
+            padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+            physics: const AlwaysScrollableScrollPhysics(), // Enable scroll for pull-to-refresh
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               // Group Image - Full width, proper aspect ratio
               if (imageUrl != null && imageUrl.isNotEmpty)
                 Center( // Center the image
@@ -257,13 +309,10 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                               // Check if it's an "already member" message
                               final isInfoMessage = messageText.toLowerCase().contains('already a member');
                               
-                              Get.snackbar(
-                                isInfoMessage ? 'Info' : 'Success',
+                              _showCustomSnackbar(
+                                context,
                                 messageText,
-                                backgroundColor: isInfoMessage ? Colors.blue : Colors.green,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 2),
-                                margin: const EdgeInsets.all(16),
+                                isError: false,
                               );
                             });
                             
@@ -271,15 +320,12 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                           } else {
                             // Show error message
                             WidgetsBinding.instance.addPostFrameCallback((_) {
-                              Get.snackbar(
-                                'Error',
+                              _showCustomSnackbar(
+                                context,
                                 controller.message.value.isNotEmpty 
                                     ? controller.message.value 
                                     : 'Action failed. Please try again.',
-                                backgroundColor: Colors.red,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 3),
-                                margin: const EdgeInsets.all(16),
+                                isError: true,
                               );
                             });
                           }
@@ -393,10 +439,11 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                 ...controller.groupMembers.map((member) => _buildMemberCard(context, member)),
             ],
           ),
-        );
-      }),
-    );
-  }
+        ),
+      );
+    }),
+  );
+}
 
   Widget _buildMemberCard(BuildContext context, Map<String, dynamic> member) {
     final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';

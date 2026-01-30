@@ -108,12 +108,9 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
           Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: (){
-                final dialogContext = Get.overlayContext;
-                if (dialogContext != null) {
-                  Navigator.of(dialogContext, rootNavigator: true).pop();
-                } else if (context.mounted) {
-                  Navigator.of(context, rootNavigator: true).pop();
+              onTap: () {
+                if (context.mounted) {
+                  Navigator.of(context).pop();
                 }
               },
               borderRadius: BorderRadius.circular(30),
@@ -166,7 +163,11 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
         // First Logo - foslogo.jpg
         GestureDetector(
           onTap: showBackButton
-              ? () => Get.back()
+              ? () {
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                }
               : (onLogoTap ?? () {
                   // Optional: Scroll to top or refresh on logo tap
                 }),
@@ -193,7 +194,11 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
         Flexible(
           child: GestureDetector(
             onTap: showBackButton
-                ? () => Get.back()
+                ? () {
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  }
                 : (onLogoTap ?? () {
                     // Optional: Scroll to top or refresh on logo tap
                   }),
@@ -251,14 +256,14 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
         _buildActionIcon(
           context,
           icon: Icons.person_rounded,
-          onTap: () => _handleProfileNavigation(),
+          onTap: () => _handleProfileNavigation(context),
         ),
       ],
     );
   }
 
   /// Handle profile navigation with loading state
-  void _handleProfileNavigation() async {
+  void _handleProfileNavigation(BuildContext context) async {
     try {
       if (Get.isRegistered<ProfileController>()) {
         final profileController = Get.find<ProfileController>();
@@ -285,7 +290,12 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
         await profileController.loadProfile(showLoading: false);
 
         // Close loading overlay
-        Get.back();
+        final dialogContext = Get.overlayContext;
+        if (dialogContext != null) {
+          Navigator.of(dialogContext, rootNavigator: true).pop();
+        } else if (context.mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
 
         // Go to profile screen - it will now have fresh data ready
         Get.toNamed(Routes.PROFILE);
@@ -296,7 +306,14 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
     } catch (e) {
       print('Error navigating to profile: $e');
       // If error, try to close dialog if open and still go to profile
-      if (Get.isDialogOpen ?? false) Get.back();
+      final dialogContext = Get.overlayContext;
+      if (Get.isDialogOpen ?? false) {
+        if (dialogContext != null) {
+          Navigator.of(dialogContext, rootNavigator: true).pop();
+        } else if (context.mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+      }
       Get.toNamed(Routes.PROFILE);
     }
   }

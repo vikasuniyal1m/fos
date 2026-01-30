@@ -65,7 +65,7 @@ class _TermsScreenState extends State<TermsScreen> {
               color: const Color(0xFF8B4513),
               size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
             ),
-            onPressed: () => Get.back(),
+            onPressed: () => Navigator.of(context).pop(),
           ),
           title: Text(
             'Terms & Conditions',

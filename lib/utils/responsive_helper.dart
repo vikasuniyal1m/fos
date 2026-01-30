@@ -149,7 +149,7 @@ class ResponsiveHelper {
   }
 
   /// Get responsive padding based on screen size
-  /// Professional calculation: Tablets use ScreenSize utility, mobile uses scale
+  /// Professional calculation: Tablets use ScreenSize utility, mobile uses consistent scale
   static EdgeInsets padding(BuildContext context, {
     double? all,
     double? horizontal,
@@ -176,8 +176,25 @@ class ResponsiveHelper {
         if (value <= 15) return ScreenSize.spacingMedium;
         return ScreenSize.spacingLarge;
       } else {
-        // Mobile: Use scale factor (unchanged - don't touch)
-        return _getResponsiveValue(context, value);
+        // Mobile: Use consistent scale factor across all responsive helpers
+        final screenInfo = getScreenInfo(context);
+        final scale = screenInfo['scale']!;
+        
+        // Apply scale factor consistently
+        final scaledValue = value * scale;
+        
+        // Ensure minimum value to prevent too small elements
+        if (scaledValue < value * 0.7) {
+          return value * 0.7;
+        }
+        
+        // Ensure maximum value to prevent overflow
+        final maxWidth = screenInfo['width']!;
+        if (scaledValue > maxWidth * 0.9) {
+          return maxWidth * 0.9;
+        }
+        
+        return scaledValue;
       }
     }
     
@@ -248,8 +265,8 @@ class ResponsiveHelper {
     } else if (isTablet(context)) {
       return tablet ?? ScreenSize.iconMedium;
     }
-    // Mobile: Return original (unchanged)
-    return mobile;
+    // Mobile: Return responsive value
+    return _getResponsiveValue(context, mobile);
   }
 
   /// Get responsive button height
@@ -267,8 +284,8 @@ class ResponsiveHelper {
     } else if (isTablet(context)) {
       return tablet ?? ScreenSize.buttonHeightMedium;
     }
-    // Mobile: Return original (unchanged)
-    return mobile;
+    // Mobile: Return responsive value based on screen height
+    return _getResponsiveValue(context, mobile);
   }
 
   /// Get responsive border radius
@@ -286,8 +303,8 @@ class ResponsiveHelper {
     } else if (isTablet(context)) {
       return tablet ?? ScreenSize.buttonBorderRadius;
     }
-    // Mobile: Return original (unchanged)
-    return mobile;
+    // Mobile: Return responsive value
+    return _getResponsiveValue(context, mobile);
   }
 
   /// Get number of columns for grid based on screen size

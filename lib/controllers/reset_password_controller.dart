@@ -15,32 +15,28 @@ class ResetPasswordController extends GetxController {
   
   String get emailOrPhone => Get.arguments ?? '';
 
-  void resetPassword() async {
+  Future<void> resetPassword(BuildContext context, Function(String, String, {bool isError}) onShowSnackbar) async {
     final otp = otpController.text.trim();
     final newPassword = newPasswordController.text.trim();
     final confirmPassword = confirmPasswordController.text.trim();
 
     if (otp.isEmpty) {
-      Get.snackbar('Error', 'Please enter the OTP sent to your phone/email', 
-        snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red.withOpacity(0.8), colorText: Colors.white);
+      onShowSnackbar('Error', 'Please enter the OTP sent to your phone/email', isError: true);
       return;
     }
 
     if (newPassword.isEmpty) {
-      Get.snackbar('Error', 'Please enter a new password', 
-        snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red.withOpacity(0.8), colorText: Colors.white);
+      onShowSnackbar('Error', 'Please enter a new password', isError: true);
       return;
     }
 
     if (newPassword.length < 6) {
-      Get.snackbar('Error', 'Password must be at least 6 characters', 
-        snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red.withOpacity(0.8), colorText: Colors.white);
+      onShowSnackbar('Error', 'Password must be at least 6 characters', isError: true);
       return;
     }
 
     if (newPassword != confirmPassword) {
-      Get.snackbar('Error', 'Passwords do not match', 
-        snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red.withOpacity(0.8), colorText: Colors.white);
+      onShowSnackbar('Error', 'Passwords do not match', isError: true);
       return;
     }
 
@@ -64,19 +60,16 @@ class ResetPasswordController extends GetxController {
         );
       }
 
-      Get.snackbar('Success', result, 
-        snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.green.withOpacity(0.8), colorText: Colors.white);
+      onShowSnackbar('Success', result, isError: false);
       
       // Navigate to login after success
       Future.delayed(const Duration(seconds: 2), () {
         Get.offAllNamed(Routes.LOGIN);
       });
     } on ApiException catch (e) {
-      Get.snackbar('Error', e.message, 
-        snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red.withOpacity(0.8), colorText: Colors.white);
+      onShowSnackbar('Error', e.message, isError: true);
     } catch (e) {
-      Get.snackbar('Error', 'Something went wrong. Please try again.', 
-        snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red.withOpacity(0.8), colorText: Colors.white);
+      onShowSnackbar('Error', 'Something went wrong. Please try again.', isError: true);
     } finally {
       isLoading.value = false;
     }

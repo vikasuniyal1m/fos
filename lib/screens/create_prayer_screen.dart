@@ -11,6 +11,7 @@ import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import '../controllers/main_dashboard_controller.dart';
 import '../services/terms_service.dart';
+import '../services/content_moderation_service.dart';
 import '../services/user_storage.dart' as us;
 import 'terms_acceptance_screen.dart';
 
@@ -47,6 +48,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   List<Map<String, dynamic>> searchUsers = [];
   bool isSearchingUsers = false;
   bool _isSubmitting = false; // Loading state for prayer submission
+  String? _moderationMessage; // Real-time moderation message
   
   // Available prayer types
   final List<String> prayerTypes = [
@@ -76,6 +78,30 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     }
 
     _loadGroupMembers();
+    
+    // Add real-time moderation check
+    contentController.addListener(_checkModeration);
+  }
+
+  void _checkModeration() {
+    final text = contentController.text;
+    if (text.isEmpty) {
+      if (_moderationMessage != null) {
+        setState(() => _moderationMessage = null);
+      }
+      return;
+    }
+
+    final result = ContentModerationService.checkContent(text);
+    if (!result['isClean']) {
+      if (_moderationMessage != result['message']) {
+        setState(() => _moderationMessage = result['message']);
+      }
+    } else {
+      if (_moderationMessage != null) {
+        setState(() => _moderationMessage = null);
+      }
+    }
   }
   
   Future<void> _loadGroupMembers() async {
@@ -92,6 +118,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   
   @override
   void dispose() {
+    contentController.removeListener(_checkModeration);
     contentController.dispose();
     userSearchController.dispose();
     super.dispose();
@@ -139,7 +166,65 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       }
     });
   }
-  
+
+  void _showCustomSnackbar(String title, String message, {bool isError = false, bool isModeration = false}) {
+    if (!mounted) return;
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isModeration ? Icons.security_rounded : (isError ? Icons.error_outline : Icons.check_circle_outline),
+                    color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isModeration 
+              ? const Color(0xFF5D4037) 
+              : (isError ? Colors.red.withOpacity(0.9) : AppTheme.iconscolor),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: Duration(seconds: isModeration ? 5 : 3),
+          action: isModeration ? SnackBarAction(
+            label: 'VIEW TERMS',
+            textColor: const Color(0xFFC79211),
+            onPressed: () => Get.toNamed(Routes.TERMS),
+          ) : null,
+        ),
+      );
+    });
+  }
+
   Future<void> _submitPrayer() async {
     if (_isSubmitting) return; // Prevent multiple submissions
     
@@ -151,20 +236,17 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     if (!hasAcceptedFactors) {
       Get.to(() => TermsAcceptanceScreen(
         onAccepted: () {
-          Get.back(); // Pop the terms screen
-          _submitPrayer(); // Retry submission
+          if (mounted) {
+            Navigator.of(context).pop(); // Use standard Navigator to avoid GetX snackbar crash
+            _submitPrayer(); // Retry submission
+          }
         },
       ));
       return;
     }
     
     if (contentController.text.trim().isEmpty) {
-      Get.snackbar(
-        'Error',
-        'Please enter your prayer request',
-        backgroundColor: AppTheme.iconscolor,
-        colorText: Colors.black,
-      );
+      _showCustomSnackbar('Error', 'Please enter your prayer request', isError: true);
       return;
     }
 
@@ -173,22 +255,12 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     
     // Validate tagging
     if (prayerFor == 'Someone else' && taggedUserId == null) {
-      Get.snackbar(
-        'Error',
-        'Please select a user',
-        backgroundColor: AppTheme.iconscolor,
-        colorText: Colors.black,
-      );
+      _showCustomSnackbar('Error', 'Please select a user', isError: true);
       return;
     }
     
     if (prayerFor == 'Group' && taggedGroupId == null) {
-      Get.snackbar(
-        'Error',
-        'Please select a group',
-        backgroundColor:AppTheme.iconscolor,
-        colorText: Colors.black,
-      );
+      _showCustomSnackbar('Error', 'Please select a group', isError: true);
       return;
     }
     
@@ -216,18 +288,10 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
 
     if (success) {
       // Show success message with professional text
-      if (mounted) {
-        Get.snackbar(
-          'Request Submitted',
-          'Your prayer request has been submitted successfully.',
-          backgroundColor: AppTheme.iconscolor,
-          colorText: Colors.black,
-          duration: const Duration(seconds: 2),
-          margin: const EdgeInsets.all(16),
-          icon: const Icon(Icons.check_circle, color: Colors.white),
-          snackPosition: SnackPosition.BOTTOM,
-        );
-      }
+      _showCustomSnackbar(
+        'Request Submitted',
+        'Your prayer request has been submitted successfully.'
+      );
 
       // Navigate to prayer requests screen and refresh
       // Reset filter to show all prayers
@@ -263,34 +327,18 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     } else {
       // Show error message
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            final errorMsg = prayersController.message.value;
-            final isModeration = errorMsg.contains('community guidelines');
-            
-            Get.snackbar(
-              isModeration ? 'Community Standard' : 'Notice',
-              errorMsg.isNotEmpty 
-                  ? errorMsg 
-                  : 'Action could not be completed. Please try again.',
-              backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800], // Dark brown for moderation, grey for others
-              colorText: Colors.white,
-              icon: Icon(
-                isModeration ? Icons.security_rounded : Icons.info_outline,
-                color: isModeration ? const Color(0xFFC79211) : Colors.white,
-                size: 28,
-              ),
-              duration: Duration(seconds: isModeration ? 5 : 3),
-              margin: const EdgeInsets.all(16),
-              borderRadius: 12,
-              snackPosition: SnackPosition.BOTTOM,
-              mainButton: isModeration ? TextButton(
-                onPressed: () => Get.toNamed(Routes.TERMS),
-                child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
-              ) : null,
-            );
-          }
-        });
+        final errorMsg = prayersController.message.value;
+        final isModeration = errorMsg.contains('community guidelines') || 
+                            errorMsg.contains('inappropriate content');
+        
+        _showCustomSnackbar(
+          isModeration ? 'Community Standard' : 'Notice',
+          errorMsg.isNotEmpty 
+              ? errorMsg 
+              : 'Action could not be completed. Please try again.',
+          isError: !isModeration,
+          isModeration: isModeration,
+        );
       }
     }
   }
@@ -318,7 +366,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                 color: AppTheme.iconscolor,
                 size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
               ),
-              onPressed: () => Get.back(),
+              onPressed: () => Navigator.of(context).pop(),
             ),
           ),
         title: Row(
@@ -534,6 +582,26 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                 ),
               ),
             ),
+            if (_moderationMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0, left: 4.0),
+                child: Row(
+                  children: [
+                    const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _moderationMessage!,
+                        style: const TextStyle(
+                          color: Color(0xFF5D4037),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               SizedBox(height: ResponsiveHelper.spacing(context, 24)),
             
             // Toggle Options
@@ -661,7 +729,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                     Colors.white,
                     Colors.black,
                     true,
-                    () => Get.back(),
+                    () => Navigator.of(context).pop(),
                   ),
                 ),
                 SizedBox(width: ResponsiveHelper.spacing(context, 12)),

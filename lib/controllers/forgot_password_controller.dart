@@ -10,7 +10,7 @@ class ForgotPasswordController extends GetxController {
   var isLoading = false.obs;
   var message = ''.obs;
 
-  void submitForgotPassword() async {
+  Future<void> submitForgotPassword() async {
     if (emailPhoneController.text.trim().isEmpty) {
       message.value = 'Please enter your email or phone number.';
       return;
@@ -31,38 +31,17 @@ class ForgotPasswordController extends GetxController {
       }
 
       message.value = successMessage;
-      Get.snackbar(
-        'Success',
-        successMessage,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green.withOpacity(0.8),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
+      
+      // Wait for 5 seconds as requested by the user
+      await Future.delayed(const Duration(seconds: 5));
 
-      // Navigate to ResetPasswordScreen immediately
+      // Navigate to ResetPasswordScreen
       print('🚀 Navigating to ResetPasswordScreen with: $input');
       Get.toNamed(Routes.RESET_PASSWORD, arguments: input);
     } on ApiException catch (e) {
       message.value = e.message;
-      Get.snackbar(
-        'Error',
-        e.message,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
     } catch (e) {
       message.value = 'Something went wrong. Please try again.';
-      Get.snackbar(
-        'Error',
-        'Something went wrong. Please try again.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
     } finally {
       isLoading.value = false;
     }

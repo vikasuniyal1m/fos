@@ -13,19 +13,74 @@ import 'package:fruitsofspirit/config/image_config.dart';
 
 /// Blogger Zone Screen - Social Media Style
 /// Professional, attractive UI with like, comment, and question functionality
-class BloggerZoneScreen extends GetView<BlogsController> {
+class BloggerZoneScreen extends StatefulWidget {
   const BloggerZoneScreen({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    // Load blogs on init
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (controller.blogs.isEmpty && !controller.isLoading.value) {
-        controller.filterUserId.value = 0;
-        controller.loadBlogs(refresh: true);
-      }
-    });
+  State<BloggerZoneScreen> createState() => _BloggerZoneScreenState();
+}
 
+class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
+  late final BlogsController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = Get.find<BlogsController>();
+    
+    // Refresh user data from server to get latest role/status
+    controller.refreshUserData();
+    
+    // Load blogs on init if not already loaded
+    if (controller.blogs.isEmpty && !controller.isLoading.value) {
+      controller.filterUserId.value = 0;
+      controller.loadBlogs(refresh: true);
+    }
+  }
+
+  void _showCustomSnackbar(String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red.withOpacity(0.9) : AppTheme.iconscolor,
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
         backgroundColor: Colors.white,
       appBar: const StandardAppBar(        showBackButton: true,
@@ -102,33 +157,27 @@ class BloggerZoneScreen extends GetView<BlogsController> {
         }
         
         // Show disabled button with message if pending approval
-        if (hasPendingRequest) {
+        if (hasPendingRequest || controller.message.value.contains('Request sent successfully')) {
           return FloatingActionButton.extended(
             onPressed: () {
-              Get.snackbar(
-                'Approval Pending',
-                'Waiting for approval from admin. You cannot create posts until your blogger request is approved.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: AppTheme.iconscolor,
-                colorText: Colors.black,
-                duration: const Duration(seconds: 3),
+              _showCustomSnackbar(
+                'Request Sent',
+                'Your blogger request has been sent to admin. You will be a blogger soon!'
               );
             },
-            backgroundColor: Colors.grey,
-            elevation: 8,
-            icon: Icon(
-              Icons.pending,
+            backgroundColor: Colors.grey[400],
+            elevation: 4,
+            icon: const Icon(
+              Icons.hourglass_empty_rounded,
               color: Colors.white,
-              size: ResponsiveHelper.iconSize(context, mobile: 22),
+              size: 20,
             ),
-            label: Text(
-              'Waiting for Approval',
-              style: ResponsiveHelper.textStyle(
-                context,
+            label: const Text(
+              'Request Sent to Admin',
+              style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
-                letterSpacing: 0.5,
               ),
             ),
           );
@@ -136,53 +185,41 @@ class BloggerZoneScreen extends GetView<BlogsController> {
         
         // Show button for non-bloggers to request access
         return FloatingActionButton.extended(
-          onPressed: () async {
-            // Show snackbar and then request blogger access
-            Get.snackbar(
-              'Become a Blogger',
-              'Requesting blogger access...',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: AppTheme.iconscolor,
-              colorText: Colors.black,
-              duration: const Duration(seconds: 2),
-            );
-            
+          onPressed: controller.isLoading.value ? null : () async {
             // Request blogger access
             final success = await controller.requestBloggerAccess();
             
             if (success) {
-              Get.snackbar(
-                'Request Sent',
-                'Your blogger request has been sent. Admin will review your request.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: AppTheme.iconscolor,
-                colorText: Colors.black,
-                duration: const Duration(seconds: 3),
+              _showCustomSnackbar(
+                'Success',
+                'Your blogger request has been sent. Admin will review your request.'
               );
             } else {
-              Get.snackbar(
-                'Error',
+              _showCustomSnackbar(
+                'Notice',
                 controller.message.value.isNotEmpty 
                     ? controller.message.value 
                     : 'Failed to send request. Please try again.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.red.withOpacity(0.9),
-                colorText: Colors.white,
-                duration: const Duration(seconds: 3),
+                isError: true
               );
             }
           },
           backgroundColor: AppTheme.iconscolor,
           elevation: 8,
-          icon: Icon(
-            Icons.person_add,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 22),
-          ),
+          icon: controller.isLoading.value 
+            ? const SizedBox(
+                width: 20, 
+                height: 20, 
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+              )
+            : const Icon(
+                Icons.person_add,
+                color: Colors.white,
+                size: 22,
+              ),
           label: Text(
-            'Become a Blogger',
-            style: ResponsiveHelper.textStyle(
-              context,
+            controller.isLoading.value ? 'Sending...' : 'Become a Blogger',
+            style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
               fontSize: 14,

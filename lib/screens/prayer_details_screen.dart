@@ -26,6 +26,7 @@ class PrayerDetailsScreen extends StatefulWidget {
 class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   final PrayersController controller = Get.find<PrayersController>();
   final replyControllers = <int, TextEditingController>{};
+  final replyFocusNodes = <int, FocusNode>{};
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
   final commentController = TextEditingController();
@@ -33,6 +34,43 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   int? currentUserId;
   bool _isSending = false;
   final Set<int> _sendingReplies = {};
+
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -55,6 +93,9 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
     scrollController.dispose();
     for (var controller in replyControllers.values) {
       controller.dispose();
+    }
+    for (var focusNode in replyFocusNodes.values) {
+      focusNode.dispose();
     }
     super.dispose();
   }
@@ -145,6 +186,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
               final prayer = controller.selectedPrayer;
               final isAnonymous = prayer['is_anonymous'] == 1 || prayer['is_anonymous'] == true;
               ShareHelper.shareContent(
+                context: context,
                 contentType: 'prayer',
                 contentId: prayer['id'] is int ? prayer['id'] : int.tryParse(prayer['id'].toString()) ?? 0,
                 title: 'Prayer Request from ${isAnonymous ? 'Anonymous' : (prayer['user_name'] ?? 'Anonymous')}',
@@ -209,7 +251,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                 ),
                 SizedBox(height: ResponsiveHelper.spacing(context, 24)),
                 ElevatedButton(
-                  onPressed: () => Get.back(),
+                  onPressed: () => Navigator.of(context).pop(),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.iconscolor,
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -724,22 +766,17 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
           );
         }
         
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Success',
           'Response added successfully',
-          backgroundColor: AppTheme.iconscolor,
-          colorText: Colors.black,
-          duration: const Duration(seconds: 2),
-          icon: const Icon(Icons.check_circle, color: Colors.white),
         );
       } else {
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Error',
           controller.message.value,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
-          icon: const Icon(Icons.error, color: Colors.white),
+          isError: true,
         );
       }
     } catch (e) {
@@ -778,21 +815,17 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
         // Force reload comments to show the new reply
         await controller.loadPrayerComments(prayerId);
         
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Success',
           'Reply added successfully',
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 1),
-          icon: const Icon(Icons.check_circle, color: Colors.white),
         );
       } else {
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Error',
           controller.message.value,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
+          isError: true,
         );
       }
     } catch (e) {
@@ -1005,6 +1038,24 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                           onTap: () {
                             setState(() {
                               showReplyInput[commentId] = !(showReplyInput[commentId] ?? false);
+                              final shouldShow = showReplyInput[commentId] ?? false;
+                               
+                              if (shouldShow) {
+                                // Initialize focus node if not exists
+                                if (!replyFocusNodes.containsKey(commentId)) {
+                                  replyFocusNodes[commentId] = FocusNode();
+                                }
+                                
+                                // Unfocus any other fields first
+                                FocusScope.of(context).unfocus();
+                                 
+                                // Focus on the reply input after a short delay to ensure it's rendered
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (mounted && replyFocusNodes.containsKey(commentId)) {
+                                    replyFocusNodes[commentId]!.requestFocus();
+                                  }
+                                });
+                              }
                             });
                           },
                           child: Row(
@@ -1270,37 +1321,35 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                             final success = await controller.addEmojiReaction(prayerId, emoji!);
 
                             // Close loading indicator
-                            Get.back();
+                            if (mounted) {
+                              Navigator.of(context).pop();
+                            }
 
                             if (success) {
-                              Get.snackbar(
+                              _showCustomSnackbar(
+                                context,
                                 'Success',
                                 'Reaction added',
-                                backgroundColor: AppTheme.iconscolor,
-                                colorText: Colors.black,
-                                duration: const Duration(seconds: 1),
-                                margin: const EdgeInsets.all(16),
                               );
                             } else {
-                              Get.snackbar(
+                              _showCustomSnackbar(
+                                context,
                                 'Error',
                                 controller.message.value.isNotEmpty
                                     ? controller.message.value
                                     : 'Failed to add reaction. Please try again.',
-                                backgroundColor: Colors.red,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 2),
-                                margin: const EdgeInsets.all(16),
+                                isError: true,
                               );
                             }
                           } catch (e) {
-                            Get.back();
-                            Get.snackbar(
+                            if (mounted) {
+                              Navigator.of(context).pop();
+                            }
+                            _showCustomSnackbar(
+                              context,
                               'Error',
                               'Failed to add reaction',
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              margin: const EdgeInsets.all(16),
+                              isError: true,
                             );
                           }
                         } : null,
@@ -1818,7 +1867,12 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
     if (!replyControllers.containsKey(parentCommentId)) {
       replyControllers[parentCommentId] = TextEditingController();
     }
+    // Initialize focus node if not exists
+    if (!replyFocusNodes.containsKey(parentCommentId)) {
+      replyFocusNodes[parentCommentId] = FocusNode();
+    }
     final replyController = replyControllers[parentCommentId]!;
+    final replyFocusNode = replyFocusNodes[parentCommentId]!;
     final isSending = _sendingReplies.contains(parentCommentId);
     
     return Container(
@@ -1836,6 +1890,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
           Expanded(
             child: TextField(
               controller: replyController,
+              focusNode: replyFocusNode,
               enabled: !isSending,
               decoration: InputDecoration(
                 hintText: 'Write a reply...',
@@ -2090,6 +2145,24 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                       onTap: () {
                                         setState(() {
                                           showReplyInput[replyId] = !(showReplyInput[replyId] ?? false);
+                                          final shouldShow = showReplyInput[replyId] ?? false;
+                                           
+                                          if (shouldShow) {
+                                            // Initialize focus node if not exists
+                                            if (!replyFocusNodes.containsKey(replyId)) {
+                                              replyFocusNodes[replyId] = FocusNode();
+                                            }
+                                            
+                                            // Unfocus any other fields first
+                                            FocusScope.of(context).unfocus();
+                                             
+                                            // Focus on the reply input after a short delay to ensure it's rendered
+                                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                                              if (mounted && replyFocusNodes.containsKey(replyId)) {
+                                                replyFocusNodes[replyId]!.requestFocus();
+                                              }
+                                            });
+                                          }
                                         });
                                       },
                                       child: Row(
@@ -2264,21 +2337,17 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                 );
                 
                 if (success) {
-                  Get.snackbar(
+                  _showCustomSnackbar(
+                    context,
                     'Reported',
                     'Comment reported successfully. Our team will review it.',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
-                    icon: const Icon(Icons.check_circle, color: Colors.white),
                   );
                 } else {
-                  Get.snackbar(
+                  _showCustomSnackbar(
+                    context,
                     'Error',
                     controller.message.value,
-                    backgroundColor: Colors.red,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
+                    isError: true,
                   );
                 }
               },
@@ -2528,16 +2597,11 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: isValidEmoji ? () async {
-                          // Close emoji picker bottom sheet using targeted context
-                          final dialogContext = Get.overlayContext;
-                          if (dialogContext != null) {
-                            Navigator.of(dialogContext, rootNavigator: true).pop();
-                          } else if (context.mounted) {
-                            Navigator.of(context, rootNavigator: true).pop();
-                          }
-
-                          // Show a loading indicator
-                          showDialog(
+                          // Close the emoji picker bottom sheet first
+                          Navigator.of(context).pop();
+                          
+                          // Show loading indicator with proper context management
+                          final loadingDialog = showDialog(
                             context: context,
                             barrierDismissible: false,
                             builder: (loadingContext) => Center(
@@ -2555,43 +2619,44 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                             ),
                           );
 
-
+                          try {
                             final success = await controller.addEmojiReaction(prayerId, emojiChar!);
-
+                            
                             // Close loading indicator
-                            Get.back();
-
+                            if (mounted) {
+                              Navigator.of(context).pop();
+                            }
+                            
+                            // Ensure focus is properly managed
+                            FocusScope.of(context).unfocus();
+                            
                             if (success) {
-                              Get.snackbar(
+                              _showCustomSnackbar(
+                                context,
                                 'Success',
-                                'Reaction added',
-                                backgroundColor: Colors.green,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 1),
-                                margin: const EdgeInsets.all(16),
+                                'Reaction added successfully',
                               );
                             } else {
-                              Get.snackbar(
+                              _showCustomSnackbar(
+                                context,
                                 'Error',
                                 controller.message.value.isNotEmpty
                                     ? controller.message.value
                                     : 'Failed to add reaction. Please try again.',
-                                backgroundColor: Colors.red,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 2),
-                                margin: const EdgeInsets.all(16),
+                                isError: true,
                               );
                             }
-
-                          // Wait a bit for snackbar to show, then close dialog
-                          await Future.delayed(const Duration(milliseconds: 300));
-                          if (mounted && Navigator.canPop(context)) {
-                            final dialogContext = Get.overlayContext;
-                            if (dialogContext != null) {
-                              Navigator.of(dialogContext, rootNavigator: true).pop();
-                            } else if (context.mounted) {
-                              Navigator.of(context, rootNavigator: true).pop();
+                          } catch (e) {
+                            // Close loading indicator if an error occurs
+                            if (mounted) {
+                              Navigator.of(context).pop();
                             }
+                            _showCustomSnackbar(
+                              context,
+                              'Error',
+                              'Failed to add reaction. Please try again.',
+                              isError: true,
+                            );
                           }
                         } : null,
                         borderRadius: BorderRadius.circular(12),

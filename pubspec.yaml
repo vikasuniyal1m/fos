@@ -51,7 +51,6 @@ dependencies:
   image_picker: ^1.0.7
   image_cropper: ^8.0.2
   video_thumbnail: ^0.5.3
-  
   # Performance & Caching
   cached_network_image: ^3.3.1
   flutter_cache_manager: ^3.3.1

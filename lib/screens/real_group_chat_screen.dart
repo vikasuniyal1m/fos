@@ -48,6 +48,43 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
 
   int? groupOwnerId;
   String? groupCategory;
+
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
   String? groupImage;
 
   @override
@@ -153,11 +190,11 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     final isDisabled = jingleStatus['isDisabled'] ?? false;
     if (isDisabled) {
       await _jingleService.enableJingle(groupCategory!);
-      Get.snackbar('Voice Enabled', 'Voice over will play when you enter.', snackPosition: SnackPosition.BOTTOM);
+      _showCustomSnackbar('Voice Enabled', 'Voice over will play when you enter.');
     } else {
       await _jingleService.disableJingle(groupCategory!);
       await _jingleService.stopJingle();
-      Get.snackbar('Voice Disabled', 'Voice over turned off.', snackPosition: SnackPosition.BOTTOM);
+      _showCustomSnackbar('Voice Disabled', 'Voice over turned off.');
     }
     _loadJingleStatus();
   }
@@ -786,10 +823,10 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                   if (confirmed == true) {
                     try {
                       await UserBlockingService.blockUser(userId);
-                      Get.snackbar('Success', 'User blocked');
+                      _showCustomSnackbar('Success', 'User blocked');
                       controller.loadMessages(widget.groupId, refresh: true);
                     } catch (e) {
-                      Get.snackbar('Error', 'Failed to block user');
+                      _showCustomSnackbar('Error', 'Failed to block user', isError: true);
                     }
                   }
                 }

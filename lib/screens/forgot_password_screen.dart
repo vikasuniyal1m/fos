@@ -6,9 +6,46 @@ import 'package:fruitsofspirit/utils/responsive_helper.dart';
 class ForgotPasswordScreen extends GetView<ForgotPasswordController> {
   const ForgotPasswordScreen({Key? key}) : super(key: key);
 
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red.withOpacity(0.9) : Colors.green.withOpacity(0.9),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-        if (!Get.isRegistered<ForgotPasswordController>()) {
+    if (!Get.isRegistered<ForgotPasswordController>()) {
       Get.put(ForgotPasswordController());
     }
     return Scaffold(
@@ -16,14 +53,38 @@ class ForgotPasswordScreen extends GetView<ForgotPasswordController> {
       body: SafeArea(
         top: true,
         bottom: true,
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: ResponsiveHelper.safePadding(context, horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 16)),
-                // Centered Title
+        child: Stack(
+          children: [
+            // Back Button
+            // Positioned(
+            //   top: 10,
+            //   left: 16,
+            //   child: Container(
+            //     decoration: BoxDecoration(
+            //       color: Colors.white,
+            //       shape: BoxShape.circle,
+            //       boxShadow: [
+            //         BoxShadow(
+            //           color: Colors.black.withOpacity(0.1),
+            //           blurRadius: 8,
+            //           offset: const Offset(0, 2),
+            //         ),
+            //       ],
+            //     ),
+            //     child: IconButton(
+            //       icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF8B4513), size: 20),
+            //       onPressed: () => Get.back(),
+            //     ),
+            //   ),
+            // ),
+            SingleChildScrollView(
+              child: Padding(
+                padding: ResponsiveHelper.safePadding(context, horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 60 : 80)),
+                    // Centered Title
                 Center(
                   child: ShaderMask(
                     shaderCallback: (bounds) => LinearGradient(
@@ -104,11 +165,22 @@ class ForgotPasswordScreen extends GetView<ForgotPasswordController> {
                 Obx(
                   () => SizedBox(
                     width: double.infinity,
-                    height: ResponsiveHelper.buttonHeight(context, mobile: 48),
+                    height: ResponsiveHelper.buttonHeight(context, mobile: 50),
                     child: ElevatedButton(
                       onPressed: controller.isLoading.value
                           ? null
-                          : () => controller.submitForgotPassword(),
+                          : () async {
+                              await controller.submitForgotPassword();
+                              if (controller.message.value.isNotEmpty) {
+                                final isError = !controller.message.value.contains('sent');
+                                _showCustomSnackbar(
+                                  context,
+                                  isError ? 'Error' : 'Success',
+                                  controller.message.value,
+                                  isError: isError,
+                                );
+                              }
+                            },
                       style: ResponsiveHelper.adaptiveButtonStyle(
                         context,
                         backgroundColor: const Color(0xFF9F9467),
@@ -203,7 +275,9 @@ class ForgotPasswordScreen extends GetView<ForgotPasswordController> {
             ),
           ),
         ),
-      ),
+      ]
+        ),
+    )
     );
   }
 }

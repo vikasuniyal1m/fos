@@ -192,9 +192,21 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
-      title: 'Fruits of the Spirit',
+      title: '', // Removed the title to hide the system app bar text
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        // Enable keyboard swipe-down functionality
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        platform: TargetPlatform.iOS,
+        // Set default text input action to Done for all TextFields
+        inputDecorationTheme: const InputDecorationTheme(
+          // You can add other default input decoration settings here
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            // Text button styles
+          ),
+        ),
       ),
       initialBinding: InitialBinding(),
       localizationsDelegates: context.localizationDelegates,
@@ -219,9 +231,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             // Clamp textScaleFactor for better accessibility
             final constrainedTextScaleFactor = mediaQueryData.textScaleFactor.clamp(0.9, 1.3);
 
-            return MediaQuery(
-              data: mediaQueryData.copyWith(textScaleFactor: constrainedTextScaleFactor),
-              child: child!,
+            // Enable keyboard dismiss by dragging down
+            return GestureDetector(
+              onVerticalDragDown: (_) {
+                // Dismiss keyboard when dragging down anywhere on the screen
+                FocusManager.instance.primaryFocus?.unfocus();
+              },
+              child: MediaQuery(
+                data: mediaQueryData.copyWith(
+                  textScaleFactor: constrainedTextScaleFactor,
+                ),
+                child: child!,
+              ),
             );
           },
         );

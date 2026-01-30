@@ -41,22 +41,25 @@ class HomeScreen extends GetView<HomeController> {
 
   // Helper method for blogger zone navigation with loading
   static Future<void> navigateToBloggerZone(BuildContext context) async {
-    // Show loading dialog
-    Get.dialog(
-      Center(
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: CircularProgressIndicator(
-            color: AppTheme.iconscolor,
-            strokeWidth: 3,
-          ),
-        ),
-      ),
+    // Show loading dialog using standard showDialog for better control
+    showDialog(
+      context: context,
       barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: CircularProgressIndicator(
+              color: AppTheme.iconscolor,
+              strokeWidth: 3,
+            ),
+          ),
+        );
+      },
     );
 
     try {
@@ -72,45 +75,56 @@ class HomeScreen extends GetView<HomeController> {
       await blogsController.loadQuickEmojis();
       await blogsController.loadBlogs(refresh: true);
 
-      // Close loading dialog
-      Get.back();
+      // Close loading dialog safely using Navigator.pop
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      // Small delay to ensure dialog is closed before navigation
+      await Future.delayed(const Duration(milliseconds: 100));
 
       // Navigate to Blogger Zone
       Get.toNamed(Routes.BLOGGER_ZONE);
     } catch (e) {
       // Close loading dialog if open
-      if (Get.isDialogOpen ?? false) {
-        Get.back();
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
       }
       print('Error loading blogs: $e');
-      Get.snackbar(
-        'Error',
-        'Failed to load Blogger Zone. Please try again.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-      );
+      
+      // Use ScaffoldMessenger for error snackbar
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to load Blogger Zone. Please try again.'),
+            backgroundColor: Colors.red.withOpacity(0.8),
+          ),
+        );
+      }
     }
   }
 
   // Helper method for gallery navigation with loading
   static Future<void> navigateToGallery(BuildContext context) async {
     // Show loading dialog
-    Get.dialog(
-      Center(
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: CircularProgressIndicator(
-            color: AppTheme.iconscolor,
-            strokeWidth: 3,
-          ),
-        ),
-      ),
+    showDialog(
+      context: context,
       barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: CircularProgressIndicator(
+              color: AppTheme.iconscolor,
+              strokeWidth: 3,
+            ),
+          ),
+        );
+      },
     );
 
     try {
@@ -123,15 +137,20 @@ class HomeScreen extends GetView<HomeController> {
 
       await galleryController.loadPhotos(refresh: true);
 
-      // Close loading dialog
-      Get.back();
+      // Close loading dialog safely
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      // Small delay
+      await Future.delayed(const Duration(milliseconds: 100));
 
       // Navigate to Gallery
       Get.toNamed(Routes.GALLERY);
     } catch (e) {
       // Close loading dialog if open
-      if (Get.isDialogOpen ?? false) {
-        Get.back();
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
       }
       print('Error loading gallery: $e');
       Get.toNamed(Routes.GALLERY); // Still navigate as fallback
@@ -141,21 +160,24 @@ class HomeScreen extends GetView<HomeController> {
   // Helper method for story details navigation with loading
   static Future<void> navigateToStoryDetails(BuildContext context, int storyId) async {
     // Show loading dialog
-    Get.dialog(
-      Center(
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: CircularProgressIndicator(
-            color: AppTheme.iconscolor,
-            strokeWidth: 3,
-          ),
-        ),
-      ),
+    showDialog(
+      context: context,
       barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: CircularProgressIndicator(
+              color: AppTheme.iconscolor,
+              strokeWidth: 3,
+            ),
+          ),
+        );
+      },
     );
 
     try {
@@ -168,15 +190,20 @@ class HomeScreen extends GetView<HomeController> {
 
       await galleryController.loadPhotoDetails(storyId);
 
-      // Close loading dialog
-      Get.back();
+      // Close loading dialog safely
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      // Small delay
+      await Future.delayed(const Duration(milliseconds: 100));
 
       // Navigate to Story Details
       Get.toNamed(Routes.STORY_DETAILS, arguments: storyId);
     } catch (e) {
       // Close loading dialog if open
-      if (Get.isDialogOpen ?? false) {
-        Get.back();
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
       }
       print('Error loading story details: $e');
       Get.toNamed(Routes.STORY_DETAILS, arguments: storyId);
@@ -1148,6 +1175,7 @@ class HomeScreen extends GetView<HomeController> {
                         Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']);
                       } else if (value == 'share') {
                         ShareHelper.shareContent(
+                          context: context,
                           contentType: 'prayer',
                           contentId: prayer['id'] is int ? prayer['id'] : int.tryParse(prayer['id'].toString()) ?? 0,
                           title: 'Prayer Request from ${userName == 'Anonymous' ? 'a friend' : userName}',
@@ -1760,6 +1788,7 @@ class HomeScreen extends GetView<HomeController> {
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 InkWell(
                   onTap: () => ShareHelper.shareContent(
+                    context: context,
                     contentType: 'video',
                     contentId: video['id'] is int ? video['id'] : int.tryParse(video['id'].toString()) ?? 0,
                     title: title,
@@ -1941,6 +1970,7 @@ class HomeScreen extends GetView<HomeController> {
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 InkWell(
                   onTap: () => ShareHelper.shareContent(
+                    context: context,
                     contentType: 'story',
                     contentId: story['id'] is int ? story['id'] : int.tryParse(story['id'].toString()) ?? 0,
                     title: title,
@@ -2050,49 +2080,57 @@ class HomeScreen extends GetView<HomeController> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: ResponsiveHelper.padding(context, all: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 3),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: ResponsiveHelper.padding(context, all: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.video_library_rounded,
+                          color: AppTheme.iconscolor,
+                          size: ResponsiveHelper.iconSize(context, mobile: 22),
+                        ),
+                      ),
+                      SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+                      Expanded(
+                        child: Text(
+                          'Recommended Videos',
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22, desktop: 24),
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                            letterSpacing: 0.3,
                           ),
-                        ],
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      child: Icon(
-                        Icons.video_library_rounded,
-                        color: AppTheme.iconscolor,
-                        size: ResponsiveHelper.iconSize(context, mobile: 22),
-                      ),
-                    ),
-                    SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                    Text(
-                      'Recommended Videos',
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: ResponsiveHelper.padding(context, left: 8),
+                  child: TextButton(
+                    onPressed: () => Get.toNamed(Routes.VIDEOS),
+                    child: Text(
+                      'View All',
                       style: ResponsiveHelper.textStyle(
                         context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22, desktop: 24),
-                        fontWeight: FontWeight.bold,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
+                        fontWeight: FontWeight.w600,
                         color: Colors.black,
-                        letterSpacing: 0.3,
                       ),
-                    ),
-                  ],
-                ),
-                TextButton(
-                  onPressed: () => Get.toNamed(Routes.VIDEOS),
-                  child: Text(
-                    'View All',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
                     ),
                   ),
                 ),

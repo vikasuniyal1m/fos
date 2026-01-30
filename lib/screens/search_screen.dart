@@ -635,6 +635,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ],
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ClipRRect(
@@ -644,24 +645,25 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: imageUrl != null
                     ? LazyCachedImage(
                         imageUrl: imageUrl!,
-                        height: ResponsiveHelper.imageHeight(context, mobile: 100),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 90),
                         width: double.infinity,
                         fit: BoxFit.cover,
                         errorWidget: Container(
-                          height: ResponsiveHelper.imageHeight(context, mobile: 100),
+                          height: ResponsiveHelper.imageHeight(context, mobile: 90),
                           color: Colors.grey[300],
-                          child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                          child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 36)),
                         ),
                       )
                     : Container(
-                        height: ResponsiveHelper.imageHeight(context, mobile: 100),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 90),
                         color: Colors.grey[300],
-                        child: Icon(Icons.article, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                        child: Icon(Icons.article, size: ResponsiveHelper.iconSize(context, mobile: 36)),
                       ),
               ),
               Padding(
-                padding: ResponsiveHelper.padding(context, all: 8),
+                padding: ResponsiveHelper.padding(context, all: 6),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -672,20 +674,22 @@ class _SearchScreenState extends State<SearchScreen> {
                       style: ResponsiveHelper.textStyle(
                         context,
                         fontWeight: FontWeight.bold,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 16, desktop: 18),
                         color: const Color(0xFF8B4513),
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                    SizedBox(height: ResponsiveHelper.spacing(context, 1)),
                     Text(
                       item['user_name'] ?? item['author_name'] ?? 'Blogger',
                       style: ResponsiveHelper.textStyle(
                         context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 14, desktop: 16),
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 14, desktop: 16),
                         color: Colors.grey[600],
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -829,6 +833,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                            type.toLowerCase() == 'blog' ? 'blog' : 'story';
                           
                           ShareHelper.shareContent(
+                            context: context,
                             contentType: shareType,
                             contentId: item['id'] is int ? item['id'] : int.tryParse(item['id'].toString()) ?? 0,
                             title: type.toLowerCase() == 'prayer' ? 'Prayer Request from $userName' : 
@@ -1173,6 +1178,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                   InkWell(
                     onTap: () => ShareHelper.shareContent(
+                      context: context,
                       contentType: 'video',
                       contentId: item['id'] is int ? item['id'] : int.tryParse(item['id'].toString()) ?? 0,
                       title: title,

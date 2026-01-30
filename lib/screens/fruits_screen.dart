@@ -44,6 +44,43 @@ class _FruitsScreenState extends State<FruitsScreen> {
   static var _cachedFruitEmojis = <Map<String, dynamic>>[];
   static var _cachedAllVariants = <Map<String, dynamic>>[];
 
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -603,11 +640,10 @@ class _FruitsScreenState extends State<FruitsScreen> {
     });
     
     if (variants.isEmpty) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'No Variants',
         'No variants found for $fruitName',
-        backgroundColor: AppTheme.iconscolor,
-        colorText: Colors.black,
       );
       return;
     }
@@ -678,6 +714,43 @@ class _FruitVariantsDialog extends StatefulWidget {
 }
 
 class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -864,8 +937,10 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                             print('🖱️ Variant tapped: ${variant['name']}');
 
                             // 1. Show Loading Dialog immediately
-                            Get.dialog(
-                              Center(
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (context) => Center(
                                 child: Container(
                                   padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 24)),
                                   decoration: BoxDecoration(
@@ -905,24 +980,19 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                       ),
                                       SizedBox(height: ResponsiveHelper.spacing(context, 8)),
                                       Text(
-
                                         'Please wait a moment',
                                         style: ResponsiveHelper.textStyle(
-
-
                                           context,
                                           fontSize: 12,
                                           color: Colors.grey[600],
                                         ).copyWith(
                                           decoration: TextDecoration.none, // Isse lines hat jayengi
                                         ),
-
                                       ),
                                     ],
                                   ),
                                 ),
                               ),
-                              barrierDismissible: false,
                             );
                             // Record usage
                             try {
@@ -970,7 +1040,9 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                     await widget.homeController.updateUserFeeling(emojiValue, emojiData: variant);
 
                                     // Close Loading Dialog
-                                    if (Get.isDialogOpen ?? false) Get.back();
+                                    if (mounted) {
+                                      Navigator.of(context).pop();
+                                    }
 
                                     // Close Variants Dialog
                                     if (mounted) {
@@ -978,30 +1050,19 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                     }
 
                                     // Go to Dashboard
-                                    if (Get.currentRoute != Routes.DASHBOARD) {
-                                      if (Get.isRegistered<MainDashboardController>()) {
-                                        Get.find<MainDashboardController>().changeIndex(0);
-                                        Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
-                                      } else {
-                                        Get.offAllNamed(Routes.DASHBOARD);
-                                      }
-                                    } else {
-                                      // Already on dashboard, just update index
-                                       if (Get.isRegistered<MainDashboardController>()) {
-                                        Get.find<MainDashboardController>().changeIndex(0);
-                                       }
+                                    if (mounted) {
+                                      // Direct navigation to dashboard without GetX route checking
+                                      Navigator.of(context).pushNamedAndRemoveUntil(
+                                        Routes.DASHBOARD,
+                                        (route) => false,
+                                      );
                                     }
 
                                     // Show success message
-                                    Get.snackbar(
+                                    _showCustomSnackbar(
+                                      context,
                                       'Success',
                                       'Feeling updated successfully!',
-                                      snackPosition: SnackPosition.BOTTOM,
-                                      backgroundColor: AppTheme.iconscolor,
-                                      colorText: Colors.black,
-                                      duration: const Duration(seconds: 2),
-                                      margin: const EdgeInsets.all(10),
-                                      borderRadius: 10,
                                     );
 
                                   } catch (e) {
@@ -1013,7 +1074,9 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                     } catch (_) {}
 
                                     // Close Loader
-                                    if (Get.isDialogOpen ?? false) Get.back();
+                                    if (mounted) {
+                                      Navigator.of(context).pop();
+                                    }
 
                                     // Close Variants Dialog
                                     if (mounted) {
@@ -1021,27 +1084,24 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                     }
 
                                     // Go to Dashboard
-                                    if (Get.currentRoute != Routes.DASHBOARD) {
-                                      if (Get.isRegistered<MainDashboardController>()) {
-                                        Get.find<MainDashboardController>().changeIndex(0);
-                                        Get.until((route) => Get.currentRoute == Routes.DASHBOARD);
-                                      } else {
-                                        Get.offAllNamed(Routes.DASHBOARD);
-                                      }
+                                    if (mounted) {
+                                      Navigator.of(context).pushNamedAndRemoveUntil(
+                                        Routes.DASHBOARD,
+                                        (route) => false,
+                                      );
                                     }
 
-                                    Get.snackbar(
+                                    _showCustomSnackbar(
+                                      context,
                                       'Saved',
                                       'Feeling saved locally.',
-                                      snackPosition: SnackPosition.BOTTOM,
-                                      backgroundColor: AppTheme.iconscolor,
-                                      colorText: Colors.black,
-                                      duration: const Duration(seconds: 2),
                                     );
                                   }
                                 } else {
                                   // Close Loader
-                                  if (Get.isDialogOpen ?? false) Get.back();
+                                  if (mounted) {
+                                    Navigator.of(context).pop();
+                                  }
 
                                   // Get.snackbar(
                                   //   'Error',
@@ -1052,25 +1112,29 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                 }
                               } else {
                                 // Close Loader
-                                if (Get.isDialogOpen ?? false) Get.back();
+                                if (mounted) {
+                                  Navigator.of(context).pop();
+                                }
 
-                                Get.snackbar(
+                                _showCustomSnackbar(
+                                  context,
                                   'Login Required',
                                   'Please login to select fruits.',
-                                  backgroundColor: Colors.redAccent,
-                                  colorText: Colors.white,
+                                  isError: true,
                                 );
                               }
                             } catch (e) {
                               // Close Loader logic
-                              if (Get.isDialogOpen ?? false) Get.back();
+                              if (mounted) {
+                                Navigator.of(context).pop();
+                              }
 
                               print('❌ Critical Error: $e');
-                              // Get.snackbar(
+                              // _showCustomSnackbar(
+                              //   context,
                               //   'Error',
                               //   'Something went wrong. Please try again.',
-                              //   backgroundColor: Colors.redAccent,
-                              //   colorText: Colors.white,
+                              //   isError: true,
                               // );
                             }
                           },
@@ -1271,25 +1335,9 @@ class _FruitsScreenContentState extends State<_FruitsScreenContent> {
 
   @override
   Widget build(BuildContext context) {
-    final args = Get.arguments;
-    final bool? showBackFromArgs = (args is Map && args['showBackButton'] is bool)
-        ? (args['showBackButton'] as bool)
-        : null;
-    final bool showBackFromQuickAction = args is Map && args['fromQuickAction'] == true;
-
-    final bool showBackFromQueryParams =
-        Get.parameters['showBackButton'] == 'true' ||
-            Get.parameters['fromQuickAction'] == 'true';
-
-    // Only show back if this Fruits page is NOT the root-tab instance.
-    // For pushed routes (Get.toNamed / Navigator.push), `Navigator.canPop` will be true.
-    final bool showBackFromNavigation = Navigator.of(context).canPop();
-
-    final bool showBackButton = !widget.isRootTab &&
-        (showBackFromArgs ??
-            showBackFromQuickAction ||
-            showBackFromQueryParams ||
-            showBackFromNavigation);
+    // Only show back if this Fruits page is NOT the root-tab instance
+    // and we can pop from the navigator
+    final bool showBackButton = !widget.isRootTab && Navigator.of(context).canPop();
 
     // Professional responsive design for tablets/iPads
     final isTabletDevice = ResponsiveHelper.isTablet(context);

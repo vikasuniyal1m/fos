@@ -15,6 +15,7 @@ class ShareHelper {
     required String title,
     String? content,
     String? mediaUrl,
+    required BuildContext context,
   }) async {
     try {
       // Show a non-blocking loading indicator if downloading media
@@ -56,20 +57,43 @@ class ShareHelper {
       }
       shareText += '\n🔗 Open in App:\n$shareLink';
       
+      // Get render box for share position origin
+      final RenderBox renderBox = context.findRenderObject() as RenderBox;
+      final Offset offset = renderBox.localToGlobal(Offset.zero);
+      final Size size = renderBox.size;
+      final Rect sharePositionOrigin = Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height);
+      
       if (mediaUrl != null && mediaUrl.isNotEmpty) {
         final filePath = await _downloadFile(mediaUrl);
         if (filePath != null) {
           // Sharing as XFile allows platforms like Instagram to show Feed/Stories options properly
-          await Share.shareXFiles([XFile(filePath)], text: shareText);
+          await Share.shareXFiles(
+            [XFile(filePath)], 
+            text: shareText,
+            sharePositionOrigin: sharePositionOrigin,
+          );
           return;
         }
       }
       
-      await Share.share(shareText);
+      await Share.share(
+        shareText,
+        sharePositionOrigin: sharePositionOrigin,
+      );
     } catch (e) {
       print('Error sharing content: $e');
       final fallbackLink = 'https://fruitofthespirit.templateforwebsites.com/share/$contentType/$contentId';
-      await Share.share('$title\n\nCheck this out on Fruits of Spirit:\n$fallbackLink');
+      
+      // Get render box for share position origin for fallback share
+      final RenderBox renderBox = context.findRenderObject() as RenderBox;
+      final Offset offset = renderBox.localToGlobal(Offset.zero);
+      final Size size = renderBox.size;
+      final Rect sharePositionOrigin = Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height);
+      
+      await Share.share(
+        '$title\n\nCheck this out on Fruits of Spirit:\n$fallbackLink',
+        sharePositionOrigin: sharePositionOrigin,
+      );
     }
   }
 
@@ -101,7 +125,16 @@ class ShareHelper {
     return null;
   }
 
-  static Future<void> shareText(String text) async {
-    await Share.share(text);
+  static Future<void> shareText(String text, BuildContext context) async {
+    // Get render box for share position origin
+    final RenderBox renderBox = context.findRenderObject() as RenderBox;
+    final Offset offset = renderBox.localToGlobal(Offset.zero);
+    final Size size = renderBox.size;
+    final Rect sharePositionOrigin = Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height);
+    
+    await Share.share(
+      text,
+      sharePositionOrigin: sharePositionOrigin,
+    );
   }
 }

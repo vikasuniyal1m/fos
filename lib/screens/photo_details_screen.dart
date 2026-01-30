@@ -38,20 +38,60 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   double _maxPhotoHeight = 350.0; // Maximum expanded height
   bool _isSendingComment = false; // Track comment sending state
 
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
 
   @override
   void initState() {
     super.initState();
     _loadCurrentUserId();
-    final photoId = Get.arguments as int? ?? 0;
-    if (photoId > 0 && (controller.selectedPhoto.isEmpty || controller.selectedPhoto['id'] != photoId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadPhotoDetails(photoId);
-        // Load emojis for reactions
-        controller.loadAvailableEmojis();
-        controller.loadQuickEmojis();
-      });
-    }
+    // Use native argument extraction
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final photoId = ModalRoute.of(context)?.settings.arguments as int? ?? 0;
+        if (photoId > 0 && (controller.selectedPhoto.isEmpty || controller.selectedPhoto['id'] != photoId)) {
+          controller.loadPhotoDetails(photoId);
+          // Load emojis for reactions
+          controller.loadAvailableEmojis();
+          controller.loadQuickEmojis();
+        }
+      }
+    });
     
     // Initialize photo heights based on screen size
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -126,7 +166,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      // Assume backend sends UTC time if 'Z' is missing.
       DateTime date;
       if (!dateString.endsWith('Z')) {
         date = DateTime.parse('${dateString}Z').toLocal();
@@ -135,8 +175,13 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
       }
       
       final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
+      // Only adjust if date is significantly in the future (more than 1 minute)
+      // to allow for small clock skews
+      if (date.isAfter(now.add(const Duration(minutes: 1)))) {
+        date = now;
+      } else if (date.isAfter(now)) {
+        // If slightly in future, just cap at now
+        date = now;
       }
 
       final difference = now.difference(date);
@@ -221,7 +266,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                 ),
                 SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                 ElevatedButton(
-                  onPressed: () => Get.back(),
+                  onPressed: () => Navigator.of(context).pop(),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF8B4513),
                   ),
@@ -557,13 +602,10 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                           if (mounted) {
                                             WidgetsBinding.instance.addPostFrameCallback((_) {
                                               if (mounted) {
-                                                Get.snackbar(
+                                                _showCustomSnackbar(
+                                                  context,
                                                   'Success',
                                                   'Like updated',
-                                                  backgroundColor: Colors.green,
-                                                  colorText: Colors.white,
-                                                  duration: const Duration(seconds: 1),
-                                                  margin: const EdgeInsets.all(16),
                                                 );
                                               }
                                             });
@@ -573,15 +615,13 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                           if (mounted) {
                                             WidgetsBinding.instance.addPostFrameCallback((_) {
                                               if (mounted) {
-                                                Get.snackbar(
+                                                _showCustomSnackbar(
+                                                  context,
                                                   'Error',
                                                   controller.message.value.isNotEmpty 
                                                       ? controller.message.value 
                                                       : 'Failed to update like. Please try again.',
-                                                  backgroundColor: Colors.red,
-                                                  colorText: Colors.white,
-                                                  duration: const Duration(seconds: 2),
-                                                  margin: const EdgeInsets.all(16),
+                                                  isError: true,
                                                 );
                                               }
                                             });
@@ -624,6 +664,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                       final photoUrl = filePath.isNotEmpty ? baseUrl + filePath : null;
 
                                       ShareHelper.shareContent(
+                                        context: context,
                                         contentType: 'photo',
                                         contentId: photoId,
                                         title: 'Photo from ${photo['user_name'] ?? 'Anonymous'}',
@@ -940,34 +981,34 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                               }
                               
                               if (success) {
-                                commentController.clear();
-                                
-                                // Scroll to bottom to show latest comment
-                                await Future.delayed(const Duration(milliseconds: 300));
-                                if (_scrollController.hasClients) {
-                                  _scrollController.animateTo(
-                                    _scrollController.position.maxScrollExtent,
-                                    duration: const Duration(milliseconds: 500),
-                                    curve: Curves.easeOut,
-                                  );
+                                  commentController.clear();
+                                  
+                                  // Scroll to bottom to show latest comment
+                                  await Future.delayed(const Duration(milliseconds: 300));
+                                  if (_scrollController.hasClients) {
+                                    _scrollController.animateTo(
+                                      _scrollController.position.maxScrollExtent,
+                                      duration: const Duration(milliseconds: 500),
+                                      curve: Curves.easeOut,
+                                    );
+                                  }
+                                  if (mounted) {
+                                    _showCustomSnackbar(
+                                      context,
+                                      'Success',
+                                      'Comment added successfully',
+                                    );
+                                  }
+                                } else {
+                                  if (mounted) {
+                                    _showCustomSnackbar(
+                                      context,
+                                      'Error',
+                                      controller.message.value,
+                                      isError: true,
+                                    );
+                                  }
                                 }
-                                Get.snackbar(
-                                  'Success',
-                                  'Comment added successfully',
-                                  backgroundColor: Colors.green,
-                                  colorText: Colors.white,
-                                      duration: const Duration(seconds: 2),
-                                      icon: const Icon(Icons.check_circle, color: Colors.white),
-                                );
-                              } else {
-                                Get.snackbar(
-                                  'Error',
-                                  controller.message.value,
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
-                                      duration: const Duration(seconds: 2),
-                                );
-                              }
                             },
                                 borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 24)),
                                 child: Container(
@@ -1342,22 +1383,22 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                   await controller.loadPhotoComments(photoId);
                   setState(() {}); // Refresh UI
                   
-                  Get.snackbar(
-                    'Success',
-                    'Reply added successfully',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 1),
-                    icon: const Icon(Icons.check_circle, color: Colors.white),
-                  );
+                  if (mounted) {
+                    _showCustomSnackbar(
+                      context,
+                      'Success',
+                      'Reply added successfully',
+                    );
+                  }
                 } else {
-                  Get.snackbar(
-                    'Error',
-                    controller.message.value,
-                    backgroundColor: Colors.red,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
-                  );
+                  if (mounted) {
+                    _showCustomSnackbar(
+                      context,
+                      'Error',
+                      controller.message.value,
+                      isError: true,
+                    );
+                  }
                 }
               },
               borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
@@ -1652,21 +1693,22 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                     Navigator.pop(context);
                     final success = await controller.reportComment(comment['id'] as int, reason);
                     if (success) {
-                      Get.snackbar(
-                        'Success',
-                        'Comment reported successfully',
-                        backgroundColor: Colors.green,
-                        colorText: Colors.white,
-                        duration: const Duration(seconds: 2),
-                      );
+                      if (mounted) {
+                        _showCustomSnackbar(
+                          context,
+                          'Success',
+                          'Comment reported successfully',
+                        );
+                      }
                     } else {
-                      Get.snackbar(
-                        'Error',
-                        controller.message.value,
-                        backgroundColor: Colors.red,
-                        colorText: Colors.white,
-                        duration: const Duration(seconds: 2),
-                      );
+                      if (mounted) {
+                        _showCustomSnackbar(
+                          context,
+                          'Error',
+                          controller.message.value,
+                          isError: true,
+                        );
+                      }
                     }
                   },
                 );
@@ -1680,18 +1722,25 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                     if (userId == null) return;
                     
                     if (currentUserId == userId) {
-                      Get.snackbar('Info', 'You cannot block yourself');
+                      if (mounted) {
+                        _showCustomSnackbar(
+                          context,
+                          'Info',
+                          'You cannot block yourself',
+                        );
+                      }
                       return;
                     }
 
                     final userName = comment['user_name'] ?? 'this user';
-                    final confirmed = await Get.dialog<bool>(
-                      AlertDialog(
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
                         title: Text('Block $userName?'),
                         content: const Text('You will no longer see content from this user.'),
                         actions: [
-                          TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
-                          TextButton(onPressed: () => Get.back(result: true), child: const Text('Block', style: TextStyle(color: Colors.red))),
+                          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+                          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Block', style: TextStyle(color: Colors.red))),
                         ],
                       ),
                     );
@@ -1700,13 +1749,26 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       try {
                         if (currentUserId != null) {
                           await UserBlockingService.blockUser(userId);
-                          Navigator.of(context).pop();
-                          Get.snackbar('Success', 'User blocked');
-                          final currentPhotoId = controller.selectedPhoto['id'] is int ? controller.selectedPhoto['id'] : int.parse(controller.selectedPhoto['id'].toString());
-                          controller.loadPhotoComments(currentPhotoId);
+                          if (mounted) {
+                            Navigator.of(context).pop();
+                            _showCustomSnackbar(
+                              context,
+                              'Success',
+                              'User blocked',
+                            );
+                            final currentPhotoId = controller.selectedPhoto['id'] is int ? controller.selectedPhoto['id'] : int.parse(controller.selectedPhoto['id'].toString());
+                            controller.loadPhotoComments(currentPhotoId);
+                          }
                         }
                       } catch (e) {
-                        Get.snackbar('Error', 'Failed to block user');
+                        if (mounted) {
+                          _showCustomSnackbar(
+                            context,
+                            'Error',
+                            'Failed to block user',
+                            isError: true,
+                          );
+                        }
                       }
                     }
                   }
@@ -1743,10 +1805,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
         if (value == 'report') {
-          Get.to(() => ReportContentScreen(
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => ReportContentScreen(
                 contentType: 'gallery',
                 contentId: photo['id'] is int ? photo['id'] : int.parse(photo['id'].toString()),
-              ));
+              ),
+            ),
+          );
         } else if (value == 'block') {
           final userIdRaw = photo['user_id'];
           if (userIdRaw != null) {
@@ -1754,19 +1820,26 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
             if (userId == null) return;
 
             if (currentUserId == userId) {
-              Get.snackbar('Info', 'You cannot block yourself');
+              if (mounted) {
+                _showCustomSnackbar(
+                  context,
+                  'Info',
+                  'You cannot block yourself',
+                );
+              }
               return;
             }
 
             final userName = photo['user_name'] ?? 'this user';
-            final confirmed = await Get.dialog<bool>(
-              AlertDialog(
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
                 title: Text('Block $userName?'),
                 content: const Text('You will no longer see content from this user.'),
                 actions: [
-                  TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                  TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
                   TextButton(
-                      onPressed: () => Get.back(result: true),
+                      onPressed: () => Navigator.of(context).pop(true),
                       child: const Text('Block', style: TextStyle(color: Colors.red))),
                 ],
               ),
@@ -1776,11 +1849,24 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
               try {
                 if (currentUserId != null) {
                   await UserBlockingService.blockUser(userId);
-                  Get.snackbar('Success', 'User blocked');
-                  Get.back(); // Back to gallery
+                  if (mounted) {
+                    _showCustomSnackbar(
+                      context,
+                      'Success',
+                      'User blocked',
+                    );
+                    Navigator.of(context).pop(); // Back to gallery
+                  }
                 }
               } catch (e) {
-                Get.snackbar('Error', 'Failed to block user');
+                if (mounted) {
+                  _showCustomSnackbar(
+                    context,
+                    'Error',
+                    'Failed to block user',
+                    isError: true,
+                  );
+                }
               }
             }
           }
@@ -2007,13 +2093,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           
                           if (emojiValueToSend == null || emojiValueToSend.isEmpty) {
                             print('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
-                            Get.snackbar(
-                              'Error',
-                              'Invalid emoji data. Please try again.',
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                context,
+                                'Error',
+                                'Invalid emoji data. Please try again.',
+                                isError: true,
+                              );
+                            }
                             return;
                           }
                           
@@ -2026,22 +2113,23 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           if (success) {
                             print('🍎 GALLERY EMOJI: ✅ Emoji reaction added successfully');
                             print('🍎 GALLERY EMOJI: ⏳ Waiting for UI to update...');
-                            Get.snackbar(
-                              'Success',
-                              'Reaction added',
-                              backgroundColor: Colors.green,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 1),
-                            );
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                context,
+                                'Success',
+                                'Reaction added',
+                              );
+                            }
                           } else {
                             print('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
-                            Get.snackbar(
-                              'Error',
-                              controller.message.value,
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                context,
+                                'Error',
+                                controller.message.value,
+                                isError: true,
+                              );
+                            }
                           }
                           print('🍎 GALLERY EMOJI: ========== EMOJI SELECTION END ==========');
                         } : null,
@@ -2773,12 +2861,9 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: (){
-                    final dialogContext = Get.overlayContext;
-                    if (dialogContext != null) {
-                      Navigator.of(dialogContext, rootNavigator: true).pop();
-                    } else if (context.mounted) {
-                      Navigator.of(context, rootNavigator: true).pop();
+                  onPressed: () {
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
                     }
                   },
                 ),
@@ -2872,31 +2957,35 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           
                           if (emojiValueToSend == null || emojiValueToSend.isEmpty) {
                             print('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
-                            Get.snackbar(
-                              'Error',
-                              'Invalid emoji data. Please try again.',
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                context,
+                                'Error',
+                                'Invalid emoji data. Please try again.',
+                                isError: true,
+                              );
+                            }
                             return;
                           }
                           
                           print('🍎 GALLERY EMOJI: 📤 Sending emoji to API: $emojiValueToSend');
-                          Get.back();
+                          if (mounted) {
+                            Navigator.of(context).pop();
+                          }
                           
                           final success = await controller.addEmojiReaction(photoId, emojiValueToSend);
                           print('🍎 GALLERY EMOJI: 📥 API response: success=$success');
                           
                           if (!success) {
                             print('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
-                            Get.snackbar(
-                              'Error',
-                              controller.message.value,
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                context,
+                                'Error',
+                                controller.message.value,
+                                isError: true,
+                              );
+                            }
                           } else {
                             print('🍎 GALLERY EMOJI: ✅ Emoji reaction added successfully');
                             print('🍎 GALLERY EMOJI: 🔄 UI should update automatically via Obx');

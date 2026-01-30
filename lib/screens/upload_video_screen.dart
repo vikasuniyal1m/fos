@@ -85,6 +85,45 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
     _animationController!.forward();
   }
 
+  void _showCustomSnackbar(BuildContext context, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            if (isError) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                margin: const EdgeInsets.only(right: 12),
+              ),
+            ],
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+        ),
+        margin: EdgeInsets.all(AppTheme.spacingMD),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _animationController?.dispose();
@@ -172,12 +211,9 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         }
       }
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to pick video: ${e.toString()}',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        _showCustomSnackbar(context, 'Failed to pick video: ${e.toString()}', isError: true);
+      }
     }
   }
 
@@ -294,7 +330,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
     if (!hasAcceptedFactors) {
       Get.to(() => TermsAcceptanceScreen(
         onAccepted: () {
-          Get.back(); // Pop the terms screen
+          Navigator.pop(context); // Pop the terms screen using Flutter's built-in Navigator
           _uploadVideo(); // Retry submission
         },
       ));
@@ -306,13 +342,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
     }
 
     if (selectedVideo == null) {
-      Get.snackbar(
-        'Error',
-        'Please select a video',
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      _showCustomSnackbar(context, 'Please select a video', isError: true);
       return;
     }
 
@@ -362,17 +392,12 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            Get.snackbar(
-              'Success',
+            _showCustomSnackbar(
+              context,
               controller.message.value.isNotEmpty 
                   ? controller.message.value 
                   : 'Video uploaded successfully!',
-              backgroundColor: AppTheme.iconscolor,
-              colorText: Colors.black,
-              snackPosition: SnackPosition.BOTTOM,
-              duration: const Duration(seconds: 2),
-              icon: const Icon(Icons.check_circle, color: Colors.white),
-              margin: const EdgeInsets.all(16),
+              isError: false
             );
           }
         });
@@ -394,28 +419,12 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             final errorMsg = controller.message.value;
-            final isModeration = errorMsg.contains('community guidelines');
-
-            Get.snackbar(
-              isModeration ? 'Community Standard' : 'Notice',
+            _showCustomSnackbar(
+              context,
               errorMsg.isNotEmpty
                   ? errorMsg
                   : 'Action could not be completed. Please try again.',
-              backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
-              colorText: Colors.white,
-              icon: Icon(
-                isModeration ? Icons.security_rounded : Icons.info_outline,
-                color: isModeration ? const Color(0xFFC79211) : Colors.white,
-                size: 28,
-              ),
-              snackPosition: SnackPosition.BOTTOM,
-              duration: Duration(seconds: isModeration ? 5 : 3),
-              margin: const EdgeInsets.all(16),
-              borderRadius: 12,
-              mainButton: isModeration ? TextButton(
-                onPressed: () => Get.toNamed(Routes.TERMS),
-                child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
-              ) : null,
+              isError: true
             );
           }
         });
@@ -462,7 +471,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                   // Form Fields - Scrollable
                   Container(
                     constraints: BoxConstraints(
-                      maxHeight: ResponsiveHelper.screenHeight(context) * 0.45,
+                      maxHeight: ResponsiveHelper.screenHeight(context) * 0.4,
                     ),
                     child: SingleChildScrollView(
                       padding: EdgeInsets.symmetric(
@@ -680,7 +689,6 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         ],
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.max,
         children: [
           // Header - Compact
           Padding(
@@ -846,16 +854,23 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                                           child: VideoPlayer(_previewController!),
                                         ),
                                       )
-                                    : Container(
-                                        color: Colors.black87,
-                                        child: Center(
-                                          child: Icon(
-                                            Icons.video_library_rounded,
-                                            size: ResponsiveHelper.iconSize(context, mobile: 64),
-                                            color: Colors.white70,
+                                    : thumbnailFile != null
+                                        ? Image.file(
+                                            thumbnailFile!,
+                                            fit: BoxFit.cover,
+                                            width: double.infinity,
+                                            height: double.infinity,
+                                          )
+                                        : Container(
+                                            color: Colors.black87,
+                                            child: Center(
+                                              child: Icon(
+                                                Icons.video_library_rounded,
+                                                size: ResponsiveHelper.iconSize(context, mobile: 64),
+                                                color: Colors.white70,
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
                               ),
                             ),
                             
@@ -1034,9 +1049,8 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                   ),
                 ),
               ),
-
-    )
-          )
+            ),
+          ),
         ],
       ),
     );
@@ -1185,7 +1199,6 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                       ),
                 ],
               ),
-            ),
-    );
+    ));
   }
 }

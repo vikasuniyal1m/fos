@@ -34,6 +34,45 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     super.dispose();
   }
 
+  void _showCustomSnackbar(BuildContext context, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            if (isError) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                margin: const EdgeInsets.only(right: 12),
+              ),
+            ],
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+        ),
+        margin: EdgeInsets.all(AppTheme.spacingMD),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
 
@@ -334,14 +373,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         }
 
                         if (nameController.text.trim().isEmpty) {
-                          Get.snackbar(
-                            'Error',
-                            'Please enter group name',
-                            backgroundColor: Colors.red,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 2),
-                            margin: const EdgeInsets.all(16),
-                          );
+                          _showCustomSnackbar(context, 'Please enter group name', isError: true);
                           return;
                         }
 
@@ -380,14 +412,10 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                               // Show simple UI success message (not from server)
                               WidgetsBinding.instance.addPostFrameCallback((_) {
                                 if (mounted) {
-                                  Get.snackbar(
-                                    'Success',
+                                  _showCustomSnackbar(
+                                    context,
                                     'Group created successfully!',
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                    icon: const Icon(Icons.check_circle, color: Colors.white),
-                                    duration: const Duration(seconds: 2),
-                                    margin: const EdgeInsets.all(16),
+                                    isError: false
                                   );
                                 }
                               });
@@ -395,7 +423,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                               // Wait a bit for snackbar to show, then navigate
                               Future.delayed(const Duration(milliseconds: 1000), () async {
                                 if (mounted) {
-                                  Get.back();
+                                  Navigator.pop(context); // Use Flutter's built-in Navigator instead of Get.back()
                                 }
                               });
                             }
@@ -403,16 +431,12 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                             // Show error message
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (mounted) {
-                                Get.snackbar(
-                                  'Error',
+                                _showCustomSnackbar(
+                                  context,
                                   controller.message.value.isNotEmpty 
                                       ? controller.message.value 
                                       : 'Failed to create group. Please try again.',
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
-                                  icon: const Icon(Icons.error, color: Colors.white),
-                                  duration: const Duration(seconds: 3),
-                                  margin: const EdgeInsets.all(16),
+                                  isError: true
                                 );
                               }
                             });

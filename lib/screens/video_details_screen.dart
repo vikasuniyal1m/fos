@@ -36,6 +36,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   final commentController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final replyControllers = <int, TextEditingController>{};
+  final replyFocusNodes = <int, FocusNode>{};
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
   var userId = 0;
@@ -44,6 +45,43 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   final Set<int> _sendingReplies = {};
   var comments = <Map<String, dynamic>>[];
   
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   static const String baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
 
   // Video player state
@@ -289,6 +327,9 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     _scrollController.dispose();
     for (var controller in replyControllers.values) {
       controller.dispose();
+    }
+    for (var focusNode in replyFocusNodes.values) {
+      focusNode.dispose();
     }
     super.dispose();
   }
@@ -671,11 +712,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     });
     
     if (userId == 0) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         'Please login first',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        isError: true,
       );
       return;
     }
@@ -691,18 +732,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
 
       // Show success message
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Get.snackbar(
-              'Success',
-              parentCommentId != null ? 'Reply added successfully' : 'Comment added successfully',
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
-              duration: const Duration(seconds: 2),
-              margin: const EdgeInsets.all(16),
-            );
-          }
-        });
+        _showCustomSnackbar(
+          context,
+          'Success',
+          parentCommentId != null ? 'Reply added successfully' : 'Comment added successfully',
+        );
       }
 
       // Clear controllers
@@ -734,19 +768,17 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         }
       }
 
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Success',
         'Comment added successfully',
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
       );
     } catch (e) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        isError: true,
       );
     } finally {
       if (mounted) {
@@ -763,11 +795,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
 
   Future<void> _toggleCommentLike(int commentId) async {
     if (userId == 0) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         'Please login first',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        isError: true,
       );
       return;
     }
@@ -967,6 +999,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
             : (filePath.isNotEmpty ? baseUrl + filePath : null);
 
         ShareHelper.shareContent(
+          context: context,
           contentType: 'video',
           contentId: videoId,
           title: video['title'] ?? 'Video',
@@ -1242,6 +1275,24 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                 onTap: () {
                   setState(() {
                     showReplyInput[commentId] = !(showReplyInput[commentId] ?? false);
+                    final shouldShow = showReplyInput[commentId] ?? false;
+                    
+                    if (shouldShow) {
+                      // Initialize focus node if not exists
+                      if (!replyFocusNodes.containsKey(commentId)) {
+                        replyFocusNodes[commentId] = FocusNode();
+                      }
+                      
+                      // Unfocus any other fields first
+                      FocusScope.of(context).unfocus();
+                       
+                      // Focus on the reply input after a short delay to ensure it's rendered
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && replyFocusNodes.containsKey(commentId)) {
+                          replyFocusNodes[commentId]!.requestFocus();
+                        }
+                      });
+                    }
                   });
                 },
                 borderRadius: BorderRadius.circular(
@@ -1342,6 +1393,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   }
 
   Widget _buildReplyInput(BuildContext context, int parentCommentId, int videoId) {
+    // Initialize focus node if not exists
+    if (!replyFocusNodes.containsKey(parentCommentId)) {
+      replyFocusNodes[parentCommentId] = FocusNode();
+    }
+    
     return Row(
       children: [
         SizedBox(width: ResponsiveHelper.spacing(context, 40)),
@@ -1359,6 +1415,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
             ),
             child: TextField(
               controller: replyControllers[parentCommentId],
+              focusNode: replyFocusNodes[parentCommentId],
               decoration: InputDecoration(
                 hintText: 'Write a reply...',
                 hintStyle: ResponsiveHelper.textStyle(
@@ -1507,19 +1564,17 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                         onTap: () async {
                           final success = await controller.addEmojiReaction(videoId, emoji!);
                           if (success) {
-                            Get.snackbar(
+                            _showCustomSnackbar(
+                              context,
                               'Success',
                               'Reaction added',
-                              backgroundColor: Colors.green,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 1),
                             );
                           } else {
-                            Get.snackbar(
+                            _showCustomSnackbar(
+                              context,
                               'Error',
                               controller.message.value,
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
+                              isError: true,
                             );
                           }
                         },
@@ -2230,19 +2285,17 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                       }
                       final success = await controller.addEmojiReaction(videoId, emojiChar!);
                       if (success) {
-                        Get.snackbar(
+                        _showCustomSnackbar(
+                          context,
                           'Success',
                           'Reaction added',
-                          backgroundColor: AppTheme.iconscolor,
-                          colorText: Colors.black,
-                          duration: const Duration(seconds: 1),
                         );
                       } else {
-                        Get.snackbar(
+                        _showCustomSnackbar(
+                          context,
                           'Error',
                           controller.message.value,
-                          backgroundColor: Colors.red,
-                          colorText: Colors.white,
+                          isError: true,
                         );
                       }
                     } : null,
@@ -2310,14 +2363,15 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                     
                     final String userName = comment['user_name'] ?? 'this user';
 
-                    final confirmed = await Get.dialog<bool>(
-                      AlertDialog(
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
                         title: Text('Block $userName?'),
                         content: const Text('You will no longer see content from this user.'),
                         actions: [
-                          TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
                           TextButton(
-                              onPressed: () => Get.back(result: true),
+                              onPressed: () => Navigator.of(context).pop(true),
                               child: const Text('Block', style: TextStyle(color: Colors.red))),
                         ],
                       ),
@@ -2326,10 +2380,10 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                     if (confirmed == true) {
                       try {
                         await UserBlockingService.blockUser(userId);
-                        Get.snackbar('Success', 'User blocked');
+                        _showCustomSnackbar(context, 'Success', 'User blocked');
                         _loadComments(controller.selectedVideo['id']);
                       } catch (e) {
-                        Get.snackbar('Error', 'Failed to block user');
+                        _showCustomSnackbar(context, 'Error', 'Failed to block user', isError: true);
                       }
                     }
                   }
@@ -2365,19 +2419,20 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
             if (userId == null) return;
 
             if (this.userId == userId) {
-              Get.snackbar('Info', 'You cannot block yourself');
+              _showCustomSnackbar(context, 'Info', 'You cannot block yourself');
               return;
             }
 
             final userName = video['user_name'] ?? 'this poster';
-            final confirmed = await Get.dialog<bool>(
-              AlertDialog(
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
                 title: Text('Block $userName?'),
                 content: const Text('You will no longer see content from this user.'),
                 actions: [
-                  TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                  TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
                   TextButton(
-                      onPressed: () => Get.back(result: true),
+                      onPressed: () => Navigator.of(context).pop(true),
                       child: const Text('Block', style: TextStyle(color: Colors.red))),
                 ],
               ),
@@ -2386,10 +2441,10 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
             if (confirmed == true) {
               try {
                 await UserBlockingService.blockUser(userId);
-                Get.snackbar('Success', 'User blocked');
-                Get.back(); // Back to list
+                _showCustomSnackbar(context, 'Success', 'User blocked');
+                Navigator.of(context).pop(); // Back to list
               } catch (e) {
-                Get.snackbar('Error', 'Failed to block user');
+                _showCustomSnackbar(context, 'Error', 'Failed to block user', isError: true);
               }
             }
           }

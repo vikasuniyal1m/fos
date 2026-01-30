@@ -49,6 +49,50 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     super.dispose();
   }
 
+  void _showCustomSnackbar(String title, String message, {bool isError = false, Color? backgroundColor}) {
+    if (!mounted) return;
+    
+    // Use WidgetsBinding to ensure we are not in the middle of a build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: backgroundColor ?? (isError ? Colors.red.withOpacity(0.9) : AppTheme.iconscolor),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
+  }
+
   Future<void> _createAccount() async {
     if (!_formKey.currentState!.validate()) {
       setState(() {
@@ -62,12 +106,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     });
 
     if (!_agreeToTerms) {
-      Get.snackbar(
+      _showCustomSnackbar(
         'Terms Required',
         'Please accept Terms & Conditions',
-        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.orange.withOpacity(0.8),
-        colorText: Colors.white,
       );
       return;
     }
@@ -182,14 +224,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         InitialBinding().dependencies();
         
          if (mounted) {
-          Get.snackbar(
+          _showCustomSnackbar(
             'Success',
             'Your account has been created successfully',
-            snackPosition: SnackPosition.BOTTOM,
             backgroundColor: AppTheme.iconscolor,
-            colorText: Colors.black,
-            duration: const Duration(seconds: 2),
-            icon: const Icon(Icons.check_circle, color: Colors.white),
           );
           Get.offAllNamed(Routes.DASHBOARD);
         }
@@ -250,23 +288,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
           _formKey.currentState?.validate();
         } else {
           // Show snackbar for non-field specific errors
-          Get.snackbar(
+          _showCustomSnackbar(
             errorTitle,
             errorMessage,
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red.withOpacity(0.9),
-            colorText: Colors.white,
-            duration: const Duration(seconds: 4),
-            margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-            borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-            icon: Icon(
-              Icons.error_outline,
-              color: Colors.white,
-              size: ResponsiveHelper.iconSize(context, mobile: 24),
-            ),
-            shouldIconPulse: true,
-            isDismissible: true,
-            dismissDirection: DismissDirection.horizontal,
+            isError: true,
           );
         }
       }
@@ -275,23 +300,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       print('❌ Registration Network Error: ${e.message}');
       
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Connection Error',
           'No internet connection. Please check your network settings and try again.',
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.wifi_off,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
-          shouldIconPulse: true,
-          isDismissible: true,
-          dismissDirection: DismissDirection.horizontal,
         );
       }
     } catch (e) {
@@ -300,23 +312,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       print('❌ Error Type: ${e.runtimeType}');
       
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Registration Failed',
           'An unexpected error occurred. Please try again. If the problem persists, contact support.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.warning_amber_rounded,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
-          shouldIconPulse: true,
-          isDismissible: true,
-          dismissDirection: DismissDirection.horizontal,
+          isError: true,
         );
       }
     } finally {
@@ -331,12 +330,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   Future<void> _signInWithApple() async {
     // Check if Sign in with Apple is available (iOS 13+)
     if (!Platform.isIOS) {
-      Get.snackbar(
+      _showCustomSnackbar(
         'Not Available',
         'Sign in with Apple is only available on iOS devices.',
-        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.orange.withOpacity(0.9),
-        colorText: Colors.white,
       );
       return;
     }
@@ -386,14 +383,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       InitialBinding().dependencies();
 
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Success',
           'Logged in successfully with Apple',
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: AppTheme.iconscolor,
-          colorText: Colors.black,
-          duration: const Duration(seconds: 2),
-          icon: const Icon(Icons.check_circle, color: Colors.white),
         );
         Get.offAllNamed(Routes.DASHBOARD);
       }
@@ -413,13 +406,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
           errorMessage = 'An unknown error occurred. Please try again.';
         }
 
-        Get.snackbar(
+        _showCustomSnackbar(
           'Sign in with Apple',
           errorMessage,
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
         );
       }
     } on ApprovalPendingException catch (e) {
@@ -464,33 +454,26 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Authentication Failed',
           e.message,
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
+          isError: true,
         );
       }
     } on NetworkException catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Connection Error',
           'No internet connection. Please check your network settings and try again.',
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
         );
       }
     } catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Unexpected Error',
           'An unexpected error occurred. Please try again. If the problem persists, contact support.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
+          isError: true,
         );
       }
     } finally {
@@ -590,14 +573,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       InitialBinding().dependencies();
 
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Success',
           'Logged in successfully with Google',
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: AppTheme.iconscolor,
-          colorText: Colors.black,
-          duration: const Duration(seconds: 2),
-          icon: const Icon(Icons.check_circle, color: Colors.white),
         );
         Get.offAllNamed(Routes.DASHBOARD);
       }
@@ -643,31 +622,18 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Google Sign In Failed',
           e.message,
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.error_outline,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
+          isError: true,
         );
       }
     } on NetworkException catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Connection Error',
           'No internet connection. Please check your network settings and try again.',
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
         );
       }
     } catch (e, stackTrace) {
@@ -740,25 +706,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && context.mounted) {
-            try {
-              Get.snackbar(
-                errorTitle,
-                errorMessage,
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.red.withOpacity(0.9),
-                colorText: Colors.white,
-                duration: const Duration(seconds: 6),
-                margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-                borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-                icon: Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.white,
-                  size: ResponsiveHelper.iconSize(context, mobile: 24),
-                ),
-              );
-            } catch (snackbarError) {
-              print('⚠️ Could not show snackbar: $snackbarError');
-            }
+            _showCustomSnackbar(
+              errorTitle,
+              errorMessage,
+              isError: true,
+            );
           }
         });
       }
@@ -1420,18 +1372,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                             // Only show snackbar if context is available and widget is mounted
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (mounted && context.mounted) {
-                                try {
-                                  Get.snackbar(
-                                    'Error',
-                                    'Failed to start Google Sign In: ${e.toString()}',
-                                    snackPosition: SnackPosition.BOTTOM,
-                                    backgroundColor: Colors.red.withOpacity(0.9),
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 5),
-                                  );
-                                } catch (snackbarError) {
-                                  print('⚠️ Could not show snackbar: $snackbarError');
-                                }
+                                _showCustomSnackbar(
+                                  'Error',
+                                  'Failed to start Google Sign In: ${e.toString()}',
+                                  isError: true,
+                                );
                               }
                             });
                           }

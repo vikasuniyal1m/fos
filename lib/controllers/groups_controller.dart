@@ -83,13 +83,12 @@ class GroupsController extends GetxController {
   @override
   void onReady() {
     super.onReady();
-    // Performance: Only load if data is not already loaded
-    if (!_isDataLoaded && !_isLoading && groups.isEmpty && _allGroups.isEmpty) {
-      loadGroups();
-    } else if (_allGroups.isNotEmpty) {
-      // Apply filter from cached data if available
-      _applyClientSideFilter();
+    // Always load fresh groups data when navigating to groups screen
+    // This ensures users see updated group content when accessing from quick actions
+    if (!_isLoading) {
+      loadGroups(refresh: true);
     }
+    // Always load user groups to ensure membership status is up-to-date
     loadUserGroups();
     print('DEBUG: GroupsController.onReady - selectedCategory.value before jingle check: "${selectedCategory.value}"');
     // New code to start jingle
@@ -368,7 +367,7 @@ class GroupsController extends GetxController {
         return true; // Return true to show success (UI will update)
       }
       
-      message.value = 'Error: $errorMessage';
+      message.value = errorMessage;
       print('Error joining group: $e');
       return false;
     } finally {
@@ -409,7 +408,15 @@ class GroupsController extends GetxController {
       
       return true;
     } catch (e) {
-      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      String errorMessage = e.toString().replaceAll('Exception: ', '');
+      
+      // Use custom frontend message for "only admin" error
+      if (errorMessage.contains('Cannot leave group') && errorMessage.contains('only admin')) {
+        message.value = 'You cannot leave this group as you are the only admin. Please assign another admin first.';
+      } else {
+        message.value = errorMessage;
+      }
+      
       print('Error leaving group: $e');
       return false;
     } finally {

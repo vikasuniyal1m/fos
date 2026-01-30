@@ -195,36 +195,35 @@ class JingleService extends GetxController {
 
     final isDisabled = await _isJingleDisabled(cleanCategory);
     print('DEBUG: JingleService.startJingle - isDisabled: $isDisabled, _isPlaying: $_isPlaying');
-    if (isDisabled || _isPlaying) return false;
+    if (isDisabled) return false;
 
-    final url = _getJingleUrl(cleanCategory);
-    // Check if mapping exists in our constant map to avoid 404s for categories like 'Prayer' or 'Patience'
-    // which are currently missing from the server
-    final jingleFileName = _categoryToJingle[cleanCategory];
-    if (jingleFileName == null) {
-      print('⚠️ JingleService: No jingle mapping for "$cleanCategory", skipping playback.');
-      return false;
+    // Reset playing state to ensure we can play new jingles
+    if (_isPlaying) {
+      try {
+        await _audioPlayer.stop();
+        _isPlaying = false;
+      } catch (e) {
+        print('DEBUG: JingleService.startJingle - Error stopping previous jingle: $e');
+        _isPlaying = false;
+      }
     }
 
-    // Use cached file path if available, otherwise use URL
-    String jinglePath = _cachedFiles[cleanCategory] ?? url;
+    final url = _getJingleUrl(cleanCategory);
     
-    print('🔊 JingleService: Playing from ${jinglePath.startsWith('http') ? 'URL' : 'Cache'}: $jinglePath');
+    // Always try to play jingle, don't skip based on mapping existence
+    // The _getJingleUrl method already handles fallback logic
+    print('🔊 JingleService: Playing from URL: $url');
 
     try {
       _isPlaying = true;
-      final isLocal = !jinglePath.startsWith('http');
-      if (isLocal) {
-        print('DEBUG: JingleService.startJingle - Setting local source: $jinglePath');
-        await _audioPlayer.setSource(DeviceFileSource(jinglePath));
-      } else {
-        print('DEBUG: JingleService.startJingle - Setting URL source: $jinglePath');
-        await _audioPlayer.setSource(UrlSource(jinglePath, mimeType: 'audio/mpeg'));
-      }
+      
+      // Set URL source (cache will be checked automatically by DefaultCacheManager)
+      print('DEBUG: JingleService.startJingle - Setting URL source: $url');
+      await _audioPlayer.setSource(UrlSource(url, mimeType: 'audio/mpeg'));
       print('DEBUG: JingleService.startJingle - Resuming audio player');
       await _audioPlayer.resume();
 
-      // Listen for completion
+      // Listen for completion and errors
       _audioPlayer.onPlayerComplete.first.then((_) async {
         _isPlaying = false;
         await _incrementPlayCount(category);
@@ -233,6 +232,8 @@ class JingleService extends GetxController {
         lastFinishedCategory.refresh();
         print('DEBUG: JingleService.startJingle - Jingle completed for category: $category');
       });
+
+
 
       return true;
     } catch (e) {

@@ -242,19 +242,24 @@ class _LoginScreenState extends State<LoginScreen> {
         });
         
         // Show message that role was auto-selected
-        Get.snackbar(
-          'Role Updated',
-          'Your role has been automatically set to ${e.correctRole}. Please try logging in again.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: AppTheme.iconscolor,
-          colorText: Colors.black,
-          duration: const Duration(seconds: 3),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.info_outline,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
+        Get.showSnackbar(
+          GetSnackBar(
+            title: 'Role Updated',
+            message: 'Your role has been automatically set to ${e.correctRole}. Please try logging in again.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: AppTheme.iconscolor,
+            duration: const Duration(seconds: 3),
+            margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+            borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
+            icon: Icon(
+              Icons.info_outline,
+              color: Colors.white,
+              size: ResponsiveHelper.iconSize(context, mobile: 24),
+            ),
+            mainButton: TextButton(
+              onPressed: () => Get.back(),
+              child: const Text('OK', style: TextStyle(color: Colors.black)),
+            ),
           ),
         );
       }
@@ -295,23 +300,28 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on NetworkException catch (e) {
       if (mounted) {
-        Get.snackbar(
-          'Connection Error',
-          'No internet connection. Please check your network settings and try again.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: AppTheme.iconscolor,
-          colorText: Colors.black,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.wifi_off,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
+        Get.showSnackbar(
+          GetSnackBar(
+            title: 'Connection Error',
+            message: 'No internet connection. Please check your network settings and try again.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: AppTheme.iconscolor,
+            duration: const Duration(seconds: 4),
+            margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+            borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
+            icon: Icon(
+              Icons.wifi_off,
+              color: Colors.white,
+              size: ResponsiveHelper.iconSize(context, mobile: 24),
+            ),
+            shouldIconPulse: true,
+            isDismissible: true,
+            dismissDirection: DismissDirection.horizontal,
+            mainButton: TextButton(
+              onPressed: () => Get.back(),
+              child: const Text('OK', style: TextStyle(color: Colors.black)),
+            ),
           ),
-          shouldIconPulse: true,
-          isDismissible: true,
-          dismissDirection: DismissDirection.horizontal,
         );
       }
     } finally {
@@ -326,12 +336,20 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signInWithApple() async {
     // Check if Sign in with Apple is available (iOS 13+)
     if (!Platform.isIOS) {
-      Get.snackbar(
-        'Not Available',
-        'Sign in with Apple is only available on iOS devices.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: AppTheme.iconscolor,
-        colorText: Colors.black,
+      Get.showSnackbar(
+        GetSnackBar(
+          title: 'Not Available',
+          message: 'Sign in with Apple is only available on iOS devices.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.iconscolor,
+          duration: const Duration(seconds: 3),
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
+          mainButton: TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('OK', style: TextStyle(color: Colors.black)),
+          ),
+        ),
       );
       return;
     }
