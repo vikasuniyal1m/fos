@@ -175,8 +175,8 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
       Get.snackbar(
         'Error',
         'Failed to pick video: ${e.toString()}',
-        backgroundColor: AppTheme.iconscolor,
-        colorText: Colors.black,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
       );
     }
   }
@@ -398,8 +398,8 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
 
             Get.snackbar(
               isModeration ? 'Community Standard' : 'Notice',
-              errorMsg.isNotEmpty 
-                  ? errorMsg 
+              errorMsg.isNotEmpty
+                  ? errorMsg
                   : 'Action could not be completed. Please try again.',
               backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
               colorText: Colors.white,
@@ -462,7 +462,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                   // Form Fields - Scrollable
                   Container(
                     constraints: BoxConstraints(
-                      maxHeight: ResponsiveHelper.screenHeight(context) * 0.4,
+                      maxHeight: ResponsiveHelper.screenHeight(context) * 0.45,
                     ),
                     child: SingleChildScrollView(
                       padding: EdgeInsets.symmetric(
@@ -680,6 +680,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.max,
         children: [
           // Header - Compact
           Padding(
@@ -845,23 +846,16 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                                           child: VideoPlayer(_previewController!),
                                         ),
                                       )
-                                    : thumbnailFile != null
-                                        ? Image.file(
-                                            thumbnailFile!,
-                                            fit: BoxFit.cover,
-                                            width: double.infinity,
-                                            height: double.infinity,
-                                          )
-                                        : Container(
-                                            color: Colors.black87,
-                                            child: Center(
-                                              child: Icon(
-                                                Icons.video_library_rounded,
-                                                size: ResponsiveHelper.iconSize(context, mobile: 64),
-                                                color: Colors.white70,
-                                              ),
-                                            ),
+                                    : Container(
+                                        color: Colors.black87,
+                                        child: Center(
+                                          child: Icon(
+                                            Icons.video_library_rounded,
+                                            size: ResponsiveHelper.iconSize(context, mobile: 64),
+                                            color: Colors.white70,
                                           ),
+                                        ),
+                                      ),
                               ),
                             ),
                             
@@ -1040,8 +1034,9 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                   ),
                 ),
               ),
-            ),
-          ),
+
+    )
+          )
         ],
       ),
     );
@@ -1190,6 +1185,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                       ),
                 ],
               ),
-    ));
+            ),
+    );
   }
 }
