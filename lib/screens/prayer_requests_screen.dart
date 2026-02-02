@@ -568,6 +568,8 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
                 ],
               ),
             ),
+              ],
+            ),
             // Add Pending badge for prayers
             if (isPending)
               Positioned(
@@ -613,9 +615,8 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
               ),
           ],
         ),
-      ]
-        ),
-    ));
+      ),
+    );
   }
 
   Widget _buildPrayerOptions(BuildContext context, Map<String, dynamic> prayer) {
