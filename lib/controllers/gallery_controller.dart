@@ -75,7 +75,6 @@ class GalleryController extends GetxController {
     if (filterUserId.value > 0) {
       refresh = true;
     }
-    //COMMENT THIS
 
     if (refresh) {
       currentPage.value = 0;
@@ -90,7 +89,8 @@ class GalleryController extends GetxController {
       // Performance: Always load ALL photos (no fruit tag filter) to populate cache
       // Then apply client-side filtering for instant updates
       final photosList = await GalleryService.getPhotos(
-        status: filterUserId.value > 0 ? 'Pending,Approved' : 'Approved',        fruitTag: null, // Always load all photos for cache
+        status: 'Approved', // Only approved photos from main call
+        fruitTag: null, // Always load all photos for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
         currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
@@ -100,6 +100,25 @@ class GalleryController extends GetxController {
       if (refresh || currentPage.value == 0) {
         // Performance: Store ALL photos in cache (no filters)
         _allPhotos = List<Map<String, dynamic>>.from(photosList);
+        
+        // Always include pending photos if a user is logged in
+        if (userId.value > 0) {
+          try {
+            final pendingPhotos = await GalleryService.getPhotos(
+              status: 'Pending',
+              fruitTag: null,
+              userId: filterUserId.value > 0 ? filterUserId.value : userId.value,
+              currentUserId: userId.value,
+              limit: 10,
+              offset: 0,
+            );
+            // Add pending photos at the beginning
+            _allPhotos.insertAll(0, pendingPhotos);
+          } catch (e) {
+            print('Error loading pending photos: $e');
+          }
+        }
+        
         // Apply current filter to display
         _applyClientSideFilter();
       } else {
@@ -1154,17 +1173,36 @@ class GalleryController extends GetxController {
   
   /// Show moderation snackbar
   void _showModerationSnackbar(String message) {
-    Get.snackbar(
-      'Community Guidelines',
-      message,
-      backgroundColor: const Color(0xFF5D4037),
-      colorText: Colors.white,
-      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
-      mainButton: TextButton(
-        onPressed: () => Get.toNamed('/terms'), // Using string route if constant not imported
-        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
-      ),
-    );
+    final ctx = Get.context;
+    if (ctx != null) {
+      ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+              ),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Community Guidelines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(message, style: const TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF5D4037),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 }
-

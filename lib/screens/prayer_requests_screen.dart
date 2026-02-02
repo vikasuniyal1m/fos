@@ -368,6 +368,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
   Widget _buildPrayerCard(BuildContext context, Map<String, dynamic> prayer, PrayersController controller) {
     final isAnonymous = prayer['is_anonymous'] == 1 || prayer['is_anonymous'] == true;
     final userName = isAnonymous ? 'Anonymous' : (prayer['user_name'] ?? prayer['name'] ?? 'Anonymous');
+    final isPending = prayer['status'] == 'Pending' || prayer['status'] == 'pending';
     String? profilePhotoUrl;
     if (!isAnonymous && prayer['profile_photo'] != null && prayer['profile_photo'].toString().isNotEmpty) {
       final photoPath = prayer['profile_photo'].toString();
@@ -409,11 +410,13 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           ],
         ),
         clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            // Header - Profile + Name + Subtitle (Exact match home page)
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header - Profile + Name + Subtitle (Exact match home page)
             Padding(
               padding: ResponsiveHelper.padding(
                 context,
@@ -565,10 +568,54 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
                 ],
               ),
             ),
+            // Add Pending badge for prayers
+            if (isPending)
+              Positioned(
+                top: ResponsiveHelper.isMobile(context) ? 8 : 10,
+                right: ResponsiveHelper.isMobile(context) ? 8 : 10,
+                child: Container(
+                  padding: ResponsiveHelper.padding(
+                    context,
+                    horizontal: ResponsiveHelper.isMobile(context) ? 8 : 10,
+                    vertical: ResponsiveHelper.isMobile(context) ? 5 : 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(
+                      ResponsiveHelper.borderRadius(
+                        context,
+                        mobile: 16,
+                        tablet: 20,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.pending,
+                        size: ResponsiveHelper.iconSize(context, mobile: 12),
+                        color: Colors.white,
+                      ),
+                      SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                      Text(
+                        'Pending',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 10),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
-      ),
-    );
+      ]
+        ),
+    ));
   }
 
   Widget _buildPrayerOptions(BuildContext context, Map<String, dynamic> prayer) {

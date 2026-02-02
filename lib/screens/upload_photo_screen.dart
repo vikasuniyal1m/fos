@@ -8,7 +8,8 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/utils/permission_manager.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint;
 import '../controllers/main_dashboard_controller.dart';
 import '../routes/app_pages.dart';
 import '../services/terms_service.dart';
@@ -70,34 +71,50 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
     
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     
+    final lower = message.toLowerCase();
+    final isModeration = lower.contains('community guidelines') ||
+        lower.contains('inappropriate content') ||
+        lower.contains('terms') ||
+        lower.contains('moderation');
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
-            if (isError) ...[
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                ),
-                margin: const EdgeInsets.only(right: 12),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Icon(
+                isModeration ? Icons.security_rounded : (isError ? Icons.error_outline : Icons.check_circle_outline),
+                color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                size: 20,
               ),
-            ],
+            ),
             Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(color: Colors.white),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isModeration ? 'Community Guidelines' : (isError ? 'Error' : 'Success'),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    message,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
-        duration: const Duration(seconds: 3),
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? AppTheme.errorColor : AppTheme.successColor),
+        duration: isModeration ? const Duration(seconds: 5) : const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+          borderRadius: BorderRadius.circular(12),
         ),
         margin: EdgeInsets.all(AppTheme.spacingMD),
       ),
@@ -118,24 +135,13 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
       // Request camera permission first
       final hasPermission = await PermissionManager.requestCameraPermission();
       if (!hasPermission) {
-        Get.snackbar(
-          'Permission Required',
-          'Camera permission is required to take photos. Please enable it in settings.',
-          backgroundColor: Colors.orange,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
+        _showCustomSnackbar(context, 'Camera permission is required. Please enable it in settings.', isError: true);
         return;
       }
 
       // Check if camera is available (especially for iPad)
       if (!kIsWeb && !Platform.isAndroid && !Platform.isIOS) {
-        Get.snackbar(
-          'Not Supported',
-          'Camera is not available on this device.',
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
+        _showCustomSnackbar(context, 'Camera is not available on this device.', isError: true);
         return;
       }
 
@@ -154,20 +160,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
     } catch (e) {
       // Handle camera errors gracefully
       print('Camera error: $e');
-      Get.snackbar(
-        'Camera Error',
-        'Failed to open camera. Please try again or select from gallery.',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-        mainButton: TextButton(
-          onPressed: () {
-            Get.back(); // Close snackbar
-            _pickImage(); // Fallback to gallery
-          },
-          child: Text('Use Gallery', style: TextStyle(color: Colors.white)),
-        ),
-      );
+      _showCustomSnackbar(context, 'Failed to open camera. Try again or select from gallery.', isError: true);
     }
   }
 
@@ -383,8 +376,10 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
           ? Get.find<GalleryController>() 
           : Get.put(GalleryController());
       
-      print('📸 Starting photo upload...');
-      print('📸 User ID: ${controller.userId.value}');
+      if (kDebugMode) {
+        debugPrint('📸 Starting photo upload...');
+        debugPrint('📸 User ID: ${controller.userId.value}');
+      }
       
       // Show loading
       Get.dialog(
@@ -692,12 +687,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
                                   child: InkWell(
                                     onTap: () {
                                       // TODO: Implement image editing
-                                      Get.snackbar(
-                                        'Info',
-                                        'Edit feature coming soon',
-                                        backgroundColor: Colors.blue,
-                                        colorText: Colors.white,
-                                      );
+                                      _showCustomSnackbar(context, 'Edit feature coming soon');
                                     },
                                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
                                     child: Container(
@@ -1379,12 +1369,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
                 height: ResponsiveHelper.buttonHeight(context, mobile: 50),
                 child: OutlinedButton(
                   onPressed: () {
-                    Get.snackbar(
-                      'Info',
-                      'Draft feature coming soon',
-                      backgroundColor: Colors.blue,
-                      colorText: Colors.white,
-                    );
+                    _showCustomSnackbar(context, 'Draft feature coming soon');
                   },
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(

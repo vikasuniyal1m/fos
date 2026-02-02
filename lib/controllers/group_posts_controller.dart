@@ -286,12 +286,27 @@ class GroupPostsController extends GetxController {
       print('❌ Error reacting to post: $e');
       // Don't show snackbar for 404 errors - they're handled gracefully
       if (!errorMsg.contains('404') && !errorMsg.contains('not found')) {
-        Get.snackbar(
-          'Error',
-          errorMsg,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
+        final ctx = Get.context;
+        if (ctx != null) {
+          ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            SnackBar(
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(errorMsg, style: const TextStyle(color: Colors.white)),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
       }
       return false;
     }
@@ -370,17 +385,36 @@ class GroupPostsController extends GetxController {
   
   /// Show moderation snackbar
   void _showModerationSnackbar(String message) {
-    Get.snackbar(
-      'Community Guidelines',
-      message,
-      backgroundColor: const Color(0xFF5D4037),
-      colorText: Colors.white,
-      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
-      mainButton: TextButton(
-        onPressed: () => Get.toNamed('/terms'), // Using string route if constant not imported
-        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
-      ),
-    );
+    final ctx = Get.context;
+    if (ctx != null) {
+      ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+              ),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Community Guidelines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(message, style: const TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF5D4037),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 }
-

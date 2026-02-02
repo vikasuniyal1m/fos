@@ -668,17 +668,36 @@ class BlogsController extends GetxController {
   
   /// Show moderation snackbar
   void _showModerationSnackbar(String message) {
-    Get.snackbar(
-      'Community Guidelines',
-      message,
-      backgroundColor: const Color(0xFF5D4037),
-      colorText: Colors.white,
-      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
-      mainButton: TextButton(
-        onPressed: () => Get.toNamed('/terms'), // Using string route if constant not imported
-        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
-      ),
-    );
+    final ctx = Get.context;
+    if (ctx != null) {
+      ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Community Guidelines',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(message, style: const TextStyle(color: Colors.white)),
+            ],
+          ),
+          backgroundColor: const Color(0xFF5D4037),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 }
-

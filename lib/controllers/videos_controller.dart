@@ -93,7 +93,8 @@ class VideosController extends GetxController {
       // If user wants to see their pending videos, load them too
       List<Map<String, dynamic>> allVideos = List.from(approvedVideos);
       
-      if (includePending && userId.value > 0) {
+      // Always include pending videos if a user is logged in
+      if (userId.value > 0) {
         try {
           final pendingVideos = await VideosService.getVideos(
             status: 'Pending',
@@ -682,17 +683,36 @@ class VideosController extends GetxController {
   
   /// Show moderation snackbar
   void _showModerationSnackbar(String message) {
-    Get.snackbar(
-      'Community Guidelines',
-      message,
-      backgroundColor: const Color(0xFF5D4037),
-      colorText: Colors.white,
-      icon: const Icon(Icons.security_rounded, color: Color(0xFFC79211)),
-      mainButton: TextButton(
-        onPressed: () => Get.toNamed('/terms'), // Using string route if constant not imported
-        child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211))),
-      ),
-    );
+    final ctx = Get.context;
+    if (ctx != null) {
+      ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+              ),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Community Guidelines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(message, style: const TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF5D4037),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 }
-

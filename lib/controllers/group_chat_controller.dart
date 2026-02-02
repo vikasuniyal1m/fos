@@ -314,33 +314,37 @@ class GroupChatController extends GetxController {
       final moderationCheck = ContentModerationService.checkContent(text);
       if (!moderationCheck['isClean']) {
         message.value = moderationCheck['message'];
-        
-        // Show user-friendly error
-        Get.snackbar(
-          'Community Guidelines',
-          'Your message contains inappropriate content. Please revise and try again.',
-          backgroundColor: AppTheme.iconscolor,
-          colorText: Colors.black,
-          icon: const Icon(
-            Icons.security_rounded,
-            color: Color(0xFFC79211),
-            size: 28,
-          ),
-          snackPosition: SnackPosition.BOTTOM,
-          duration: const Duration(seconds: 4),
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-          mainButton: TextButton(
-            onPressed: () => Get.toNamed(Routes.TERMS),
-            child: const Text(
-              'VIEW TERMS',
-              style: TextStyle(
-                color: Color(0xFFC79211),
-                fontWeight: FontWeight.bold,
+        final ctx = Get.context;
+        if (ctx != null) {
+          ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(right: 12),
+                    child: Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 28),
+                  ),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Community Guidelines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                        Text(moderationCheck['message'], style: const TextStyle(color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+              backgroundColor: const Color(0xFF5D4037),
+              duration: const Duration(seconds: 5),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
             ),
-          ),
-        );
+          );
+        }
         
         return false;
       }
@@ -426,26 +430,41 @@ class GroupChatController extends GetxController {
       final errorMsg = e.toString().replaceAll('Exception: ', '');
       final isModeration = errorMsg.contains('community guidelines');
       message.value = 'Error: $errorMsg';
-      
-      Get.snackbar(
-        isModeration ? 'Community Standard' : 'Notice',
-        errorMsg,
-        backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
-        colorText: Colors.white,
-        icon: Icon(
-          isModeration ? Icons.security_rounded : Icons.info_outline,
-          color: isModeration ? const Color(0xFFC79211) : Colors.white,
-          size: 28,
-        ),
-        snackPosition: SnackPosition.BOTTOM,
-        duration: Duration(seconds: isModeration ? 5 : 3),
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-        mainButton: isModeration ? TextButton(
-          onPressed: () => Get.toNamed(Routes.TERMS),
-          child: const Text('VIEW TERMS', style: TextStyle(color: Color(0xFFC79211), fontWeight: FontWeight.bold)),
-        ) : null,
-      );
+      final ctx = Get.context;
+      if (ctx != null) {
+        ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Icon(
+                    isModeration ? Icons.security_rounded : Icons.info_outline,
+                    color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                    size: 28,
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(isModeration ? 'Community Guidelines' : 'Notice', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                      Text(errorMsg, style: const TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
+            duration: Duration(seconds: isModeration ? 5 : 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
       return false;
     } finally {
       isSending.value = false;

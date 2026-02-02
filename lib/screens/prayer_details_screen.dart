@@ -35,34 +35,46 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   bool _isSending = false;
   final Set<int> _sendingReplies = {};
 
-  /// Show a custom snackbar using ScaffoldMessenger
-  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false, bool isModeration = false}) {
     if (!mounted) return;
     
-    // Close any existing snackbars
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+        content: Row(
           children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Icon(
+                isModeration ? Icons.security_rounded : (isError ? Icons.error_outline : Icons.check_circle_outline),
+                color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                size: 24,
               ),
             ),
-            Text(
-              message,
-              style: const TextStyle(color: Colors.white),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    message,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
-        duration: const Duration(seconds: 3),
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? Colors.red : AppTheme.iconscolor),
+        duration: Duration(seconds: isModeration ? 5 : 3),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
@@ -772,11 +784,14 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
           'Response added successfully',
         );
       } else {
+        final msg = controller.message.value;
+        final isModeration = msg.contains('community guidelines') || msg.contains('inappropriate content') || msg.contains('Terms');
         _showCustomSnackbar(
           context,
-          'Error',
-          controller.message.value,
-          isError: true,
+          isModeration ? 'Community Guidelines' : 'Error',
+          msg.isNotEmpty ? msg : 'Action could not be completed. Please try again.',
+          isError: !isModeration,
+          isModeration: isModeration,
         );
       }
     } catch (e) {

@@ -101,22 +101,50 @@ class PrayersController extends GetxController {
     try {
       // Performance: Always load ALL prayers (no category filter) to populate cache
       // Then apply client-side filtering for instant updates
-      final prayersList = await PrayersService.getPrayers(
-        status: filterUserId.value > 0 ? 'Pending,Approved' : 'Approved',        category: null, // Always load all prayers for cache
+      final approvedPrayers = await PrayersService.getPrayers(
+        status: 'Approved',
+        category: null, // Always load all prayers for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
         currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
 
+      // If user wants to see their pending prayers, load them too
+      List<Map<String, dynamic>> allPrayers = List.from(approvedPrayers);
+
+      // Always include pending prayers if a user is logged in (only for current user)
+      if (userId.value > 0 && filterUserId.value == 0) {
+        try {
+          final pendingPrayers = await PrayersService.getPrayers(
+            status: 'Pending',
+            userId: userId.value,
+            category: null, // Always load all prayers for cache
+            limit: 10,
+            offset: 0,
+          );
+          // Add pending prayers at the beginning
+          allPrayers.insertAll(0, pendingPrayers);
+          print('🙏 Pending Prayers Loaded: ${pendingPrayers.length}');
+        } catch (e) {
+          print('Error loading pending prayers: $e');
+        }
+      }
+
+      print('🙏 Total Prayers Loaded: ${allPrayers.length} (Approved: ${approvedPrayers.length})');
+      for (var prayer in allPrayers) {
+        final status = prayer['status'] ?? 'Unknown';
+        print('   - Prayer: ${prayer['id']} (Status: $status)');
+      }
+
       if (refresh || currentPage.value == 0) {
         // Performance: Store ALL prayers in cache (no category filter)
-        _allPrayers = List<Map<String, dynamic>>.from(prayersList);
+        _allPrayers = List<Map<String, dynamic>>.from(allPrayers);
         // Apply current filter to display
         _applyClientSideFilter();
       } else {
         // Performance: Add to all prayers cache
-        _allPrayers.addAll(prayersList);
+        _allPrayers.addAll(allPrayers);
         // Apply current filter to display
         _applyClientSideFilter();
       }

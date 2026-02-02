@@ -52,30 +52,45 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     // Close any existing snackbars
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     
+    final lower = message.toLowerCase();
+    final isModeration = lower.contains('community guidelines') ||
+        lower.contains('inappropriate content') ||
+        lower.contains('terms') ||
+        lower.contains('moderation');
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
+            Row(
+              children: [
+                if (isModeration)
+                  const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 20),
+                if (isModeration)
+                  const SizedBox(width: 8),
+                Text(
+                  isModeration ? 'Community Guidelines' : title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 4),
             Text(
               message,
               style: const TextStyle(color: Colors.white),
             ),
           ],
         ),
-        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
-        duration: const Duration(seconds: 3),
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? Colors.red : AppTheme.iconscolor),
+        duration: isModeration ? const Duration(seconds: 5) : const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
         ),
         margin: const EdgeInsets.all(16),
       ),
@@ -814,11 +829,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         }
       }
     } catch (e) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        isError: true,
       );
     }
   }
