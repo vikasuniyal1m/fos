@@ -124,8 +124,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       final email = _emailController.text.trim();
       final phone = _phoneController.text.trim();
       
-      if (email.isEmpty && phone.isEmpty) {
-        throw ApiException('Email or phone is required');
+      if (email.isEmpty) {
+        throw ApiException('Email is required');
       }
 
       Map<String, dynamic> user = await AuthService.register(
@@ -843,11 +843,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         return _registrationError;
                       }
                       final email = value?.trim() ?? '';
-                      final phone = _phoneController.text.trim();
-                      if (email.isEmpty && phone.isEmpty) {
-                        return 'Please enter email or phone';
+                      if (email.isEmpty) {
+                        return 'Please enter email';
                       }
-                      if (email.isNotEmpty && !GetUtils.isEmail(email)) {
+                      if (!GetUtils.isEmail(email)) {
                         return 'Please enter a valid email';
                       }
                       return null;
@@ -898,11 +897,6 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         return _registrationError;
                       }
                       final phone = value?.trim() ?? '';
-                      final email = _emailController.text.trim();
-                      
-                      if (email.isEmpty && phone.isEmpty) {
-                        return 'Please enter email or phone';
-                      }
                       
                       if (phone.isNotEmpty) {
                         if (!phone.startsWith('+')) {
