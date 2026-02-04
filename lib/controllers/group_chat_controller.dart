@@ -236,18 +236,34 @@ class GroupChatController extends GetxController {
         return msg;
       }).toList();
 
-      // Get existing message IDs to avoid duplicates
-      final existingIds = messages.map((m) {
-        final idVal = m['id'];
-        if (idVal is int) return idVal;
-        if (idVal is String) return int.tryParse(idVal) ?? 0;
-        return 0;
-      }).toSet();
+      // Get existing message IDs to avoid duplicates - check both msg_id and id
+      final existingIds = <String>{};
+      for (var m in messages) {
+        if (m['msg_id'] != null) {
+          existingIds.add(m['msg_id'].toString());
+        }
+        if (m['id'] != null) {
+          existingIds.add(m['id'].toString());
+        }
+      }
       
       // Filter out messages that already exist
       final trulyNewMessages = newMessages.where((msg) {
-        final msgId = msg['id'] as int?;
-        return msgId != null && !existingIds.contains(msgId);
+        final msgMsgId = msg['msg_id']?.toString();
+        final msgId = msg['id']?.toString();
+        
+        // If message has msg_id, check against existing msg_ids
+        if (msgMsgId != null && existingIds.contains(msgMsgId)) {
+          return false;
+        }
+        
+        // If message has id, check against existing ids
+        if (msgId != null && existingIds.contains(msgId)) {
+          return false;
+        }
+        
+        // Message is truly new
+        return true;
       }).toList();
 
       if (trulyNewMessages.isNotEmpty) {
@@ -362,39 +378,68 @@ class GroupChatController extends GetxController {
         file: file,
       );
       
-      sentMessage['group_id'] = groupId;
-      sentMessage['user_id'] = userId.value;
+      // Extract flattened message from messages_list if it exists (to match backend format)
+      Map<String, dynamic> flattenedMessage = sentMessage;
+      
+      // If sentMessage has messages_list, extract the first message from it (since we always have one message per row now)
+      if (sentMessage.containsKey('messages_list') && sentMessage['messages_list'] != null) {
+        final messagesList = sentMessage['messages_list'];
+        if (messagesList is List && messagesList.isNotEmpty) {
+          final firstMessage = messagesList[0];
+          if (firstMessage is Map<String, dynamic>) {
+            // Create flattened message using the individual message data
+            flattenedMessage = {
+              'id': sentMessage['id'],
+              'msg_id': firstMessage['msg_id'],
+              'user_id': sentMessage['user_id'],
+              'user_name': sentMessage['user_name'],
+              'profile_photo': sentMessage['profile_photo'],
+              'group_id': groupId,
+              'message': firstMessage['text'] ?? sentMessage['message'] ?? '',
+              'message_type': firstMessage['message_type'] ?? sentMessage['message_type'] ?? 'text',
+              'file_url': firstMessage['file_url'] ?? sentMessage['file_url'],
+              'created_at': firstMessage['time'] ?? sentMessage['created_at'] ?? DateTime.now().toString(),
+              'status': sentMessage['status'] ?? 'active'
+            };
+          }
+        }
+      } else {
+        // Ensure basic fields are set if no messages_list
+        flattenedMessage['group_id'] = groupId;
+        flattenedMessage['user_id'] = userId.value;
+        flattenedMessage['msg_id'] = flattenedMessage['msg_id'] ?? 'msg_' + flattenedMessage['id'].toString() + '_' + DateTime.now().millisecondsSinceEpoch.toString();
+      }
 
       // Ensure message text is present
-      if ((sentMessage['message'] == null || sentMessage['message'] == '' || sentMessage['message'] == 'null')) {
-        sentMessage['message'] = sentMessage['text'] ?? '';
+      if ((flattenedMessage['message'] == null || flattenedMessage['message'] == '' || flattenedMessage['message'] == 'null')) {
+        flattenedMessage['message'] = flattenedMessage['text'] ?? '';
       }
 
       // Ensure message_type is correctly identified as 'emoji' for fruit/URL messages
-      final content = sentMessage['message']?.toString() ?? '';
-      final mType = sentMessage['message_type']?.toString();
+      final content = flattenedMessage['message']?.toString() ?? '';
+      final mType = flattenedMessage['message_type']?.toString();
       if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
-        sentMessage['message_type'] = 'emoji';
+        flattenedMessage['message_type'] = 'emoji';
       }
 
       // Ensure timestamp is present
-      if (sentMessage['created_at'] == null) {
-        sentMessage['created_at'] = sentMessage['time'] ?? DateTime.now().toString();
+      if (flattenedMessage['created_at'] == null) {
+        flattenedMessage['created_at'] = flattenedMessage['time'] ?? DateTime.now().toString();
       }
 
       // Add current user info to the message so it displays correctly immediately
       try {
         final user = await us.UserStorage.getUser();
         if (user != null) {
-          sentMessage['user_name'] = user['name'];
-          sentMessage['profile_photo'] = user['profile_photo'];
+          flattenedMessage['user_name'] = user['name'];
+          flattenedMessage['profile_photo'] = user['profile_photo'];
         }
       } catch (e) {
         print('Error adding user info to sent message: $e');
       }
       
       // Handle different ID fields returned by backend (id, msg_id)
-      final rawId = sentMessage['id'] ?? sentMessage['msg_id'];
+      final rawId = flattenedMessage['id'] ?? flattenedMessage['msg_id'];
       int? sentMessageId;
       if (rawId is int) {
         sentMessageId = rawId;
@@ -403,17 +448,26 @@ class GroupChatController extends GetxController {
       }
 
       // Map msg_id to id for consistency if id is missing
-      if (sentMessage['id'] == null && rawId != null) {
-        sentMessage['id'] = rawId;
+      if (flattenedMessage['id'] == null && rawId != null) {
+        flattenedMessage['id'] = rawId;
       }
       
       // Prevent duplicates in the local list
-      final existingIds = messages.map((m) => m['id']?.toString()).toSet();
-      final currentRawIdStr = rawId?.toString();
+      final existingMsgIds = <String>{};
+      for (var m in messages) {
+        if (m['msg_id'] != null) {
+          existingMsgIds.add(m['msg_id'].toString());
+        }
+        if (m['id'] != null) {
+          existingMsgIds.add(m['id'].toString());
+        }
+      }
       
-      if (currentRawIdStr != null && !existingIds.contains(currentRawIdStr)) {
-        // Add the newly sent message to the list
-        messages.insert(0, sentMessage); // Insert at top since ListView is reversed
+      final currentMsgId = flattenedMessage['msg_id']?.toString() ?? flattenedMessage['id']?.toString();
+      
+      if (currentMsgId != null && !existingMsgIds.contains(currentMsgId)) {
+        // Add the newly sent message to the end (newest messages at bottom)
+        messages.add(flattenedMessage);
         messages.refresh();
         
         // Update lastMessageId if it's a numeric ID

@@ -340,23 +340,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           );
 
                           if (success) {
-                            // Show success message FIRST (before navigation)
-                            if (mounted) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Success',
-                                    controller.message.value.isNotEmpty 
-                                        ? controller.message.value 
-                                        : 'Profile updated successfully!',
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 2),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                }
-                              });
-                            }
+                            // Show success message using ScaffoldMessenger with root context
+                            ScaffoldMessenger.of(Get.context!).showSnackBar(
+                              SnackBar(
+                                content: Row(
+                                  children: [
+                                    const Icon(Icons.check_circle, color: Colors.white),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      controller.message.value.isNotEmpty 
+                                          ? controller.message.value 
+                                          : 'Profile updated successfully!',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                backgroundColor: AppTheme.iconscolor,
+                                behavior: SnackBarBehavior.floating,
+                                duration: const Duration(seconds: 2),
+                                margin: EdgeInsets.all(ResponsiveHelper.spacing(Get.context!, 16)),
+                              ),
+                            );
                             
                             // Wait a bit for snackbar to show, then navigate
                             await Future.delayed(const Duration(milliseconds: 500));
@@ -366,23 +373,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               Get.back();
                             }
                           } else {
-                            // Show error message
-                            if (mounted) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Error',
-                                    controller.message.value.isNotEmpty 
-                                        ? controller.message.value 
-                                        : 'Failed to update profile. Please try again.',
-                                    backgroundColor: Colors.red,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 3),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                }
-                              });
-                            }
+                            // Show error message using ScaffoldMessenger with root context
+                            ScaffoldMessenger.of(Get.context!).showSnackBar(
+                              SnackBar(
+                                content: Row(
+                                  children: [
+                                    const Icon(Icons.error, color: Colors.white),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      controller.message.value.isNotEmpty 
+                                          ? controller.message.value 
+                                          : 'Failed to update profile. Please try again.',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                backgroundColor: Colors.red,
+                                behavior: SnackBarBehavior.floating,
+                                duration: const Duration(seconds: 3),
+                                margin: EdgeInsets.all(ResponsiveHelper.spacing(Get.context!, 16)),
+                              ),
+                            );
                           }
                         },
                   style: ElevatedButton.styleFrom(

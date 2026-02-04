@@ -28,10 +28,15 @@ void main() async {
 
   // Force the app to stay in portrait mode.
   // Only the Intro Video Overlay is allowed to rotate.
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  try {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  } catch (e) {
+    // Ignore orientation change errors (common on iOS with certain windowing modes)
+    print('Orientation change error: $e');
+  }
 
   await _initializeDependencies();
 

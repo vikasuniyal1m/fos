@@ -38,9 +38,12 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false, bool isModeration = false}) {
     if (!mounted) return;
     
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    final scaffoldContext = Get.context;
+    if (scaffoldContext == null) return;
     
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(scaffoldContext).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(scaffoldContext).showSnackBar(
       SnackBar(
         content: Row(
           children: [

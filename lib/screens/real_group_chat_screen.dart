@@ -15,10 +15,10 @@ import '../services/terms_service.dart';
 import '../services/user_storage.dart' as us;
 import 'terms_acceptance_screen.dart';
 
-import 'package:fruitsofspirit/screens/report_content_screen.dart' as rcs;
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import '../utils/app_theme.dart';
+import '../utils/report_utils.dart';
 
 class RealGroupChatScreen extends StatefulWidget {
   final int groupId;
@@ -791,12 +791,13 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
             ListTile(
               leading: const Icon(Icons.report_outlined, color: Colors.orange),
               title: const Text('Report Content'),
-              onTap: () {
+              onTap: () async {
                 Get.back();
-                Get.to(() => rcs.ReportContentScreen(
-                      contentType: 'group_message',
-                      contentId: message['id'] is int ? message['id'] : int.parse(message['id'].toString()),
-                    ));
+                await ReportUtils.handleReportButtonTap(
+                  context: context,
+                  contentType: 'group_message',
+                  contentId: message['id'] is int ? message['id'] : int.parse(message['id'].toString()),
+                );
               },
             ),
             ListTile(

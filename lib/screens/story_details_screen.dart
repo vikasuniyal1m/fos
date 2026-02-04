@@ -14,7 +14,7 @@ import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
-import 'package:fruitsofspirit/screens/report_content_screen.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
 
 import '../utils/app_theme.dart';
 
@@ -2763,16 +2763,13 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
               ListTile(
                 leading: const Icon(Icons.report_outlined, color: Colors.orange),
                 title: const Text('Report Comment'),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
                   final commentId = comment['id'] is int ? comment['id'] : int.parse(comment['id'].toString());
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => ReportContentScreen(
-                        contentType: 'story_comment',
-                        contentId: commentId,
-                      ),
-                    ),
+                  await ReportUtils.handleReportButtonTap(
+                    context: context,
+                    contentType: 'story_comment',
+                    contentId: commentId,
                   );
                 },
               ),
@@ -2857,13 +2854,10 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       onSelected: (value) async {
         if (value == 'report') {
           final storyId = story['id'] is int ? story['id'] : int.parse(story['id'].toString());
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => ReportContentScreen(
-                contentType: 'story',
-                contentId: storyId,
-              ),
-            ),
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'story',
+            contentId: storyId,
           );
         } else if (value == 'block') {
           final userIdRaw = story['user_id'] ?? story['created_by'];

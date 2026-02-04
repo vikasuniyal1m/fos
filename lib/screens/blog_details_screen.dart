@@ -12,7 +12,7 @@ import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
-import 'package:fruitsofspirit/screens/report_content_screen.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
 
 /// Blog Details Screen
 /// User-friendly and attractive UI with like, comment, and ask questions functionality
@@ -2850,10 +2850,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
         if (value == 'report') {
-          Get.to(() => ReportContentScreen(
-                contentType: 'blog',
-                contentId: blog['id'] is int ? blog['id'] : int.parse(blog['id'].toString()),
-              ));
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'blog',
+            contentId: blog['id'] is int ? blog['id'] : int.parse(blog['id'].toString()),
+          );
         } else if (value == 'block') {
           final userIdRaw = blog['user_id'] ?? blog['created_by'];
           if (userIdRaw != null) {

@@ -15,7 +15,7 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
-import 'package:fruitsofspirit/screens/report_content_screen.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
 
 /// Photo Details Screen
 /// Shows single photo with full comment system (like blog/prayer details)
@@ -41,13 +41,13 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   bool _isSendingComment = false; // Track comment sending state
 
   /// Show a custom snackbar using ScaffoldMessenger
-  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+  void _showCustomSnackbar(String title, String message, {bool isError = false}) {
     if (!mounted) return;
     
     // Close any existing snackbars
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(this.context).hideCurrentSnackBar();
     
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(this.context).showSnackBar(
       SnackBar(
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -794,7 +794,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                                         _) {
                                                       if (mounted) {
                                                         _showCustomSnackbar(
-                                                          context,
                                                           'Success',
                                                           'Like updated',
                                                         );
@@ -809,7 +808,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                                         _) {
                                                       if (mounted) {
                                                         _showCustomSnackbar(
-                                                          context,
                                                           'Error',
                                                           controller.message
                                                               .value.isNotEmpty
@@ -1319,7 +1317,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                           }
                                           if (mounted) {
                                             _showCustomSnackbar(
-                                              context,
                                               'Success',
                                               'Comment added successfully',
                                             );
@@ -1327,7 +1324,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                         } else {
                                           if (mounted) {
                                             _showCustomSnackbar(
-                                              context,
                                               'Error',
                                               controller.message.value,
                                               isError: true,
@@ -1720,7 +1716,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                   
                   if (mounted) {
                     _showCustomSnackbar(
-                      context,
                       'Success',
                       'Reply added successfully',
                     );
@@ -1728,7 +1723,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                 } else {
                   if (mounted) {
                     _showCustomSnackbar(
-                      context,
                       'Error',
                       controller.message.value,
                       isError: true,
@@ -2029,16 +2023,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                     final success = await controller.reportComment(comment['id'] as int, reason);
                     if (success) {
                       if (mounted) {
-                        _showCustomSnackbar(
-                          context,
-                          'Success',
-                          'Comment reported successfully',
-                        );
-                      }
+                      _showCustomSnackbar(
+                        'Success',
+                        'Comment reported successfully',
+                      );
+                    }
                     } else {
                       if (mounted) {
                         _showCustomSnackbar(
-                          context,
                           'Error',
                           controller.message.value,
                           isError: true,
@@ -2059,7 +2051,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                     if (currentUserId == userId) {
                       if (mounted) {
                         _showCustomSnackbar(
-                          context,
                           'Info',
                           'You cannot block yourself',
                         );
@@ -2087,7 +2078,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           if (mounted) {
                             Navigator.of(context).pop();
                             _showCustomSnackbar(
-                              context,
                               'Success',
                               'User blocked',
                             );
@@ -2098,7 +2088,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       } catch (e) {
                         if (mounted) {
                           _showCustomSnackbar(
-                            context,
                             'Error',
                             'Failed to block user',
                             isError: true,
@@ -2151,13 +2140,10 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
         if (value == 'report') {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => ReportContentScreen(
-                contentType: 'gallery',
-                contentId: photo['id'] is int ? photo['id'] : int.parse(photo['id'].toString()),
-              ),
-            ),
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'gallery',
+            contentId: photo['id'] is int ? photo['id'] : int.parse(photo['id'].toString()),
           );
         } else if (value == 'block') {
           final userIdRaw = photo['user_id'];
@@ -2167,12 +2153,11 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
 
             if (currentUserId == userId) {
               if (mounted) {
-                _showCustomSnackbar(
-                  context,
-                  'Info',
-                  'You cannot block yourself',
-                );
-              }
+              _showCustomSnackbar(
+                'Info',
+                'You cannot block yourself',
+              );
+            }
               return;
             }
 
@@ -2197,7 +2182,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                   await UserBlockingService.blockUser(userId);
                   if (mounted) {
                     _showCustomSnackbar(
-                      context,
                       'Success',
                       'User blocked',
                     );
@@ -2207,7 +2191,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
               } catch (e) {
                 if (mounted) {
                   _showCustomSnackbar(
-                    context,
                     'Error',
                     'Failed to block user',
                     isError: true,
@@ -2438,7 +2421,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
                             if (mounted) {
                               _showCustomSnackbar(
-                                context,
                                 'Error',
                                 'Invalid emoji data. Please try again.',
                                 isError: true,
@@ -2458,7 +2440,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ⏳ Waiting for UI to update...');
                             if (mounted) {
                               _showCustomSnackbar(
-                                context,
                                 'Success',
                                 'Reaction added',
                               );
@@ -2467,7 +2448,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
                             if (mounted) {
                               _showCustomSnackbar(
-                                context,
                                 'Error',
                                 controller.message.value,
                                 isError: true,
@@ -3302,7 +3282,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
                             if (mounted) {
                               _showCustomSnackbar(
-                                context,
                                 'Error',
                                 'Invalid emoji data. Please try again.',
                                 isError: true,
@@ -3323,7 +3302,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
                             if (mounted) {
                               _showCustomSnackbar(
-                                context,
                                 'Error',
                                 controller.message.value,
                                 isError: true,

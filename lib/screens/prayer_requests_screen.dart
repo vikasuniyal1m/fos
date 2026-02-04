@@ -11,7 +11,7 @@ import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
-import 'package:fruitsofspirit/screens/report_content_screen.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
 
 /// Prayer Requests Screen
 /// Modern, user-friendly design with attractive UI
@@ -625,10 +625,11 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
         if (value == 'report') {
-          Get.to(() => ReportContentScreen(
-                contentType: 'prayer',
-                contentId: prayer['id'] is int ? prayer['id'] : int.parse(prayer['id'].toString()),
-              ));
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'prayer',
+            contentId: prayer['id'] is int ? prayer['id'] : int.parse(prayer['id'].toString()),
+          );
         } else if (value == 'block') {
           final userIdRaw = prayer['user_id'] ?? prayer['created_by'];
           if (userIdRaw != null) {

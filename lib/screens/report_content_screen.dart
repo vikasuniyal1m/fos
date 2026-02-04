@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:developer';
 import 'package:get/get.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../services/report_service.dart';
@@ -23,6 +24,7 @@ class _ReportContentScreenState extends State<ReportContentScreen> {
   final TextEditingController _descriptionController = TextEditingController();
   String? _selectedReason;
   bool _isSubmitting = false;
+  bool _isCheckingReportStatus = true;
 
   final List<String> _reasons = [
     'Inappropriate language',
@@ -34,14 +36,27 @@ class _ReportContentScreenState extends State<ReportContentScreen> {
     'Other',
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    // Skip the report status check since the backend doesn't support the check_report endpoint
+    // This avoids unnecessary network requests and errors
+    setState(() {
+      _isCheckingReportStatus = false;
+    });
+  }
+
   Future<void> _submitReport() async {
     if (_selectedReason == null) {
-      Get.snackbar(
-        'Error',
-        'Please select a reason for reporting',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Please select a reason for reporting'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
       return;
     }
 
@@ -55,15 +70,22 @@ class _ReportContentScreenState extends State<ReportContentScreen> {
         description: _descriptionController.text,
       );
 
-      if (success) {
-        Get.back();
-        Get.snackbar(
-          'Success',
-          'Thank you for reporting. Our moderation team will review this content shortly.',
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
+      if (success && mounted) {
+        // Show snackbar and then pop the screen after a delay
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Thank you for reporting. Our moderation team will review this content shortly.'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
         );
+        // Use a timer to pop the screen after the snackbar has been visible for a short time
+        // This ensures the snackbar has enough time to appear before the screen is removed
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            Navigator.pop(context);
+          }
+        });
       }
     } catch (e) {
       String errorMessage = 'Failed to submit report. Please try again later.';
@@ -72,18 +94,27 @@ class _ReportContentScreenState extends State<ReportContentScreen> {
       final errorStr = e.toString().toLowerCase();
       if (errorStr.contains('unknown column') || errorStr.contains('fatal error')) {
         errorMessage = 'Report feature is temporarily unavailable. Our team has been notified and will fix this soon.';
+      } else if (errorStr.contains('content already reported')) {
+        errorMessage = 'Content already reported. Thank you for your feedback.';
       } else if (errorStr.contains('exception:')) {
         errorMessage = e.toString().replaceAll('Exception: ', '');
       }
       
-      Get.snackbar(
-        'Unable to Submit Report',
-        errorMessage,
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 5),
-        icon: const Icon(Icons.warning_amber_rounded, color: Colors.white),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        // Navigate back to previous page after error
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            Navigator.pop(context);
+          }
+        });
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -96,76 +127,78 @@ class _ReportContentScreenState extends State<ReportContentScreen> {
         title: const Text('Report Content'),
         elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(20.w),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Why are you reporting this?',
-              style: TextStyle(
-                fontSize: 18.sp,
-                fontWeight: FontWeight.bold,
+      body: _isCheckingReportStatus
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: EdgeInsets.all(20.w),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Why are you reporting this?',
+                    style: TextStyle(
+                      fontSize: 18.sp,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
+                  Text(
+                    'Help us maintain a safe community by reporting content that violates our community standards.',
+                    style: TextStyle(
+                      fontSize: 14.sp,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  SizedBox(height: 20.h),
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _reasons.length,
+                    itemBuilder: (context, index) {
+                      final reason = _reasons[index];
+                      return RadioListTile<String>(
+                        title: Text(reason),
+                        value: reason,
+                        groupValue: _selectedReason,
+                        onChanged: (value) {
+                          setState(() => _selectedReason = value);
+                        },
+                        contentPadding: EdgeInsets.zero,
+                      );
+                    },
+                  ),
+                  SizedBox(height: 20.h),
+                  Text(
+                    'Additional details (Optional)',
+                    style: TextStyle(
+                      fontSize: 16.sp,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
+                  TextField(
+                    controller: _descriptionController,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      hintText: 'Provide more information to help our moderation team...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[50],
+                    ),
+                  ),
+                  SizedBox(height: 40.h),
+                  CustomButton(
+                    text: 'Submit Report',
+                    onPressed: _submitReport,
+                    isLoading: _isSubmitting,
+                    color: Colors.red,
+                  ),
+                  SizedBox(height: 20.h),
+                ],
               ),
             ),
-            SizedBox(height: 10.h),
-            Text(
-              'Help us maintain a safe community by reporting content that violates our community standards.',
-              style: TextStyle(
-                fontSize: 14.sp,
-                color: Colors.grey[600],
-              ),
-            ),
-            SizedBox(height: 20.h),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _reasons.length,
-              itemBuilder: (context, index) {
-                final reason = _reasons[index];
-                return RadioListTile<String>(
-                  title: Text(reason),
-                  value: reason,
-                  groupValue: _selectedReason,
-                  onChanged: (value) {
-                    setState(() => _selectedReason = value);
-                  },
-                  contentPadding: EdgeInsets.zero,
-                );
-              },
-            ),
-            SizedBox(height: 20.h),
-            Text(
-              'Additional details (Optional)',
-              style: TextStyle(
-                fontSize: 16.sp,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 10.h),
-            TextField(
-              controller: _descriptionController,
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: 'Provide more information to help our moderation team...',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12.r),
-                ),
-                filled: true,
-                fillColor: Colors.grey[50],
-              ),
-            ),
-            SizedBox(height: 40.h),
-            CustomButton(
-              text: 'Submit Report',
-              onPressed: _submitReport,
-              isLoading: _isSubmitting,
-              color: Colors.red,
-            ),
-            SizedBox(height: 20.h),
-          ],
-        ),
-      ),
     );
   }
 

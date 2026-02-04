@@ -74,14 +74,24 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
     });
 
     if (_isLandscape) {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-      ]);
+      try {
+        await SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+        ]);
+      } catch (e) {
+        // Ignore orientation change errors (common on iOS with certain windowing modes)
+        print('Orientation change error: $e');
+      }
     } else {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
+      try {
+        await SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      } catch (e) {
+        // Ignore orientation change errors (common on iOS with certain windowing modes)
+        print('Orientation change error: $e');
+      }
     }
     
     // Minimal delay - maximum speed
@@ -144,9 +154,14 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
     if (_isInitialized) {
       _controller.dispose();
     }
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-    ]);
+    try {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
+    } catch (e) {
+      // Ignore orientation change errors (common on iOS with certain windowing modes)
+      print('Orientation change error: $e');
+    }
     super.dispose();
   }
 

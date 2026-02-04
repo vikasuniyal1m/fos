@@ -20,7 +20,7 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
-import 'package:fruitsofspirit/screens/report_content_screen.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
 import 'dart:async';
 
 /// Video Details Screen - Modern Social Media Style
@@ -298,40 +298,60 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       if (_videoController != null && _videoController!.value.isInitialized) {
         if (_videoController!.value.aspectRatio > 1.0) {
           // Landscape video - force landscape
-          SystemChrome.setPreferredOrientations([
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ]);
+          try {
+            SystemChrome.setPreferredOrientations([
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]);
+          } catch (e) {
+            // Ignore orientation change errors (common on iOS with certain windowing modes)
+            print('Orientation change error: $e');
+          }
         } else {
           // Portrait video - allow all but keep current
-          SystemChrome.setPreferredOrientations([
-            DeviceOrientation.portraitUp,
-            DeviceOrientation.portraitDown,
-          ]);
+          try {
+            SystemChrome.setPreferredOrientations([
+              DeviceOrientation.portraitUp,
+              DeviceOrientation.portraitDown,
+            ]);
+          } catch (e) {
+            // Ignore orientation change errors (common on iOS with certain windowing modes)
+            print('Orientation change error: $e');
+          }
         }
       }
     } else {
       // Exit full screen
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       // Reset to all orientations
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.portraitDown,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
+      try {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      } catch (e) {
+        // Ignore orientation change errors (common on iOS with certain windowing modes)
+        print('Orientation change error: $e');
+      }
     }
   }
 
   @override
   void dispose() {
     // Reset orientations when leaving the screen
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    try {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } catch (e) {
+      // Ignore orientation change errors (common on iOS with certain windowing modes)
+      print('Orientation change error: $e');
+    }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     _controlsTimer?.cancel();
@@ -2358,12 +2378,13 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               ListTile(
                 leading: const Icon(Icons.report_outlined, color: Colors.orange),
                 title: const Text('Report Comment'),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
-                  Get.to(() => ReportContentScreen(
-                        contentType: 'video_comment',
-                        contentId: comment['id'] is int ? comment['id'] : int.parse(comment['id'].toString()),
-                      ));
+                  await ReportUtils.handleReportButtonTap(
+                    context: context,
+                    contentType: 'video_comment',
+                    contentId: comment['id'] is int ? comment['id'] : int.parse(comment['id'].toString()),
+                  );
                 },
               ),
               ListTile(
@@ -2434,10 +2455,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
         if (value == 'report') {
-          Get.to(() => ReportContentScreen(
-                contentType: 'video',
-                contentId: video['id'] is int ? video['id'] : int.parse(video['id'].toString()),
-              ));
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'video',
+            contentId: video['id'] is int ? video['id'] : int.parse(video['id'].toString()),
+          );
         } else if (value == 'block') {
           final userIdRaw = video['user_id'] ?? video['created_by'];
           if (userIdRaw != null) {

@@ -1333,13 +1333,30 @@ class ProfileScreen extends GetView<ProfileController> {
         if (fileToUpload != null && await fileToUpload.exists()) {
           await _uploadProfilePhoto(context, controller, fileToUpload);
         } else {
-          Get.snackbar(
-            'Error',
-            'Failed to process image. Please try again.',
-            backgroundColor: Colors.red,
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-            duration: const Duration(seconds: 3),
+          ScaffoldMessenger.of(Get.context!).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Failed to process image. Please try again.',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+              margin: EdgeInsets.only(
+                bottom: ResponsiveHelper.spacing(Get.context!, 20),
+                left: ResponsiveHelper.spacing(Get.context!, 20),
+                right: ResponsiveHelper.spacing(Get.context!, 20),
+              ),
+            ),
           );
         }
       }
@@ -1352,13 +1369,30 @@ class ProfileScreen extends GetView<ProfileController> {
         Get.back();
       }
       
-      Get.snackbar(
-        'Error',
-        'Failed to pick image: ${e.toString().replaceAll('Exception: ', '')}',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 3),
+      ScaffoldMessenger.of(Get.context!).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Text(
+                'Failed to pick image: ${e.toString().replaceAll('Exception: ', '')}',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          margin: EdgeInsets.only(
+            bottom: ResponsiveHelper.spacing(Get.context!, 20),
+            left: ResponsiveHelper.spacing(Get.context!, 20),
+            right: ResponsiveHelper.spacing(Get.context!, 20),
+          ),
+        ),
       );
     }
   }
@@ -1410,26 +1444,58 @@ class ProfileScreen extends GetView<ProfileController> {
     }
 
     if (success) {
-      Get.snackbar(
-        'Success',
-        'Profile photo updated successfully',
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 2),
-        icon: const Icon(Icons.check_circle, color: Colors.white),
+      ScaffoldMessenger.of(Get.context!).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Text(
+                'Profile photo updated successfully',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+          margin: EdgeInsets.only(
+            bottom: ResponsiveHelper.spacing(Get.context!, 20),
+            left: ResponsiveHelper.spacing(Get.context!, 20),
+            right: ResponsiveHelper.spacing(Get.context!, 20),
+          ),
+        ),
       );
     } else {
-      Get.snackbar(
-        'Error',
-        controller.message.value.isNotEmpty 
-            ? controller.message.value 
-            : 'Failed to update profile photo',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 3),
-        icon: const Icon(Icons.error, color: Colors.white),
+      ScaffoldMessenger.of(Get.context!).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Text(
+                controller.message.value.isNotEmpty 
+                    ? controller.message.value 
+                    : 'Failed to update profile photo',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          margin: EdgeInsets.only(
+            bottom: ResponsiveHelper.spacing(Get.context!, 20),
+            left: ResponsiveHelper.spacing(Get.context!, 20),
+            right: ResponsiveHelper.spacing(Get.context!, 20),
+          ),
+        ),
       );
     }
   }

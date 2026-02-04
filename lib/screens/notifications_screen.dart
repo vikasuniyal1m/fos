@@ -12,9 +12,6 @@ class NotificationsScreen extends GetView<NotificationsController> {
 
   @override
   Widget build(BuildContext context) {
-    // Ensure controller is initialized
-    final controller = Get.put(NotificationsController());
-    
     // Load notifications if not already loaded
     if (controller.notifications.isEmpty && !controller.isLoading.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

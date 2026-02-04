@@ -465,7 +465,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             SizedBox(height: ResponsiveHelper.spacing(context, 8)),
             SizedBox(
-              height: ResponsiveHelper.imageHeight(context, mobile: 180),
+              height: ResponsiveHelper.imageHeight(context, mobile: 180, tablet: 300, desktop: 400),
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.symmetric(
@@ -542,7 +542,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             SizedBox(height: ResponsiveHelper.spacing(context, 8)),
             SizedBox(
-              height: ResponsiveHelper.imageHeight(context, mobile: 200),
+              height: ResponsiveHelper.imageHeight(context, mobile: 200, tablet: 350, desktop: 450),
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.symmetric(
@@ -621,7 +621,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return GestureDetector(
         onTap: onTap,
         child: Container(
-          width: ResponsiveHelper.imageWidth(context, mobile: 250),
+          width: ResponsiveHelper.imageWidth(context, mobile: 250, tablet: 350, desktop: 400),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
@@ -645,7 +645,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: imageUrl != null
                     ? LazyCachedImage(
                         imageUrl: imageUrl!,
-                        height: ResponsiveHelper.imageHeight(context, mobile: 90),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 90, tablet: 150, desktop: 180),
                         width: double.infinity,
                         fit: BoxFit.cover,
                         errorWidget: Container(
@@ -1206,7 +1206,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return GestureDetector(
         onTap: onTap,
         child: Container(
-          width: ResponsiveHelper.imageWidth(context, mobile: 200),
+          width: ResponsiveHelper.imageWidth(context, mobile: 200, tablet: 300, desktop: 350),
           margin: ResponsiveHelper.padding(context, right: 10),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -1230,17 +1230,17 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: imageUrl != null
                     ? CachedImage(
                         imageUrl: imageUrl!,
-                        height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 220, desktop: 280),
                         width: double.infinity,
                         fit: BoxFit.cover,
                         errorWidget: Container(
-                          height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                          height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 220, desktop: 280),
                           color: Colors.grey[300],
                           child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
                         ),
                       )
                     : Container(
-                        height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 220, desktop: 280),
                         color: Colors.grey[300],
                         child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
                       ),
