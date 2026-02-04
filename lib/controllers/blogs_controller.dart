@@ -26,6 +26,7 @@ class BlogsController extends GetxController {
   var userId = 0.obs;
   var userRole = ''.obs;
   var userStatus = ''.obs; // User status: Active, Inactive, Pending
+  var isBloggerRequestPending = false.obs;
 
   // Filters
   var selectedCategory = ''.obs;
@@ -44,7 +45,7 @@ class BlogsController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    _loadUserData();
+    refreshUserData();
     // Don't reset filter here - it might be set before navigation
     // Filter will be reset by home screen navigation if needed
   }
@@ -70,6 +71,9 @@ class BlogsController extends GetxController {
       userId.value = user['id'] as int;
       userRole.value = user['role'] as String? ?? 'User';
       userStatus.value = user['status'] as String? ?? 'Active';
+      // Also update isBloggerRequestPending from local storage data
+      isBloggerRequestPending.value = userRole.value == 'Blogger' && 
+                                      (userStatus.value == 'Inactive' || userStatus.value == 'Pending');
     }
   }
 
@@ -84,17 +88,40 @@ class BlogsController extends GetxController {
     }
 
     try {
+      // First, get locally stored user data (which might contain PendingBlogger status)
+      final localUserData = await UserStorage.getUser();
+
       // Get fresh profile data from server
-      final profileData = await ProfileService.getProfile(userId.value);
-      
-      // Update local storage with fresh data
-      await UserStorage.updateUser(profileData);
-      
+      final serverProfileData = await ProfileService.getProfile(userId.value);
+
+      // Merge local data with server data, prioritizing server data unless local is PendingBlogger
+      Map<String, dynamic> mergedUserData = {};
+      if (localUserData != null) {
+        mergedUserData.addAll(localUserData);
+      }
+      if (serverProfileData != null) {
+        mergedUserData.addAll(serverProfileData);
+      }
+
+      // If local role was PendingBlogger and server hasn't explicitly changed it, keep local
+      if (localUserData?['role'] == 'PendingBlogger' && serverProfileData?['role'] != 'Blogger' && serverProfileData?['role'] != 'User') {
+        mergedUserData['role'] = 'PendingBlogger';
+        mergedUserData['status'] = 'Pending';
+      }
+
+      // Update local storage with the merged data
+      await UserStorage.updateUser(mergedUserData);
+
       // Update observable values for UI
-      userRole.value = profileData['role'] as String? ?? 'User';
-      userStatus.value = profileData['status'] as String? ?? 'Active';
-      
-      print('✅ User data refreshed from server: Role=${userRole.value}, Status=${userStatus.value}');
+      userRole.value = mergedUserData['role'] as String? ?? 'User';
+      userStatus.value = mergedUserData['status'] as String? ?? 'Active';
+
+      // Update isBloggerRequestPending based on current role and status
+      isBloggerRequestPending.value = (userRole.value == 'Blogger' &&
+                                      (userStatus.value == 'Inactive' || userStatus.value == 'Pending')) ||
+                                      userRole.value == 'PendingBlogger';
+
+      // print('✅ User data refreshed: Role=${userRole.value}, Status=${userStatus.value}, IsBloggerRequestPending=${isBloggerRequestPending.value}');
     } catch (e) {
       print('⚠️ Failed to refresh user data: $e');
       // Fall back to local storage if server call fails
@@ -515,6 +542,49 @@ class BlogsController extends GetxController {
     }
   }
 
+  /// Request to become a blogger
+  Future<bool> requestBloggerAccess() async {
+    if (userId.value == 0) {
+      await _loadUserData();
+    }
+
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      return false;
+    }
+
+    isLoading.value = true;
+    message.value = '';
+
+    try {
+      final success = await BlogsService.requestBloggerAccess(userId: userId.value);
+      if (success) {
+          message.value = 'Your blogger request has been sent. Admin will review your request.';
+          isBloggerRequestPending.value = true; // Set to true on successful request
+
+          // Locally update user role and status to reflect pending request
+          userRole.value = 'PendingBlogger';
+          userStatus.value = 'Pending';
+
+          // Persist this updated state to UserStorage
+          await UserStorage.updateUser({'role': 'PendingBlogger', 'status': 'Pending'});
+
+          // No immediate refreshUserData() call here to avoid resetting state prematurely
+          // The onInit() will handle server refresh on next page load
+        } else {
+        message.value = 'Failed to send blogger request. Please try again.';
+      }
+      return success;
+    } catch (e) {
+      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      print('Error requesting blogger access: $e');
+      return false;
+    } finally {
+      isLoading.value = false;
+      // isBloggerRequestPending.value = false; // This should be handled by refreshUserData
+    }
+  }
+
   /// Set initial data from cache
   void setInitialData(List<Map<String, dynamic>> data) {
     if (data.isNotEmpty) {
@@ -629,41 +699,7 @@ class BlogsController extends GetxController {
     await loadBlogs(refresh: true);
   }
 
-  /// Request to become a blogger
-  Future<bool> requestBloggerAccess() async {
-    if (userId.value == 0) {
-      await _loadUserData();
-    }
 
-    if (userId.value == 0) {
-      message.value = 'Please login first';
-      return false;
-    }
-
-    if (userRole.value == 'Blogger') {
-      message.value = 'You are already a blogger';
-      return false;
-    }
-
-    isLoading.value = true;
-    message.value = 'Sending request...';
-
-    try {
-      await BlogsService.requestBloggerAccess(userId: userId.value);
-      message.value = 'Request sent successfully. Admin will review your request.';
-      
-      // Refresh user data from server to get latest role/status
-      await refreshUserData();
-      
-      return true;
-    } catch (e) {
-      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
-      print('Error requesting blogger access: $e');
-      return false;
-    } finally {
-      isLoading.value = false;
-    }
-  }
 
   
   /// Show moderation snackbar
