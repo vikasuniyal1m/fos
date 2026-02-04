@@ -86,47 +86,55 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
       appBar: const StandardAppBar(        showBackButton: true,
       ),
       body: Obx(() {
-        // Show request button for non-bloggers
-        if (controller.userRole.value != 'Blogger') {
+        final isBlogger = controller.userRole.value == 'Blogger';
+        final isActive = controller.userStatus.value == 'Active';
+        final hasPendingRequest = controller.userRole.value == 'PendingBlogger';
+        final isUser = controller.userRole.value == 'User';
+
+        // If user is a regular user or has a pending request, hide the main blog list and show appropriate view
+        if (isUser || hasPendingRequest) {
           return _buildNonBloggerView(context);
         }
 
-        // Show blog list for bloggers
-        if (controller.isLoading.value && controller.blogs.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-              strokeWidth: ResponsiveHelper.spacing(context, 3),
+        // Show blog list for approved bloggers
+        if (isBlogger && isActive) {
+          if (controller.isLoading.value && controller.blogs.isEmpty) {
+            return Center(
+              child: CircularProgressIndicator(
+                color: AppTheme.iconscolor,
+                strokeWidth: ResponsiveHelper.spacing(context, 3),
+              ),
+            );
+          }
+
+          if (controller.blogs.isEmpty) {
+            return _buildEmptyState(context);
+          }
+
+          return RefreshIndicator(
+            onRefresh: () => controller.loadBlogs(refresh: true),
+            color: AppTheme.iconscolor,
+            backgroundColor: Colors.white,
+            child: ListView.builder(
+              padding: ResponsiveHelper.padding(context, vertical: 12),
+              itemCount: controller.blogs.length,
+              itemBuilder: (context, index) {
+                final blog = controller.blogs[index];
+                return _buildSocialMediaBlogCard(context, blog, controller);
+              },
             ),
           );
         }
-
-        if (controller.blogs.isEmpty) {
-          return _buildEmptyState(context);
-        }
-
-        return RefreshIndicator(
-          onRefresh: () => controller.loadBlogs(refresh: true),
-          color: AppTheme.iconscolor,
-          backgroundColor: Colors.white,
-          child: ListView.builder(
-            padding: ResponsiveHelper.padding(context, vertical: 12),
-            itemCount: controller.blogs.length,
-            itemBuilder: (context, index) {
-              final blog = controller.blogs[index];
-              return _buildSocialMediaBlogCard(context, blog, controller);
-            },
-          ),
-        );
+        
+        // Default case, should ideally not be reached if all roles are handled
+        return const SizedBox.shrink();
       }),
       floatingActionButton: Obx(() {
-        final isBlogger = controller.userRole.value == 'Blogger';
-        final isActive = controller.userStatus.value == 'Active';
-        final hasPendingRequest = controller.userRole.value == 'Blogger' && 
-                                  (controller.userStatus.value == 'Inactive' || controller.userStatus.value == 'Pending');
-        
-        // Show button only if user is approved Blogger (role=Blogger, status=Active)
-        if (isBlogger && isActive) {
+        final userRole = controller.userRole.value;
+        final userStatus = controller.userStatus.value;
+
+        // 1. If user is an approved Blogger, show "New Post" button
+        if (userRole == 'Blogger' && userStatus == 'Active') {
           return FloatingActionButton.extended(
             onPressed: () => Get.toNamed(Routes.CREATE_BLOG),
             backgroundColor: AppTheme.iconscolor,
@@ -155,9 +163,9 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
             ),
           );
         }
-        
-        // Show disabled button with message if pending approval
-        if (hasPendingRequest || controller.message.value.contains('Request sent successfully')) {
+
+        // 2. If user has a pending blogger request (including 'PendingBlogger' role), show disabled "Request Sent to Admin" button
+        if (controller.isBloggerRequestPending.value) {
           return FloatingActionButton.extended(
             onPressed: () {
               _showCustomSnackbar(
@@ -183,50 +191,55 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
           );
         }
         
-        // Show button for non-bloggers to request access
-        return FloatingActionButton.extended(
-          onPressed: controller.isLoading.value ? null : () async {
-            // Request blogger access
-            final success = await controller.requestBloggerAccess();
-            
-            if (success) {
-              _showCustomSnackbar(
-                'Success',
-                'Your blogger request has been sent. Admin will review your request.'
-              );
-            } else {
-              _showCustomSnackbar(
-                'Notice',
-                controller.message.value.isNotEmpty 
-                    ? controller.message.value 
-                    : 'Failed to send request. Please try again.',
-                isError: true
-              );
-            }
-          },
-          backgroundColor: AppTheme.iconscolor,
-          elevation: 8,
-          icon: controller.isLoading.value 
-            ? const SizedBox(
-                width: 20, 
-                height: 20, 
-                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-              )
-            : const Icon(
-                Icons.person_add,
+        // 3. If user is a regular 'User', show enabled "Become a Blogger" button
+        if (userRole == 'User') {
+          return FloatingActionButton.extended(
+            onPressed: controller.isLoading.value ? null : () async {
+              // Request blogger access
+              final success = await controller.requestBloggerAccess();
+              
+              if (success) {
+                _showCustomSnackbar(
+                  'Success',
+                  'Your blogger request has been sent. Admin will review your request.'
+                );
+              } else {
+                _showCustomSnackbar(
+                  'Notice',
+                  controller.message.value.isNotEmpty 
+                      ? controller.message.value 
+                      : 'Failed to send request. Please try again.',
+                  isError: true
+                );
+              }
+            },
+            backgroundColor: AppTheme.iconscolor,
+            elevation: 8,
+            icon: controller.isLoading.value 
+              ? const SizedBox(
+                  width: 20, 
+                  height: 20, 
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                )
+              : const Icon(
+                  Icons.person_add,
+                  color: Colors.white,
+                  size: 22,
+                ),
+            label: Text(
+              controller.isLoading.value ? 'Sending...' : 'Become a Blogger',
+              style: const TextStyle(
                 color: Colors.white,
-                size: 22,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                letterSpacing: 0.5,
               ),
-          label: Text(
-            controller.isLoading.value ? 'Sending...' : 'Become a Blogger',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              letterSpacing: 0.5,
             ),
-          ),
-        );
+          );
+        }
+        
+        // Default case: Hide the button if none of the above conditions are met.
+        return const SizedBox.shrink();
       }),
     );
   }
@@ -519,7 +532,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
 
         children: [
 
-          SizedBox(height: ResponsiveHelper.spacing(context, 40)),
+          // SizedBox(height: ResponsiveHelper.spacing(context, 40)),
           Container(
             padding: ResponsiveHelper.padding(context, all: 28),
             decoration: BoxDecoration(
@@ -551,7 +564,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
               letterSpacing: 0.5,
             ),
           ),
-          SizedBox(height: ResponsiveHelper.spacing(context, 18)),
+          // SizedBox(height: ResponsiveHelper.spacing(context, 18)),
 
             // Show pending request message if applicable
             if (hasPendingRequest) ...[
@@ -633,8 +646,8 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
               height: 1.6,
             ),
           ),
-          SizedBox(height: ResponsiveHelper.spacing(context, 44)),
-          _buildRequestButton(context),
+          // SizedBox(height: ResponsiveHelper.spacing(context, 44)),
+          // _buildRequestButton(context),
             ],
           SizedBox(height: ResponsiveHelper.spacing(context, 24)),
           if (controller.blogs.isNotEmpty) ...[
@@ -848,13 +861,6 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                final dialogContext = Get.overlayContext;
-                if (dialogContext != null) {
-                  Navigator.of(dialogContext, rootNavigator: true).pop();
-                } else if (context.mounted) {
-                  Navigator.of(context, rootNavigator: true).pop();
-                }
-                print("Done");
                 final success = await controller.requestBloggerAccess();
                 if (success) {
                   Get.snackbar(
@@ -871,6 +877,12 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
                     backgroundColor: Colors.red,
                     colorText: Colors.white,
                   );
+                }
+                final dialogContext = Get.overlayContext;
+                if (dialogContext != null) {
+                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                } else if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
                 }
               },
               style: ElevatedButton.styleFrom(
