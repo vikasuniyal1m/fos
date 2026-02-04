@@ -2841,6 +2841,17 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
   }
 
   Widget _buildStoryOptions(BuildContext context, Map<String, dynamic> story) {
+    final userIdRaw = story['user_id'] ?? story['created_by'];
+    final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+    
+    // Check if we have any options to show
+    final hasOptions = posterId != null && posterId != this.userId;
+    
+    // Only show the PopupMenuButton if there are options
+    if (!hasOptions) {
+      return SizedBox(width: 40); // Empty placeholder for alignment
+    }
+    
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
@@ -2911,9 +2922,6 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       },
       itemBuilder: (context) {
         final List<PopupMenuEntry<String>> items = [];
-        
-        final userIdRaw = story['user_id'] ?? story['created_by'];
-        final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
         
         // Only show options if it's NOT the current user's story
         if (posterId != null && posterId != this.userId) {

@@ -1244,32 +1244,27 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   // Create Account Button
                 SizedBox(
                   width: double.infinity,
-                  height: ResponsiveHelper.buttonHeight(
-                    context,
-                    mobile: 65,
-                    tablet: 65,  // Taller for tablets
-                  ),
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _createAccount,
-                      style: ResponsiveHelper.adaptiveButtonStyle(
-                        context,
-                        backgroundColor: const Color(0xFF9F9467),
-                        foregroundColor: Colors.white,
-                      ).copyWith(
-                        backgroundColor: MaterialStateProperty.resolveWith((states) {
-                          if (states.contains(MaterialState.disabled)) {
-                            return Colors.grey;
-                          }
-                          return const Color(0xFF9F9467);
-                        }),
-                        elevation: MaterialStateProperty.all(4),
-                        shadowColor: MaterialStateProperty.all(const Color(0xFF9F9467).withOpacity(0.4)),
-                        shape: MaterialStateProperty.all(
-                          RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                          ),
+                    style: ResponsiveHelper.adaptiveButtonStyle(
+                      context,
+                      backgroundColor: const Color(0xFF9F9467),
+                      foregroundColor: Colors.white,
+                    ).copyWith(
+                      backgroundColor: MaterialStateProperty.resolveWith((states) {
+                        if (states.contains(MaterialState.disabled)) {
+                          return Colors.grey;
+                        }
+                        return const Color(0xFF9F9467);
+                      }),
+                      elevation: MaterialStateProperty.all(4),
+                      shadowColor: MaterialStateProperty.all(const Color(0xFF9F9467).withOpacity(0.4)),
+                      shape: MaterialStateProperty.all(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
                         ),
                       ),
+                    ),
                     child: _isLoading
                         ? SizedBox(
                             height: ResponsiveHelper.iconSize(context, mobile: 20),
@@ -1323,11 +1318,6 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   if (Platform.isIOS)
                     SizedBox(
                       width: double.infinity,
-                      height: ResponsiveHelper.buttonHeight(
-                        context, 
-                        mobile: 50,
-                        tablet: 56,
-                      ),
                       child: SignInWithAppleButton(
                         onPressed: () {
                           if (!_isLoading) {
@@ -1338,7 +1328,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         height: ResponsiveHelper.buttonHeight(
                           context, 
                           mobile: 50,
-                          tablet: 56,
+                          tablet: 60,
                         ),
                       ),
                     ),
@@ -1347,11 +1337,6 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   // Google Sign In Button - Full Width for Better UX (Always Visible)
                   SizedBox(
                     width: double.infinity,
-                    height: ResponsiveHelper.buttonHeight(
-                      context,
-                      mobile: 50,
-                      tablet: 75,
-                    ),
                     child: ElevatedButton.icon(
                       onPressed: _isLoading ? null : () async {
                         print('🔵🔵🔵 Google Sign In button TAPPED!');

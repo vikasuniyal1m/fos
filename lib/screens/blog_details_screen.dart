@@ -2835,6 +2835,17 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   }
 
   Widget _buildBlogOptions(BuildContext context, Map<String, dynamic> blog) {
+    final userIdRaw = blog['user_id'] ?? blog['created_by'];
+    final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+    
+    // Check if we have any options to show
+    final hasOptions = posterId != null && posterId != currentUserId;
+    
+    // Only show the PopupMenuButton if there are options
+    if (!hasOptions) {
+      return SizedBox(width: 40); // Empty placeholder for alignment
+    }
+    
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
@@ -2885,9 +2896,6 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
       },
       itemBuilder: (context) {
         final List<PopupMenuEntry<String>> items = [];
-        
-        final userIdRaw = blog['user_id'] ?? blog['created_by'];
-        final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
         
         // Only show options if it's NOT the current user's blog
         if (posterId != null && posterId != currentUserId) {

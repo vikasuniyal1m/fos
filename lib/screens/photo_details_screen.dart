@@ -495,7 +495,13 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                             ],
                                           ),
                                         ),
-                                        _buildPhotoOptions(context, photo),
+                                        Padding(
+                                          padding: ResponsiveHelper.padding(context, all: 8),
+                                          child: Container(
+                                            padding: EdgeInsets.all(4),
+                                            child: _buildPhotoOptions(context, photo),
+                                          ),
+                                        ),
                                       ],
                                     ),
                                     SizedBox(height: ResponsiveHelper.spacing(
@@ -2130,6 +2136,17 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   }
 
   Widget _buildPhotoOptions(BuildContext context, Map<String, dynamic> photo) {
+    final userIdRaw = photo['user_id'];
+    final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+    
+    // Check if we have any options to show
+    final hasOptions = posterId != null && posterId != currentUserId;
+    
+    // Only show the PopupMenuButton if there are options
+    if (!hasOptions) {
+      return SizedBox(width: ResponsiveHelper.iconSize(context, mobile: 40)); // Empty placeholder for alignment
+    }
+    
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
@@ -2203,9 +2220,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
       },
       itemBuilder: (context) {
         final List<PopupMenuEntry<String>> items = [];
-        
-        final userIdRaw = photo['user_id'];
-        final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
         
         // Only show options if it's NOT the current user's photo
         if (posterId != null && posterId != currentUserId) {

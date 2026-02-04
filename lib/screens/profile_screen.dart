@@ -1266,36 +1266,6 @@ class ProfileScreen extends GetView<ProfileController> {
   /// Pick photo and update profile
   Future<void> _pickAndUpdatePhoto(BuildContext context, ProfileController controller, ImageSource source) async {
     try {
-      // Request permissions first
-      bool hasPermission = false;
-      if (source == ImageSource.camera) {
-        hasPermission = await PermissionManager.requestCameraPermission();
-        if (!hasPermission) {
-          Get.snackbar(
-            'Permission Required',
-            'Camera permission is required to take photos. Please enable it in settings.',
-            backgroundColor: Colors.orange,
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-            duration: const Duration(seconds: 3),
-          );
-          return;
-        }
-      } else {
-        hasPermission = await PermissionManager.requestStoragePermission();
-        if (!hasPermission) {
-          Get.snackbar(
-            'Permission Required',
-            'Storage permission is required to select photos. Please enable it in settings.',
-            backgroundColor: Colors.orange,
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-            duration: const Duration(seconds: 3),
-          );
-          return;
-        }
-      }
-
       final picker = ImagePicker();
       final image = await picker.pickImage(
         source: source,

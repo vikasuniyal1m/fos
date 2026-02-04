@@ -620,6 +620,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
   }
 
   Widget _buildPrayerOptions(BuildContext context, Map<String, dynamic> prayer) {
+    // Don't show the menu if it's the current user's content
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
