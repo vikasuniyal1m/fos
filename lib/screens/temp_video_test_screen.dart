@@ -207,25 +207,25 @@ class _TempVideoTestScreenState extends State<TempVideoTestScreen> {
             ),
           // Download Button
           if (!_isRotating)
-            Positioned(
-              top: 40,
-              left: 20,
-              child: GestureDetector(
-                onTap: _saveVideo,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.download_rounded,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-                ),
-              ),
-            ),
+            // Positioned(
+            //   top: 40,
+            //   left: 20,
+            //   child: GestureDetector(
+            //     onTap: _saveVideo,
+            //     child: Container(
+            //       padding: const EdgeInsets.all(8),
+            //       decoration: BoxDecoration(
+            //         color: Colors.black.withOpacity(0.3),
+            //         shape: BoxShape.circle,
+            //       ),
+            //       child: const Icon(
+            //         Icons.download_rounded,
+            //         color: Colors.white,
+            //         size: 30,
+            //       ),
+            //     ),
+            //   ),
+            // ),
           Positioned(
             top: 40,
             right: 20,
