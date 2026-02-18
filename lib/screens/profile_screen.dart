@@ -14,6 +14,7 @@ import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/controllers/fruits_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
@@ -253,7 +254,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                 onTap: () {
                                   final currentUserId = controller.userId.value;
                                   if (currentUserId > 0) {
-                                    Get.toNamed(
+                                    PaymentGate.navigateToFeature(
                                       Routes.PRAYER_REQUESTS,
                                       arguments: {
                                         'fromProfile': true,
@@ -262,8 +263,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                     );
                                     return;
                                   }
-
-                                  Get.toNamed(Routes.PRAYER_REQUESTS);
+                                  PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
                                 },
                               ),
                             ),
@@ -278,7 +278,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                 onTap: () {
                                   final currentUserId = controller.userId.value;
                                   if (currentUserId > 0) {
-                                    Get.toNamed(
+                                    PaymentGate.navigateToFeature(
                                       Routes.BLOGS,
                                       arguments: {
                                         'fromProfile': true,
@@ -287,8 +287,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                     );
                                     return;
                                   }
-
-                                  Get.toNamed(Routes.BLOGS);
+                                  PaymentGate.navigateToFeature(Routes.BLOGS);
                                 },
                               ),
                             ),
@@ -303,7 +302,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                 onTap: () {
                                   final currentUserId = controller.userId.value;
                                   if (currentUserId > 0) {
-                                    Get.toNamed(
+                                    PaymentGate.navigateToFeature(
                                       Routes.GALLERY,
                                       arguments: {
                                         'fromProfile': true,
@@ -312,8 +311,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                     );
                                     return;
                                   }
-
-                                  Get.toNamed(Routes.GALLERY);
+                                  PaymentGate.navigateToFeature(Routes.GALLERY);
                                 },
                               ),
                             ),

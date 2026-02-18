@@ -9,6 +9,7 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Videos Screen
 /// Displays list of videos with filters
@@ -42,7 +43,7 @@ class _VideosScreenState extends State<VideosScreen> {
             context,
             icon: Icons.add_rounded,
             onTap: () async {
-              await Get.toNamed(Routes.UPLOAD_VIDEO);
+              await PaymentGate.navigateToFeature(Routes.UPLOAD_VIDEO);
               controller.loadVideos(refresh: true, includePending: true);
             },
           ),
@@ -87,7 +88,7 @@ class _VideosScreenState extends State<VideosScreen> {
                 SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                 ElevatedButton(
                   onPressed: () async {
-                    await Get.toNamed(Routes.UPLOAD_VIDEO);
+                    await PaymentGate.navigateToFeature(Routes.UPLOAD_VIDEO);
                     // Refresh videos when returning from upload screen
                     controller.loadVideos(refresh: true, includePending: true);
                   },
@@ -131,7 +132,7 @@ class _VideosScreenState extends State<VideosScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          await Get.toNamed(Routes.UPLOAD_VIDEO);
+          await PaymentGate.navigateToFeature(Routes.UPLOAD_VIDEO);
           // Refresh videos when returning from upload screen
           controller.loadVideos(refresh: true, includePending: true);
         },
@@ -158,7 +159,7 @@ class _VideosScreenState extends State<VideosScreen> {
 
     
     return GestureDetector(
-      onTap: () => Get.toNamed(
+      onTap: () => PaymentGate.navigateToFeature(
         Routes.VIDEO_DETAILS,
         arguments: video['id'],
       ),

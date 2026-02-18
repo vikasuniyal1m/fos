@@ -45,6 +45,7 @@ import 'package:fruitsofspirit/screens/reset_password_screen.dart';
 import '../bindings/live_stream_binding.dart';
 import '../screens/agora_live_screen.dart';
 import '../screens/live_stream_viewer_screen.dart';
+import '../screens/payment_screen.dart';
 
 part 'app_routes.dart';
 
@@ -281,6 +282,11 @@ class AppPages {
           isBroadcaster: args['is_broadcaster'] as bool? ?? false,
         );
       },
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.PAYMENT,
+      page: () => const PaymentScreen(),
       transition: Transition.fadeIn,
     ),
   ];

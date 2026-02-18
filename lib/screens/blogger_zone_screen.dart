@@ -10,6 +10,7 @@ import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Blogger Zone Screen - Social Media Style
 /// Professional, attractive UI with like, comment, and question functionality
@@ -136,7 +137,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
         // 1. If user is an approved Blogger, show "New Post" button
         if (userRole == 'Blogger' && userStatus == 'Active') {
           return FloatingActionButton.extended(
-            onPressed: () => Get.toNamed(Routes.CREATE_BLOG),
+            onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_BLOG),
             backgroundColor: AppTheme.iconscolor,
             elevation: 8,
             icon: Container(
@@ -276,7 +277,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
     }
 
     return InkWell(
-      onTap: () => Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 16)),
@@ -370,7 +371,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
                       color: AppTheme.iconscolor,
                     ),
                     onPressed: () {
-                      Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']);
+                      PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
                     },
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),

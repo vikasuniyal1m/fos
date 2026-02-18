@@ -10,6 +10,7 @@ import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Gallery Screen - Social Media Style
 /// User-friendly design like home page with modern UI
@@ -76,7 +77,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
           StandardAppBar.buildActionIcon(
             context,
             icon: Icons.camera_alt_rounded,
-            onTap: () => Get.toNamed(Routes.UPLOAD_PHOTO),
+            onTap: () async => await PaymentGate.navigateToFeature(Routes.UPLOAD_PHOTO),
           ),
         ],
       ),
@@ -494,7 +495,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               tablet: 54,
             ),
             child: ElevatedButton(
-              onPressed: () => Get.toNamed(Routes.UPLOAD_PHOTO),
+              onPressed: () async => await PaymentGate.navigateToFeature(Routes.UPLOAD_PHOTO),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.iconscolor,
                 shape: RoundedRectangleBorder(
@@ -595,7 +596,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         }
 
         // Navigate to details
-        Get.toNamed(
+        PaymentGate.navigateToFeature(
           Routes.PHOTO_DETAILS,
           arguments: photo['id'],
         );
@@ -995,7 +996,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               tablet: 52,
             ),
             child: ElevatedButton(
-              onPressed: () => Get.toNamed(Routes.UPLOAD_PHOTO),
+              onPressed: () async => await PaymentGate.navigateToFeature(Routes.UPLOAD_PHOTO),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF9F9467),
                 shape: RoundedRectangleBorder(

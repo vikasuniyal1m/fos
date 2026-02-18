@@ -5,6 +5,7 @@ import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Blogs Screen
 /// Displays list of approved blogs
@@ -62,7 +63,7 @@ class BlogsScreen extends GetView<BlogsController> {
                   StandardAppBar.buildActionIcon(
                     context,
                     icon: Icons.add_rounded,
-                    onTap: () => Get.toNamed(Routes.CREATE_BLOG),
+                    onTap: () async => await PaymentGate.navigateToFeature(Routes.CREATE_BLOG),
                   ),
                 ]
               : null,
@@ -164,7 +165,7 @@ class BlogsScreen extends GetView<BlogsController> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => Get.toNamed(
+          onTap: () => PaymentGate.navigateToFeature(
             Routes.BLOG_DETAILS,
             arguments: blog['id'],
           ),

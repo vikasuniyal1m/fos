@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/analytics_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Deep Link Service
 /// Handles app deep linking
@@ -196,7 +197,7 @@ class DeepLinkService {
         Get.toNamed(Routes.PHOTO_DETAILS, arguments: id);
         break;
       case 'group':
-        Get.toNamed(Routes.GROUP_DETAILS, arguments: id);
+        PaymentGate.navigateToFeature(Routes.GROUP_DETAILS, arguments: id);
         break;
     }
   }

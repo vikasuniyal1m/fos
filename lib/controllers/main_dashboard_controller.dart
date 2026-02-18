@@ -3,8 +3,10 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
+import 'package:fruitsofspirit/services/payment_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MainDashboardController extends GetxController {
   var currentIndex = 0.obs;
@@ -26,8 +28,17 @@ class MainDashboardController extends GetxController {
     showIntroVideo.value = false;
   }
 
-  void changeIndex(int index) {
+  Future<void> changeIndex(int index) async {
     if (currentIndex.value == index) return;
+
+    // Payment gate: Fruits (1), Prayer (2), Videos (3), Gallery (4)
+    if (index == 1 || index == 2 || index == 3 || index == 4) {
+      final hasPaid = await PaymentService.hasUserPaid();
+      if (!hasPaid) {
+        Get.toNamed(Routes.PAYMENT);
+        return;
+      }
+    }
 
     // Special logic for certain tabs if needed (like resetting filters)
     if (index == 2) {

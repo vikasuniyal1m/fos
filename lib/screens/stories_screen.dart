@@ -10,6 +10,7 @@ import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Stories Screen
 /// Displays list of stories/testimonies
@@ -352,7 +353,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => Get.toNamed(Routes.CREATE_STORY),
+                          onTap: () async => await PaymentGate.navigateToFeature(Routes.CREATE_STORY),
                           borderRadius: BorderRadius.circular(30),
                           child: Container(
                             width: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,
@@ -695,11 +696,10 @@ class _StoriesScreenState extends State<StoriesScreen> {
       ),
       child: InkWell(
         onTap: () {
-          // If it's a gallery-based story, navigate to photo details, otherwise story details
           if (story['is_gallery_story'] == true) {
-            Get.toNamed(Routes.PHOTO_DETAILS, arguments: story['id']);
+            PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: story['id']);
           } else {
-            Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+            PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: story['id']);
           }
         },
         borderRadius: BorderRadius.circular(
@@ -1048,9 +1048,9 @@ class _StoriesScreenState extends State<StoriesScreen> {
                     child: InkWell(
                       onTap: () {
                         if (story['is_gallery_story'] == true) {
-                          Get.toNamed(Routes.PHOTO_DETAILS, arguments: story['id']);
+                          PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: story['id']);
                         } else {
-                          Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+                          PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: story['id']);
                         }
                       },
                       borderRadius: BorderRadius.circular(

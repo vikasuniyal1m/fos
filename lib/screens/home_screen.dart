@@ -25,7 +25,7 @@ import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
 import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
-
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 import '../utils/app_theme.dart';
 import '../widgets/video_frame_thumbnail.dart';
@@ -41,6 +41,11 @@ class HomeScreen extends GetView<HomeController> {
 
   // Helper method for blogger zone navigation with loading
   static Future<void> navigateToBloggerZone(BuildContext context) async {
+    final hasPaid = await PaymentGate.hasPaid();
+    if (!hasPaid) {
+      Get.toNamed(Routes.PAYMENT);
+      return;
+    }
     // Show loading dialog using standard showDialog for better control
     showDialog(
       context: context,
@@ -106,6 +111,11 @@ class HomeScreen extends GetView<HomeController> {
 
   // Helper method for gallery navigation with loading
   static Future<void> navigateToGallery(BuildContext context) async {
+    final hasPaid = await PaymentGate.hasPaid();
+    if (!hasPaid) {
+      Get.toNamed(Routes.PAYMENT);
+      return;
+    }
     // Show loading dialog
     showDialog(
       context: context,
@@ -159,6 +169,11 @@ class HomeScreen extends GetView<HomeController> {
 
   // Helper method for story details navigation with loading
   static Future<void> navigateToStoryDetails(BuildContext context, int storyId) async {
+    final hasPaid = await PaymentGate.hasPaid();
+    if (!hasPaid) {
+      Get.toNamed(Routes.PAYMENT);
+      return;
+    }
     // Show loading dialog
     showDialog(
       context: context,
@@ -506,7 +521,7 @@ class HomeScreen extends GetView<HomeController> {
                                       } catch (e) {
                                         Get.put(PrayersController());
                                       }
-                                      Get.toNamed(Routes.PRAYER_REQUESTS);
+                                      PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
                                     },
                                     child: Text(
                                       'View All',
@@ -940,12 +955,8 @@ class HomeScreen extends GetView<HomeController> {
 
     return GestureDetector(
       onTap: () {
-
-        // Reload user feeling when coming back from fruits screen
-        Get.toNamed(Routes.FRUITS)?.then((_) {
-          // Refresh user feeling when returning from fruits screen
-          controller.loadUserFeeling();
-        });
+        PaymentGate.navigateToFeature(Routes.FRUITS);
+        controller.loadUserFeeling();
       },
       child: Container(
         decoration: BoxDecoration(
@@ -969,11 +980,8 @@ class HomeScreen extends GetView<HomeController> {
           child: InkWell(
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
             onTap: () {
-              // Reload user feeling when coming back from fruits screen
-              Get.toNamed(Routes.FRUITS)?.then((_) {
-                // Refresh user feeling when returning from fruits screen
-                controller.loadUserFeeling();
-              });
+              PaymentGate.navigateToFeature(Routes.FRUITS);
+              controller.loadUserFeeling();
             },
             child: Padding(
               padding: ResponsiveHelper.padding(
@@ -1067,7 +1075,7 @@ class HomeScreen extends GetView<HomeController> {
     final subtitle = category;
 
     return InkWell(
-      onTap: () => Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: ResponsiveHelper.safeMargin(
@@ -1172,7 +1180,7 @@ class HomeScreen extends GetView<HomeController> {
                     constraints: const BoxConstraints(),
                     onSelected: (value) {
                       if (value == 'view') {
-                        Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']);
+                        PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']);
                       } else if (value == 'share') {
                         ShareHelper.shareContent(
                           context: context,
@@ -1320,7 +1328,7 @@ class HomeScreen extends GetView<HomeController> {
         controller.scrollToTop();
         // Small delay to allow scroll animation to start
         Future.delayed(const Duration(milliseconds: 100), () {
-          Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']);
+          PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
         });
       },
       borderRadius: BorderRadius.zero,
@@ -1598,7 +1606,7 @@ class HomeScreen extends GetView<HomeController> {
         children: [
           // Video Thumbnail
           GestureDetector(
-            onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+            onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
             child: Stack(
               children: [
                 imageUrl != null
@@ -1730,7 +1738,7 @@ class HomeScreen extends GetView<HomeController> {
               children: [
                 Expanded(
                   child: InkWell(
-                    onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+                    onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                     child: Container(
                       padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8),
@@ -1759,7 +1767,7 @@ class HomeScreen extends GetView<HomeController> {
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 Expanded(
                   child: InkWell(
-                    onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+                    onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                     child: Container(
                       padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8),
@@ -2122,7 +2130,7 @@ class HomeScreen extends GetView<HomeController> {
                 Padding(
                   padding: ResponsiveHelper.padding(context, left: 8),
                   child: TextButton(
-                    onPressed: () => Get.toNamed(Routes.VIDEOS),
+                    onPressed: () => PaymentGate.navigateToFeature(Routes.VIDEOS),
                     child: Text(
                       'View All',
                       style: ResponsiveHelper.textStyle(
@@ -2196,7 +2204,7 @@ class HomeScreen extends GetView<HomeController> {
     final isLive = video['status'] == 'Live' || video['stream_key'] != null || video['stream_url'] != null;
 
     return InkWell(
-      onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
       borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
       child: Container(
         width: width,
@@ -2371,7 +2379,7 @@ class HomeScreen extends GetView<HomeController> {
     final videoHeight = ResponsiveHelper.imageHeight(context, mobile: 280, tablet: 310, desktop: 350);
 
     return InkWell(
-      onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
       borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 18, tablet: 20, desktop: 22)),
       child: Container(
         width: videoWidth,
@@ -2864,6 +2872,8 @@ class HomeScreen extends GetView<HomeController> {
           );
     } else if (action.route == Routes.BLOGGER_ZONE) {
       onTap = () => HomeScreen.navigateToBloggerZone(context);
+    } else if (action.route == Routes.CREATE_PRAYER) {
+      onTap = () async => await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER);
     } else {
       onTap = () => Get.toNamed(action.route);
     }
@@ -3087,18 +3097,11 @@ class HomeScreen extends GetView<HomeController> {
         Get.toNamed(route);
       };
     } else if (label.contains('Prayer') || label.contains('prayer')) {
-      onTap = () => Get.toNamed(Routes.CREATE_PRAYER);
+      onTap = () async => await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER);
     } else if (label.contains('Blogger') || label.contains('blogger')) {
       onTap = () => HomeScreen.navigateToBloggerZone(context);
     } else if (label.contains('Fruit') || label.contains('fruit')) {
-      onTap = () {
-        // Reload user feeling when coming back from fruits screen
-        Get.toNamed(Routes.FRUITS)?.then((_) {
-          // Refresh user feeling when returning from fruits screen
-          final homeCtrl = Get.find<HomeController>();
-          homeCtrl.loadUserFeeling();
-        });
-      };
+      onTap = () => PaymentGate.navigateToFeature(Routes.FRUITS);
     } else if (label.contains('Group') || label.contains('group')) {
       onTap = () {
         if (!Get.isRegistered<GroupsController>()) {
@@ -3742,7 +3745,7 @@ class HomeScreen extends GetView<HomeController> {
               } catch (e) {
                 // Controller not found, will be created fresh
               }
-              Get.toNamed(Routes.PRAYER_REQUESTS);
+              PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4CAF50), // Green button
@@ -3792,7 +3795,7 @@ class HomeScreen extends GetView<HomeController> {
       child: GestureDetector(
         onTap: () {
           if (prayer['id'] != null) {
-            Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']);
+            PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']);
           } else {
             // Reset filter to show all users' prayers
             try {
@@ -3802,7 +3805,7 @@ class HomeScreen extends GetView<HomeController> {
             } catch (e) {
               // Controller not found, will be created fresh
             }
-            Get.toNamed(Routes.PRAYER_REQUESTS);
+            PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
           }
         },
         child: Container(
@@ -4097,9 +4100,9 @@ class HomeScreen extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         if (video['id'] != null) {
-          Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']);
+          PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
         } else {
-          Get.toNamed(Routes.VIDEOS);
+          PaymentGate.navigateToFeature(Routes.VIDEOS);
         }
       },
       child: Container(
@@ -4371,7 +4374,7 @@ class HomeScreen extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         if (blog['id'] != null) {
-          Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']);
+          PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
         } else {
           // Reset filter to show all users' blogs
           try {
@@ -4384,7 +4387,7 @@ class HomeScreen extends GetView<HomeController> {
           } catch (e) {
             // Controller not found, will be created fresh
           }
-          Get.toNamed(Routes.BLOGS);
+          PaymentGate.navigateToFeature(Routes.BLOGS);
         }
       },
       child: Container(
@@ -4594,12 +4597,12 @@ class HomeScreen extends GetView<HomeController> {
         // Check if this is a story or gallery photo
         if (photo['id'] != null) {
           if (photo['title'] != null || photo['content'] != null) {
-            Get.toNamed(Routes.STORY_DETAILS, arguments: photo['id']);
+            PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: photo['id']);
           } else {
-            Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']);
+            PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']);
           }
         } else {
-          Get.toNamed(Routes.STORIES);
+          PaymentGate.navigateToFeature(Routes.STORIES);
         }
       },
         child: Column(
@@ -4761,9 +4764,9 @@ class HomeScreen extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         if (video['id'] != null) {
-          Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']);
+          PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
         } else {
-          Get.toNamed(Routes.VIDEOS);
+          PaymentGate.navigateToFeature(Routes.VIDEOS);
         }
       },
       child: Container(
@@ -4889,9 +4892,9 @@ class HomeScreen extends GetView<HomeController> {
         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
         onTap: () {
           if (video['id'] != null) {
-            Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']);
+            PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
           } else {
-            Get.toNamed(Routes.VIDEOS);
+            PaymentGate.navigateToFeature(Routes.VIDEOS);
           }
         },
         child: Container(
@@ -6341,7 +6344,7 @@ class _FeedCarouselWidgetState extends State<_FeedCarouselWidget> {
                           } catch (e) {
                             Get.put(PrayersController());
                           }
-                          Get.toNamed(Routes.PRAYER_REQUESTS);
+                          PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
                         },
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 25)),
                         child: Container(
@@ -6489,7 +6492,7 @@ class _PrayersCarouselWidgetState extends State<_PrayersCarouselWidget> {
                   } catch (e) {
                     Get.put(PrayersController());
                   }
-                  Get.toNamed(Routes.PRAYER_REQUESTS);
+                  PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
                 },
                 child: Text(
                   'View All',
@@ -6807,7 +6810,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
         : null;
 
     return GestureDetector(
-      onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
       child: Container(
         height: double.infinity,
         decoration: BoxDecoration(
@@ -7026,7 +7029,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                 ],
               ),
               TextButton(
-                onPressed: () => Get.toNamed(Routes.VIDEOS),
+                onPressed: () => PaymentGate.navigateToFeature(Routes.VIDEOS),
                 child: Text(
                   'View All',
                   style: ResponsiveHelper.textStyle(
@@ -7952,13 +7955,13 @@ class _QuickActionsCarouselWidgetState extends State<_QuickActionsCarouselWidget
         color: Colors.transparent,
         child: InkWell(
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-          onTap: () {
+          onTap: () async {
             if (label.contains('Prayer') || label.contains('prayer')) {
-              Get.toNamed(Routes.CREATE_PRAYER);
+              await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER);
             } else if (label.contains('Blogger') || label.contains('blogger')) {
               HomeScreen.navigateToBloggerZone(context);
             } else if (label.contains('Fruit') || label.contains('fruit')) {
-              Get.toNamed(Routes.FRUITS);
+              PaymentGate.navigateToFeature(Routes.FRUITS);
               } else if (label.contains('Group') || label.contains('group')) {
                 if (!Get.isRegistered<GroupsController>()) {
                   Get.put(GroupsController());

@@ -12,6 +12,7 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/report_utils.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Prayer Requests Screen
 /// Modern, user-friendly design with attractive UI
@@ -137,7 +138,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           StandardAppBar.buildActionIcon(
             context,
             icon: Icons.add_rounded,
-            onTap: () => Get.toNamed(Routes.CREATE_PRAYER),
+            onTap: () async => await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER),
           ),
         ],
       ),
@@ -285,7 +286,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           ),
           SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
           ElevatedButton(
-            onPressed: () => Get.toNamed(Routes.CREATE_PRAYER),
+            onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.iconscolor,
               padding: ResponsiveHelper.padding(
@@ -389,7 +390,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
     final category = prayer['category'] as String? ?? prayer['type'] as String? ?? prayer['prayer_type'] as String? ?? 'Prayer Request';
     
     return InkWell(
-      onTap: () => Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: ResponsiveHelper.safeMargin(

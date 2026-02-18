@@ -8,6 +8,7 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Group Details Screen
 /// Shows single group with members
@@ -369,8 +370,8 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                         jingleService.startJingle(category);
                       }
                       
-                      // Navigate to chat
-                      Get.toNamed(Routes.GROUP_CHAT, arguments: effectiveGroupId);
+                      // Navigate to chat (payment gate)
+                      await PaymentGate.navigateToFeature(Routes.GROUP_CHAT, arguments: effectiveGroupId);
                     },
                     icon: Icon(
                       Icons.chat_bubble_outline,

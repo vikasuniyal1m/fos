@@ -87,6 +87,8 @@ flutter {
 }
 
 dependencies {
+    // Material Components theme required by flutter_stripe (Theme.MaterialComponents)
+    implementation("com.google.android.material:material:1.11.0")
     // Import the Firebase BoM
     implementation(platform("com.google.firebase:firebase-bom:34.3.0"))
 

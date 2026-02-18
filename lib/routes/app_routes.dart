@@ -51,6 +51,7 @@ abstract class Routes {
   static const LIVE = _Paths.LIVE;
   static const LIVE_STREAM_VIEWER = _Paths.LIVE_STREAM_VIEWER;
   static const LIVE_AGORA = _Paths.LIVE_AGORA;
+  static const PAYMENT = _Paths.PAYMENT;
 }
 
 abstract class _Paths {
@@ -101,4 +102,5 @@ abstract class _Paths {
   static const LIVE = '/live';
   static const LIVE_STREAM_VIEWER = '/live-stream-viewer';
   static const LIVE_AGORA = '/live-agora';
+  static const PAYMENT = '/payment';
 }

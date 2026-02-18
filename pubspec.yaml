@@ -97,6 +97,7 @@ dependencies:
   agora_rtc_engine: ^6.3.2
   profanity_filter: ^2.0.0
   gal: ^2.3.2
+  flutter_stripe: ^12.2.0
 
 
 

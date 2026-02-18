@@ -8,6 +8,7 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
 import '../utils/app_theme.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Groups Screen
 /// Displays list of groups
@@ -73,7 +74,7 @@ class GroupsScreen extends GetView<GroupsController> {
           StandardAppBar.buildActionIcon(
             context,
             icon: Icons.add_rounded,
-            onTap: () => Get.toNamed(Routes.CREATE_GROUP),
+            onTap: () async => await PaymentGate.navigateToFeature(Routes.CREATE_GROUP),
           ),
         ],
       ),
@@ -159,7 +160,7 @@ class GroupsScreen extends GetView<GroupsController> {
                         ),
                         SizedBox(height: ResponsiveHelper.spacing(context, 32)),
                         ElevatedButton.icon(
-                          onPressed: () => Get.toNamed(Routes.CREATE_GROUP),
+                          onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_GROUP),
                           icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 24),
                           label: Text(
                             'Create Your First Group',
@@ -487,8 +488,8 @@ class GroupsScreen extends GetView<GroupsController> {
                                     // Pre-load the jingle specifically for this category
                                     jingleService.startJingle(category);
                                   }
-                                  // Navigation to Group Details
-                                  Get.toNamed(Routes.GROUP_CHAT, arguments: group['id']);
+                                  // Navigation to Group Chat (payment gate)
+                                  await PaymentGate.navigateToFeature(Routes.GROUP_CHAT, arguments: group['id']);
                                 }
                               } catch (e) {
                                 // Dismiss loading indicator in case of error
@@ -545,11 +546,8 @@ class GroupsScreen extends GetView<GroupsController> {
                             if (Get.isDialogOpen ?? false) {
                               Get.back();
                             }
-                            // Navigate to details page
-                            Get.toNamed(
-                              Routes.GROUP_DETAILS,
-                              arguments: group['id'],
-                            );
+                            // Navigate to details page (payment gate)
+                            await PaymentGate.navigateToFeature(Routes.GROUP_DETAILS, arguments: group['id']);
                           } catch (e) {
                             // Dismiss loading indicator in case of error
                             if (Get.isDialogOpen ?? false) {

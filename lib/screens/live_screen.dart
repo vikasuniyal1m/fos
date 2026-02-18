@@ -5,6 +5,7 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 class LiveScreen extends GetView<LiveStreamController> {
   const LiveScreen({Key? key}) : super(key: key);
@@ -226,7 +227,7 @@ class LiveScreen extends GetView<LiveStreamController> {
                 return;
               }
               final channelName = 'live_${uid}_${DateTime.now().millisecondsSinceEpoch}';
-              Get.toNamed(Routes.LIVE_AGORA, arguments: {
+              await PaymentGate.navigateToFeature(Routes.LIVE_AGORA, arguments: {
                 'channel_name': channelName,
                 'title': titleController.text,
                 'is_broadcaster': true,
@@ -324,9 +325,9 @@ class LiveScreen extends GetView<LiveStreamController> {
                         trailing: canJoin
                             ? Icon(Icons.play_circle_filled, color: AppTheme.iconscolor, size: 36)
                             : null,
-                        onTap: () {
+                        onTap: () async {
                           if (canJoin) {
-                            Get.toNamed(Routes.LIVE_AGORA, arguments: {
+                            await PaymentGate.navigateToFeature(Routes.LIVE_AGORA, arguments: {
                               'channel_name': channelName.toString(),
                               'title': stream['title'] ?? 'Live',
                               'is_broadcaster': false,

@@ -21,6 +21,7 @@
         android:label="FOS Messenger"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:theme="@style/NormalTheme"
         android:enableOnBackInvokedCallback="true"
         android:requestLegacyExternalStorage="true"
         android:usesCleartextTraffic="true"

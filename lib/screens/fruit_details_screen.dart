@@ -12,6 +12,7 @@ import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 import '../utils/app_theme.dart';
 
@@ -325,7 +326,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
             ),
             SizedBox(height: ResponsiveHelper.spacing(context, 16)),
             ElevatedButton(
-              onPressed: () => Get.toNamed(Routes.CREATE_STORY),
+              onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_STORY),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF8B4513),
               ),
@@ -455,7 +456,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         ),
       ),
       child: InkWell(
-        onTap: () => Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']),
+        onTap: () => PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: story['id']),
         borderRadius: BorderRadius.circular(
           ResponsiveHelper.borderRadius(context, mobile: 16),
         ),
@@ -563,7 +564,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         : null;
     
     return GestureDetector(
-      onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -666,7 +667,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         : (filePath.isNotEmpty ? baseUrl + filePath : null);
     
     return GestureDetector(
-      onTap: () => Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(

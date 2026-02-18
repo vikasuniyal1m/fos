@@ -7,6 +7,7 @@ import 'package:fruitsofspirit/utils/responsive_helper.dart';
 
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
@@ -484,7 +485,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       context,
                       blog,
                       'Blog',
-                      () => Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']),
+                      () => PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']),
                     ),
                   );
                 },
@@ -507,7 +508,7 @@ class _SearchScreenState extends State<SearchScreen> {
               context,
               prayer,
               'Prayer',
-              () => Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']),
+              () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']),
             )),
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
           ],
@@ -526,7 +527,7 @@ class _SearchScreenState extends State<SearchScreen> {
               context,
               video,
               'Video',
-              () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+              () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
             )),
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
           ],
@@ -562,7 +563,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       context,
                       photo,
                       'Photo',
-                      () => Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']),
+                      () => PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']),
                     ),
                   );
                 },
@@ -585,7 +586,7 @@ class _SearchScreenState extends State<SearchScreen> {
               context,
               story,
               'Story',
-              () => Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']),
+              () => PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: story['id']),
             )),
           ],
         ],
