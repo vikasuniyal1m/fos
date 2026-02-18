@@ -31,7 +31,21 @@ class ApiConfig {
   static const String contact = '$baseUrl/contact.php'; // Contact information endpoint
   static const String report = '$baseUrl/report.php';
   static const String blockUser = '$baseUrl/block_user.php';
-  
+
+  // Live Streaming Endpoints
+  static const String liveStreamingToken = '$baseUrl/live_streaming/token.php';
+  static const String liveStreamingCreate = '$baseUrl/live_streaming/create_stream.php';
+  static const String liveStreamingGet = '$baseUrl/live_streaming/get_stream.php';
+  static const String liveStreamingStop = '$baseUrl/live_streaming/stop_stream.php';
+  static const String liveStreamingGetAll = '$baseUrl/live_streaming/get_all_streams.php';
+  /// Agora token from PHP (keys stay on server)
+  static const String liveStreamingAgoraToken = '$baseUrl/live_streaming/agora_token.php';
+  /// Register Agora live started (so users see stream in list)
+  static const String liveStreamingAgoraStartLive = '$baseUrl/live_streaming/agora_start_live.php';
+  /// Live comments (host + viewers see same list via API)
+  static const String liveStreamingAddComment = '$baseUrl/live_streaming/add_live_comment.php';
+  static const String liveStreamingGetComments = '$baseUrl/live_streaming/get_live_comments.php';
+
   // Request timeout
   static const Duration timeout = Duration(seconds: 60);
   static const Duration mediaTimeout = Duration(minutes: 5);

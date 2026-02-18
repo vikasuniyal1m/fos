@@ -49,6 +49,8 @@ abstract class Routes {
   static const FRUITS_VARIANT_01 = _Paths.FRUITS_VARIANT_01;
   static const PRAYER_REMINDERS = _Paths.PRAYER_REMINDERS;
   static const LIVE = _Paths.LIVE;
+  static const LIVE_STREAM_VIEWER = _Paths.LIVE_STREAM_VIEWER;
+  static const LIVE_AGORA = _Paths.LIVE_AGORA;
 }
 
 abstract class _Paths {
@@ -79,7 +81,7 @@ abstract class _Paths {
   static const CREATE_BLOG = '/create-blog';
   static const GALLERY = '/gallery';
   static const PHOTO_DETAILS = '/photo-details';
-  static const UPLOAD_PHOTO = '/upload-photo';
+  static const UPLOAD_PHOTO = '/upload_photo';
   static const GROUPS = '/groups';
   static const GROUP_DETAILS = '/group-details';
   static const GROUP_CHAT = '/group-chat';
@@ -97,4 +99,6 @@ abstract class _Paths {
   static const FRUITS_VARIANT_01 = '/fruits-variant-01';
   static const PRAYER_REMINDERS = '/prayer-reminders';
   static const LIVE = '/live';
+  static const LIVE_STREAM_VIEWER = '/live-stream-viewer';
+  static const LIVE_AGORA = '/live-agora';
 }

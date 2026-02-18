@@ -1,201 +1,345 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
-import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/controllers/live_stream_controller.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
-import 'package:fruitsofspirit/services/live_streaming_service.dart';
-import 'package:fruitsofspirit/screens/video_details_screen.dart'; // Assuming live streams are played via VideoDetailsScreen
+import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
-import 'package:fruitsofspirit/widgets/cached_image.dart';
 
-class LiveScreen extends StatefulWidget {
+class LiveScreen extends GetView<LiveStreamController> {
   const LiveScreen({Key? key}) : super(key: key);
-
-  @override
-  State<LiveScreen> createState() => _LiveScreenState();
-}
-
-class _LiveScreenState extends State<LiveScreen> {
-  var _liveStreams = <Map<String, dynamic>>[].obs;
-  var _isLoading = true.obs;
-  var _errorMessage = ''.obs;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchLiveStreams();
-  }
-
-  Future<void> _fetchLiveStreams() async {
-    try {
-      _isLoading.value = true;
-      _errorMessage.value = '';
-      final streams = await LiveStreamingService.getLiveStreams();
-      _liveStreams.assignAll(streams);
-    } catch (e) {
-      _errorMessage.value = 'Failed to load live streams: $e';
-      print('Error fetching live streams: $e');
-    } finally {
-      _isLoading.value = false;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.themeColor,
-      appBar: AppBar(
-        title: const Text('Live Streams'),
-        backgroundColor: AppTheme.themeColor,
-        foregroundColor: AppTheme.iconscolor,
+      backgroundColor: AppTheme.backgroundColor,
+      appBar: StandardAppBar(
+        showBackButton: true,
       ),
       body: Obx(() {
-        if (_isLoading.value) {
-          return Center(
-            child: CircularProgressIndicator(color: AppTheme.iconscolor),
-          );
+        if (controller.isLoading.value) {
+          return const Center(child: CircularProgressIndicator());
         }
 
-        if (_errorMessage.value.isNotEmpty) {
-          return Center(
-            child: Text(
-              _errorMessage.value,
-              style: ResponsiveHelper.textStyle(context, color: Colors.red, fontSize: ResponsiveHelper.fontSize(context, mobile: 14)),
-            ),
-          );
-        }
-
-        if (_liveStreams.isEmpty) {
-          return Center(
-            child: Text(
-              'No live streams currently available.',
-              style: ResponsiveHelper.textStyle(context, fontSize: ResponsiveHelper.fontSize(context, mobile: 16)),
-            ),
-          );
-        }
-
-        return RefreshIndicator(
-          onRefresh: _fetchLiveStreams,
-          color: AppTheme.iconscolor,
-          child: ListView.builder(
-            padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-            itemCount: _liveStreams.length,
-            itemBuilder: (context, index) {
-              final stream = _liveStreams[index];
-              return _buildLiveStreamCard(context, stream);
-            },
-          ),
+        // Always show live streaming UI (Go Live, list). Don't replace body with message.
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            if (ResponsiveHelper.isDesktop(context)) {
+              return _buildDesktopLayout(context);
+            } else if (ResponsiveHelper.isTablet(context)) {
+              return _buildTabletLayout(context);
+            } else {
+              return _buildMobileLayout(context);
+            }
+          },
         );
       }),
     );
   }
 
-  Widget _buildLiveStreamCard(BuildContext context, Map<String, dynamic> stream) {
-    final title = stream['title'] as String? ?? 'Untitled Live Stream';
-    final userName = stream['user_name'] as String? ?? 'Unknown User';
-    final thumbnailUrl = stream['thumbnail_path'] as String?; // Assuming a thumbnail path exists
+  Widget _buildMobileLayout(BuildContext context) {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildStartStreamSection(context),
+          _buildCurrentStreamSection(context),
+          _buildStreamList(context),
+        ],
+      ),
+    );
+  }
 
-    return GestureDetector(
-      onTap: () {
-        // Navigate to VideoDetailsScreen to play the live stream
-        // Assuming VideoDetailsScreen can handle live stream IDs or URLs
-        Get.toNamed(Routes.VIDEO_DETAILS, arguments: stream['id']);
-      },
+  Widget _buildTabletLayout(BuildContext context) {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildStartStreamSection(context),
+          _buildCurrentStreamSection(context),
+          _buildStreamList(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout(BuildContext context) {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildStartStreamSection(context),
+          _buildCurrentStreamSection(context),
+          _buildStreamList(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStartStreamSection(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(12.0),
       child: Card(
-        margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 16)),
-        elevation: 4,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                Builder(
-                  builder: (context) {
-                    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
-                    final thumbnailPath = stream['thumbnail_path'] as String?;
-                    final legacyThumbnail = stream['thumbnail'] as String?;
-
-                    String? thumbnailUrl;
-                    if (thumbnailPath != null && thumbnailPath.isNotEmpty) {
-                      thumbnailUrl = thumbnailPath.startsWith('http') ? thumbnailPath : baseUrl + (thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath);
-                    } else if (legacyThumbnail != null && legacyThumbnail.isNotEmpty) {
-                      thumbnailUrl = legacyThumbnail.startsWith('http') ? legacyThumbnail : baseUrl + (legacyThumbnail.startsWith('/') ? legacyThumbnail.substring(1) : legacyThumbnail);
-                    }
-
-                    return CachedImage(
-                      imageUrl: thumbnailUrl ?? '',
-                      height: ResponsiveHelper.imageHeight(context, mobile: 200),
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorWidget: Container(
-                        height: ResponsiveHelper.imageHeight(context, mobile: 200),
-                        color: Colors.grey[300],
-                        child: Center(
-                          child: Icon(Icons.live_tv, size: ResponsiveHelper.iconSize(context, mobile: 64), color: Colors.grey[600]),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                Positioned(
-                  top: ResponsiveHelper.spacing(context, 8),
-                  left: ResponsiveHelper.spacing(context, 8),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: ResponsiveHelper.spacing(context, 8),
-                      vertical: ResponsiveHelper.spacing(context, 4),
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                    ),
-                    child: Text(
-                      'LIVE',
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Padding(
-              padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
-              child: Column(
+        elevation: 2,
+        color: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                      fontWeight: FontWeight.bold,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                  Text(
-                    'By $userName',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                      color: Colors.grey[600],
+                  Icon(Icons.live_tv, color: AppTheme.iconscolor, size: 28),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Broadcast live ',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.textPrimary,
+                          ),
                     ),
                   ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                '1. Tap "Go Live Now" below\n'
+                '2. Enter a title for your stream\n'
+                '3. Tap "Go Live" — your camera will turn on and you\'re live.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppTheme.textSecondary,
+                      height: 1.4,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => _showCreateStreamDialog(context),
+                icon: const Icon(Icons.videocam),
+                label: const Text('Go Live Now'),
+                style: AppTheme.primaryButtonStyle(padding: const EdgeInsets.symmetric(vertical: 14)),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  Widget _buildCurrentStreamSection(BuildContext context) {
+    return Obx(() {
+      if (controller.currentStream.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      final stream = controller.currentStream;
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Card(
+          color: AppTheme.secondaryColor,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your Live Stream',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: AppTheme.textPrimary),
+                ),
+                const SizedBox(height: 10),
+                Text('Title: ${stream['title'] ?? 'N/A'}', style: const TextStyle(color: AppTheme.textPrimary)),
+                Text('Status: ${stream['status'] ?? 'N/A'}', style: const TextStyle(color: AppTheme.textSecondary)),
+                Text('Viewers: ${stream['viewer_count'] ?? 0}', style: const TextStyle(color: AppTheme.textSecondary)),
+                const SizedBox(height: 10),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    controller.stopLiveStream(stream['stream_id']);
+                  },
+                  icon: const Icon(Icons.stop),
+                  label: const Text('Stop Stream'),
+                  style: AppTheme.primaryButtonStyle(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  void _showCreateStreamDialog(BuildContext context) {
+    final TextEditingController titleController = TextEditingController();
+    final TextEditingController descriptionController = TextEditingController();
+    final TextEditingController categoryController = TextEditingController();
+
+    Get.dialog(
+      AlertDialog(
+        backgroundColor: AppTheme.themeColor,
+        title: Text('Create New Live Stream', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: InputDecoration(
+                labelText: 'Stream Title',
+                labelStyle: const TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
+            TextField(
+              controller: descriptionController,
+              decoration: InputDecoration(
+                labelText: 'Description (Optional)',
+                labelStyle: const TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
+            TextField(
+              controller: categoryController,
+              decoration: InputDecoration(
+                labelText: 'Category (Optional)',
+                labelStyle: const TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Get.back();
+            },
+            child: Text('Cancel', style: TextStyle(color: AppTheme.primaryColor)),
+          ),
+          ElevatedButton(
+            style: AppTheme.primaryButtonStyle(),
+            onPressed: () async {
+              if (titleController.text.isEmpty) {
+                Get.snackbar('Error', 'Stream title cannot be empty.', snackPosition: SnackPosition.BOTTOM);
+                return;
+              }
+              Get.back();
+              final uid = controller.userId.value;
+              if (uid == 0) {
+                Get.snackbar('Error', 'Please login first to go live.', snackPosition: SnackPosition.BOTTOM);
+                return;
+              }
+              final channelName = 'live_${uid}_${DateTime.now().millisecondsSinceEpoch}';
+              Get.toNamed(Routes.LIVE_AGORA, arguments: {
+                'channel_name': channelName,
+                'title': titleController.text,
+                'is_broadcaster': true,
+              });
+            },
+            child: const Text('Go Live (Agora)'),
+          ),
+        ],
+      ),
+      barrierDismissible: false,
+    );
+  }
+
+  Widget _buildStreamList(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+          child: Row(
+            children: [
+              Icon(Icons.live_tv, color: AppTheme.iconscolor, size: 24),
+              const SizedBox(width: 8),
+              Text(
+                'Live now — tap to watch',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        RefreshIndicator(
+          onRefresh: () => controller.getAllLiveStreams(),
+          child: controller.allLiveStreams.isEmpty && controller.currentStream.isEmpty
+              ? SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: SizedBox(
+                    height: 180,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.live_tv, size: 48, color: AppTheme.textSecondary),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No one is live right now.',
+                            style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Pull down to refresh.',
+                            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton.icon(
+                            onPressed: () => controller.getAllLiveStreams(),
+                            icon: Icon(Icons.refresh, size: 20, color: AppTheme.iconscolor),
+                            label: Text('Refresh', style: TextStyle(color: AppTheme.primaryColor)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: controller.allLiveStreams.length,
+                  itemBuilder: (context, index) {
+                    final stream = controller.allLiveStreams[index];
+                    final channelName = stream['stream_id'] ?? stream['channel_name'] ?? stream['channelName'];
+                    final canJoin = channelName != null && channelName.toString().isNotEmpty;
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      color: Colors.white,
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppTheme.accentColor,
+                          child: Icon(Icons.live_tv, color: AppTheme.iconscolor, size: 28),
+                        ),
+                        title: Text(
+                          stream['title'] ?? 'Untitled Stream',
+                          style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                        ),
+                        subtitle: Text(
+                          stream['description']?.toString().isNotEmpty == true
+                              ? (stream['description'] as String)
+                              : 'Tap to watch live',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppTheme.textSecondary),
+                        ),
+                        trailing: canJoin
+                            ? Icon(Icons.play_circle_filled, color: AppTheme.iconscolor, size: 36)
+                            : null,
+                        onTap: () {
+                          if (canJoin) {
+                            Get.toNamed(Routes.LIVE_AGORA, arguments: {
+                              'channel_name': channelName.toString(),
+                              'title': stream['title'] ?? 'Live',
+                              'is_broadcaster': false,
+                            });
+                          }
+                        },
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
 }
+

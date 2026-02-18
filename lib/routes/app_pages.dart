@@ -42,6 +42,10 @@ import 'package:fruitsofspirit/screens/prayer_reminders_screen.dart';
 import 'package:fruitsofspirit/screens/live_screen.dart';
 import 'package:fruitsofspirit/screens/reset_password_screen.dart';
 
+import '../bindings/live_stream_binding.dart';
+import '../screens/agora_live_screen.dart';
+import '../screens/live_stream_viewer_screen.dart';
+
 part 'app_routes.dart';
 
 class AppPages {
@@ -256,6 +260,27 @@ class AppPages {
     GetPage(
       name: Routes.LIVE,
       page: () => const LiveScreen(),
+      binding: LiveStreamBinding(),
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.LIVE_STREAM_VIEWER,
+      page: () {
+        final streamDetails = Get.arguments as Map<String, dynamic>;
+        return LiveStreamViewerScreen(streamDetails: streamDetails);
+      },
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.LIVE_AGORA,
+      page: () {
+        final args = Get.arguments as Map<String, dynamic>? ?? {};
+        return AgoraLiveScreen(
+          channelName: args['channel_name'] as String? ?? '',
+          title: args['title'] as String? ?? 'Live',
+          isBroadcaster: args['is_broadcaster'] as bool? ?? false,
+        );
+      },
       transition: Transition.fadeIn,
     ),
   ];

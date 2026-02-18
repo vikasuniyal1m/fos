@@ -44,7 +44,8 @@ class _LiveVideoPlayerState extends State<LiveVideoPlayer> {
       });
 
       // Get stream URL
-      final streamUrl = LiveStreamingService.getStreamUrl(widget.liveStream);
+      final streamDetails = await LiveStreamingService.getStream(widget.liveStream['stream_id']);
+      final streamUrl = streamDetails['stream_url'];
       
       if (streamUrl == null || streamUrl.isEmpty) {
         throw Exception('No stream URL available');

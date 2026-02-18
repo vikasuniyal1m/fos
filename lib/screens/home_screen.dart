@@ -308,9 +308,9 @@ class HomeScreen extends GetView<HomeController> {
                                       // Platform specific redirection for Play Store/App Store
                                       String url = '';
                                       if (GetPlatform.isAndroid) {
-                                        url = 'https://play.google.com/store/apps/details?id=com.fosproduction.ecommerceapp';
+                                        url = 'https://play.google.com/store/apps/details?id=com.fosproduction.ecommerceapp&hl=en_IN'; // Android Play Store URL
                                       } else if (GetPlatform.isIOS) {
-                                        url = 'https://apps.apple.com/app/your-app-id'; // Placeholder for iOS URL
+                                        url = 'https://apps.apple.com/us/app/fos-production/id6758010663'; // iOS App Store URL
                                       }
 
                                       if (url.isNotEmpty) {
@@ -3390,13 +3390,11 @@ class HomeScreen extends GetView<HomeController> {
                                 throw Exception('User not logged in');
                               }
 
-                              final streamData = await LiveStreamingService.createLiveStream(
-                                userId: userId,
+                              final streamData = await LiveStreamingService.createStream(
                                 title: titleController.text.trim(),
                                 description: descriptionController.text.trim().isEmpty
                                     ? null
                                     : descriptionController.text.trim(),
-                                fruitTag: selectedFruitTag,
                               );
 
                               titleController.dispose();
