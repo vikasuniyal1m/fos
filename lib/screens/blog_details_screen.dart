@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
@@ -8,6 +10,9 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
 
 /// Blog Details Screen
 /// User-friendly and attractive UI with like, comment, and ask questions functionality
@@ -23,8 +28,10 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   final commentController = TextEditingController();
   final questionController = TextEditingController();
   final replyControllers = <int, TextEditingController>{};
+  final replyFocusNodes = <int, FocusNode>{};
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
+  final ScrollController _scrollController = ScrollController();
   var isSubmittingComment = false.obs;
   var isSubmittingQuestion = false.obs;
   var showQuestionInput = false.obs;
@@ -45,21 +52,87 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     commentController.dispose();
     questionController.dispose();
     for (var controller in replyControllers.values) {
       controller.dispose();
     }
+    for (var focusNode in replyFocusNodes.values) {
+      focusNode.dispose();
+    }
     super.dispose();
+  }
+
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    final isModeration = message.toLowerCase().contains('community guidelines') ||
+        message.toLowerCase().contains('inappropriate content') ||
+        message.toLowerCase().contains('terms') ||
+        message.toLowerCase().contains('moderation');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (isModeration)
+                  const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 20),
+                if (isModeration)
+                  const SizedBox(width: 8),
+                Text(
+                  isModeration ? 'Community Guidelines' : title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? Colors.red : AppTheme.iconscolor),
+        duration: isModeration ? const Duration(seconds: 5) : const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
   }
 
   /// Format time ago
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -70,7 +143,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -78,7 +151,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -204,7 +277,14 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
               color: AppTheme.iconscolor,
               size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
             ),
-            onPressed: () => Get.back(),
+            onPressed: (){
+              final dialogContext = Get.overlayContext;
+              if (dialogContext != null) {
+                Navigator.of(dialogContext, rootNavigator: true).pop();
+              } else if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop();
+              }
+            },
           ),
           title: Text(
             'Blog Post',
@@ -223,8 +303,31 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                 size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
               ),
               onPressed: () {
-                // TODO: Implement share functionality
+                final blog = controller.selectedBlog;
+                final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                final imagePath = blog['image_url'] as String?;
+                String? blogImageUrl;
+                if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
+                  if (imagePath.toString().startsWith('http')) {
+                    blogImageUrl = imagePath.toString();
+                  } else {
+                    final cleanPath = imagePath.toString().startsWith('/') 
+                        ? imagePath.toString().substring(1) 
+                        : imagePath.toString();
+                    blogImageUrl = '$baseUrl$cleanPath';
+                  }
+                }
+
+                ShareHelper.shareContent(
+                  context: context,
+                  contentType: 'blog',
+                  contentId: blogId,
+                  title: blog['title'] ?? 'Blog',
+                  content: blog['body'],
+                  mediaUrl: blogImageUrl,
+                );
               },
+
             ),
           ],
         ),
@@ -303,6 +406,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
             children: [
               Expanded(
                 child: SingleChildScrollView(
+                  controller: _scrollController,
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: ResponsiveHelper.padding(context, all: 16),
                   child: Column(
@@ -441,6 +545,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                     ],
                                   ),
                                 ),
+                                _buildBlogOptions(context, blog),
                               ],
                             ),
                             SizedBox(height: ResponsiveHelper.spacing(context, 20)),
@@ -942,6 +1047,13 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                             child: TextField(
                               controller: commentController,
                               decoration: InputDecoration(
+                                prefixIcon: IconButton(
+                                  icon: const Icon(
+                                    Icons.emoji_emotions_outlined,
+                                    color: Color(0xFF8B4513),
+                                  ),
+                                  onPressed: () => _showEmojiPicker(context, blogId, controller),
+                                ),
                                 hintText: 'Write a comment...',
                                 border: InputBorder.none,
                                 hintStyle: ResponsiveHelper.textStyle(
@@ -1003,6 +1115,9 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     
     if (text.isEmpty) return;
 
+    // FIX: Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+
     if (parentCommentId != null) {
       isSubmittingComment.value = true;
     } else {
@@ -1012,6 +1127,17 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     try {
       final success = await controller.addComment(blogId, text, parentCommentId: parentCommentId);
       if (success) {
+        if (parentCommentId == null) {
+          // Scroll to bottom to show latest comment
+          await Future.delayed(const Duration(milliseconds: 300));
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOut,
+            );
+          }
+        }
         if (parentCommentId != null) {
           replyControllers[parentCommentId]?.clear();
           setState(() {
@@ -1026,20 +1152,17 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         // Reload comments to show the new comment/reply
         await controller.loadBlogDetails(blogId);
         
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Success',
           parentCommentId != null ? 'Reply added successfully' : 'Comment added successfully',
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
         );
       } else {
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Error',
           controller.message.value,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
+          isError: true,
         );
       }
     } finally {
@@ -1053,29 +1176,39 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     if (questionText.isEmpty) return;
 
     isSubmittingQuestion.value = true;
+
+    // FIX: Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+
     try {
       // Add ? prefix to mark as question (will be used for filtering)
       final questionContent = questionText.startsWith('?') ? questionText : '? $questionText';
       final success = await controller.addComment(blogId, questionContent, parentCommentId: null);
       if (success) {
+        // Scroll to bottom to show latest question
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+        }
         questionController.clear();
         showQuestionInput.value = false;
         // Reload comments to show the new question
         await controller.loadBlogDetails(blogId);
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Success',
           'Question posted successfully',
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
         );
       } else {
-        Get.snackbar(
+        _showCustomSnackbar(
+          context,
           'Error',
           controller.message.value,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
+          isError: true,
         );
       }
     } finally {
@@ -1171,7 +1304,8 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 6)),
                     // Comment Content - blog_comments uses 'comment' field, not 'content'
-                    Text(
+                    FruitEmojiHelper.buildCommentText(
+                      context,
                       AutoTranslateHelper.getTranslatedTextSync(
                         text: (comment['comment'] as String? ?? comment['content'] as String? ?? '').trim(),
                         sourceLanguage: comment['language'] as String?,
@@ -1218,6 +1352,24 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                           onTap: () {
                             setState(() {
                               showReplyInput[commentId] = !(showReplyInput[commentId] ?? false);
+                              final shouldShow = showReplyInput[commentId] ?? false;
+                               
+                              if (shouldShow) {
+                                // Initialize focus node if not exists
+                                if (!replyFocusNodes.containsKey(commentId)) {
+                                  replyFocusNodes[commentId] = FocusNode();
+                                }
+                               
+                                // Unfocus any other fields first
+                                FocusScope.of(context).unfocus();
+                                
+                                // Focus on the reply input after a short delay to ensure it's rendered
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (mounted && replyFocusNodes.containsKey(commentId)) {
+                                    replyFocusNodes[commentId]!.requestFocus();
+                                  }
+                                });
+                              }
                             });
                           },
                           child: Row(
@@ -1240,28 +1392,29 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                           ),
                         ),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
-                        // Report Button
-                        InkWell(
-                          onTap: () => _showReportDialog(context, comment),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.flag_outlined,
-                                size: ResponsiveHelper.iconSize(context, mobile: 18),
-                                color: AppTheme.iconscolor,
-                              ),
-                              SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                              Text(
-                                'Report',
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
-                                  color: Colors.grey[600],
+                        // Report Button - Only show for other users' comments
+                        if (currentUserId != null && (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()))
+                          InkWell(
+                            onTap: () => _showReportDialog(context, comment),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.flag_outlined,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 18),
+                                  color: AppTheme.iconscolor,
                                 ),
-                              ),
-                            ],
+                                SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                                Text(
+                                  'Report',
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ],
@@ -1438,7 +1591,8 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
           ),
           SizedBox(height: ResponsiveHelper.spacing(context, 12)),
           // Question Content
-          Text(
+          FruitEmojiHelper.buildCommentText(
+            context,
             AutoTranslateHelper.getTranslatedTextSync(
               text: displayContent,
               sourceLanguage: question['language'] as String?,
@@ -1483,6 +1637,24 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                 onTap: () {
                   setState(() {
                     showReplyInput[questionId] = !(showReplyInput[questionId] ?? false);
+                    final shouldShow = showReplyInput[questionId] ?? false;
+                    
+                    if (shouldShow) {
+                      // Initialize focus node if not exists
+                      if (!replyFocusNodes.containsKey(questionId)) {
+                        replyFocusNodes[questionId] = FocusNode();
+                      }
+                      
+                      // Unfocus any other fields first
+                      FocusScope.of(context).unfocus();
+                       
+                      // Focus on the answer input after a short delay to ensure it's rendered
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && replyFocusNodes.containsKey(questionId)) {
+                          replyFocusNodes[questionId]!.requestFocus();
+                        }
+                      });
+                    }
                   });
                 },
                 child: Row(
@@ -1577,12 +1749,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   /// Toggle comment like
   Future<void> _toggleCommentLike(int commentId, int blogId) async {
     if (currentUserId == null || currentUserId == 0) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         'Please login first',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
+        isError: true,
       );
       return;
     }
@@ -1595,12 +1766,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
       // Reload blog details to get updated comments
       await controller.loadBlogDetails(blogId);
     } catch (e) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         'Failed to like comment',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
+        isError: true,
       );
     }
   }
@@ -1610,7 +1780,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     if (!replyControllers.containsKey(parentCommentId)) {
       replyControllers[parentCommentId] = TextEditingController();
     }
+    if (!replyFocusNodes.containsKey(parentCommentId)) {
+      replyFocusNodes[parentCommentId] = FocusNode();
+    }
     final replyController = replyControllers[parentCommentId]!;
+    final replyFocusNode = replyFocusNodes[parentCommentId]!;
     
     return Container(
       padding: ResponsiveHelper.padding(context, all: 12),
@@ -1635,6 +1809,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
           Expanded(
             child: TextField(
               controller: replyController,
+              focusNode: replyFocusNode,
               decoration: InputDecoration(
                 hintText: isQuestion ? 'Write an answer...' : 'Write a reply...',
                 hintStyle: ResponsiveHelper.textStyle(
@@ -1659,25 +1834,40 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
             ),
           ),
           SizedBox(width: ResponsiveHelper.spacing(context, 8)),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => _submitComment(blogId, parentCommentId: parentCommentId),
-              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-              child: Container(
-                padding: ResponsiveHelper.padding(context, all: 8),
-                decoration: BoxDecoration(
-                  color: isQuestion ? const Color(0xFF2196F3) : const Color(0xFF9F9467),
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-                ),
-                child: Icon(
-                  Icons.send,
-                  color: Colors.white,
-                  size: ResponsiveHelper.iconSize(context, mobile: 18),
-                ),
-              ),
-            ),
-          ),
+          Obx(() => isSubmittingComment.value
+              ? Padding(
+                  padding: ResponsiveHelper.padding(context, all: 8),
+                  child: SizedBox(
+                    width: ResponsiveHelper.iconSize(context, mobile: 18),
+                    height: ResponsiveHelper.iconSize(context, mobile: 18),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: isQuestion ? const Color(0xFF2196F3) : const Color(0xFF9F9467),
+                    ),
+                  ),
+                )
+              : Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      FocusScope.of(context).unfocus();
+                      _submitComment(blogId, parentCommentId: parentCommentId);
+                    },
+                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+                    child: Container(
+                      padding: ResponsiveHelper.padding(context, all: 8),
+                      decoration: BoxDecoration(
+                        color: isQuestion ? const Color(0xFF2196F3) : const Color(0xFF9F9467),
+                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+                      ),
+                      child: Icon(
+                        Icons.send,
+                        color: Colors.white,
+                        size: ResponsiveHelper.iconSize(context, mobile: 18),
+                      ),
+                    ),
+                  ),
+                )),
         ],
       ),
     );
@@ -1857,28 +2047,29 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                   ),
                                 ),
                                 SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                                // Report Button for Reply
-                                InkWell(
-                                  onTap: () => _showReportDialog(context, reply),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.flag_outlined,
-                                        size: ResponsiveHelper.iconSize(context, mobile: 14),
-                                        color: Colors.grey[600],
-                                      ),
-                                      SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                                      Text(
-                                        'Report',
-                                        style: ResponsiveHelper.textStyle(
-                                          context,
-                                          fontSize: 11,
+                                // Report Button for Reply - Only show for other users' replies
+                                if (currentUserId != null && (reply['user_id'] != null && reply['user_id'].toString() != currentUserId.toString()))
+                                  InkWell(
+                                    onTap: () => _showReportDialog(context, reply),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.flag_outlined,
+                                          size: ResponsiveHelper.iconSize(context, mobile: 14),
                                           color: Colors.grey[600],
                                         ),
-                                      ),
-                                    ],
+                                        SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                                        Text(
+                                          'Report',
+                                          style: ResponsiveHelper.textStyle(
+                                            context,
+                                            fontSize: 11,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ],
@@ -1974,6 +2165,50 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                 ),
               ),
               SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+              TextButton.icon(
+                onPressed: () async {
+                  final userIdRaw = comment['user_id'] ?? comment['created_by'];
+                  if (userIdRaw != null) {
+                    final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+                    if (userId == null) return;
+                    
+                    if (currentUserId == userId) {
+                      _showCustomSnackbar(context, 'Info', 'You cannot block yourself');
+                      return;
+                    }
+
+                    final userName = comment['user_name'] ?? 'this user';
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: Text('Block $userName?'),
+                        content: const Text('You will no longer see content from this user.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+                          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Block', style: TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true) {
+                      try {
+                        if (currentUserId != null) {
+                          await UserBlockingService.blockUser(userId);
+                          Navigator.of(context).pop();
+                          _showCustomSnackbar(context, 'Success', 'User blocked');
+                          final currentBlogId = controller.selectedBlog['id'] is int ? controller.selectedBlog['id'] : int.parse(controller.selectedBlog['id'].toString());
+                          controller.loadBlogDetails(currentBlogId);
+                        }
+                      } catch (e) {
+                        _showCustomSnackbar(context, 'Error', 'Failed to block user', isError: true);
+                      }
+                    }
+                  }
+                },
+                icon: const Icon(Icons.block, color: Colors.red, size: 20),
+                label: const Text('Block User', style: TextStyle(color: Colors.red)),
+              ),
+              SizedBox(height: ResponsiveHelper.spacing(context, 12)),
               TextField(
                 controller: reasonController,
                 decoration: InputDecoration(
@@ -2002,11 +2237,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
             ElevatedButton(
               onPressed: () async {
                 if (currentUserId == null || currentUserId == 0) {
-                  Get.snackbar(
+                  _showCustomSnackbar(
+                    context,
                     'Error',
                     'Please login first',
-                    backgroundColor: Colors.red,
-                    colorText: Colors.white,
+                    isError: true,
                   );
                   Navigator.of(context).pop();
                   return;
@@ -2020,21 +2255,18 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                   );
                   
                   Navigator.of(context).pop();
-                  Get.snackbar(
+                  _showCustomSnackbar(
+                    context,
                     'Success',
                     'Comment reported successfully',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
                   );
                 } catch (e) {
                   Navigator.of(context).pop();
-                  Get.snackbar(
+                  _showCustomSnackbar(
+                    context,
                     'Error',
                     'Failed to report comment',
-                    backgroundColor: Colors.red,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
+                    isError: true,
                   );
                 }
               },
@@ -2179,31 +2411,56 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: isValidEmoji ? () async {
-                          final success = await controller.addEmojiReaction(blogId, emoji!);
-                          if (success) {
-                            // Show success message (brief)
-                            if (mounted) {
+                          // Get the root context that will persist
+                          final rootContext = context.findRootAncestorStateOfType<NavigatorState>()?.context;
+                          if (rootContext == null) return;
+                          
+                          try {
+                            FocusScope.of(rootContext).unfocus();
+                            final success = await controller.addEmojiReaction(blogId, emoji!);
+                            
+                            if (success) {
+                              // Show success message (brief)
+                              if (rootContext.mounted) {
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (rootContext.mounted) {
+                                    _showCustomSnackbar(
+                                      rootContext,
+                                      'Success',
+                                      'Reaction added',
+                                    );
+                                  }
+                                });
+                              }
+                            } else {
+                              if (rootContext.mounted) {
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (rootContext.mounted) {
+                                    _showCustomSnackbar(
+                                      rootContext,
+                                      'Error',
+                                      controller.message.value.isNotEmpty 
+                                          ? controller.message.value 
+                                          : 'Failed to add reaction. Please try again.',
+                                      isError: true,
+                                    );
+                                  }
+                                });
+                              }
+                            }
+                          } catch (e) {
+                            if (rootContext.mounted) {
                               WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Success',
-                                    'Reaction added',
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 1),
-                                    margin: const EdgeInsets.all(16),
+                                if (rootContext.mounted) {
+                                  _showCustomSnackbar(
+                                    rootContext,
+                                    'Error',
+                                    'Failed to add reaction. Please try again.',
+                                    isError: true,
                                   );
                                 }
                               });
                             }
-                          } else {
-                            Get.snackbar(
-                              'Error',
-                              controller.message.value,
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
                           }
                         } : null,
                         borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 40 : 44),
@@ -2216,6 +2473,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                               context,
                               emojiData,
                               size: ResponsiveHelper.isMobile(context) ? 44 : 48,
+                              onTap: null, // Handled by the parent InkWell
                             ),
                           ),
                         ),
@@ -2313,7 +2571,9 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                           return GestureDetector(
                             onTap: () {
                               // Show users who reacted
-                              Get.dialog(
+                              showDialog(
+                                context: context,
+                                builder: (dialogContext) =>
                                 Dialog(
                                   child: Container(
                                     padding: ResponsiveHelper.padding(context, all: 20),
@@ -2364,7 +2624,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                         ),
                                         SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                                         TextButton(
-                                          onPressed: () => Get.back(),
+                                          onPressed: () => Navigator.of(dialogContext).pop(),
                                           child: const Text('Close'),
                                         ),
                                       ],
@@ -2449,7 +2709,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                 ),
                 IconButton(
                   icon: Icon(Icons.close, color: AppTheme.iconscolor),
-                  onPressed: () => Get.back(),
+                  onPressed: (){
+                    if (context.mounted) {
+                      Navigator.of(context, rootNavigator: true).pop();
+                    }
+                  },
                 ),
               ],
             ),
@@ -2496,49 +2760,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                     return Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: isValidEmoji ? () async {
-                          final success = await controller.addEmojiReaction(blogId, emoji!);
-                          if (success) {
-                            // Show success message FIRST (before closing dialog)
-                            if (mounted) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Success',
-                                    'Reaction added',
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 1),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                }
-                              });
-                            }
-                          } else {
-                            // Show error message
-                            if (mounted) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  Get.snackbar(
-                                    'Error',
-                                    controller.message.value.isNotEmpty 
-                                        ? controller.message.value 
-                                        : 'Failed to add reaction. Please try again.',
-                                    backgroundColor: Colors.red,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 2),
-                                    margin: const EdgeInsets.all(16),
-                                  );
-                                }
-                              });
-                            }
-                          }
-                          // Wait a bit for snackbar to show, then close dialog
-                          await Future.delayed(const Duration(milliseconds: 300));
-                          if (mounted && Navigator.canPop(context)) {
-                            Get.back();
-                          }
-                        } : null,
+                        onTap: null, // Handled by _EmojiButtonWithLoading
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           decoration: BoxDecoration(
@@ -2550,6 +2772,53 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                               context,
                               emojiData,
                               size: 48,
+                              onTap: isValidEmoji ? () async {
+                                // Get the root context that will persist after bottom sheet is closed
+                                final rootContext = context.findRootAncestorStateOfType<NavigatorState>()?.context;
+                                if (rootContext == null) return;
+                                
+                                // Close the emoji picker bottom sheet first
+                                Navigator.of(context).pop();
+                                
+                                try {
+                                  // Make API call directly without intermediate loading dialog
+                                  // The UI will update automatically when the reaction is added
+                                  FocusScope.of(rootContext).unfocus();
+                                  final success = await controller.addEmojiReaction(blogId, emoji!);
+                                  
+                                  if (success) {
+                                    // Show success message
+                                    if (rootContext.mounted) {
+                                      _showCustomSnackbar(
+                                        rootContext,
+                                        'Success',
+                                        'Reaction added successfully',
+                                      );
+                                    }
+                                  } else {
+                                    // Show error message
+                                    if (rootContext.mounted) {
+                                      _showCustomSnackbar(
+                                        rootContext,
+                                        'Error',
+                                        controller.message.value.isNotEmpty 
+                                            ? controller.message.value 
+                                            : 'Failed to add reaction. Please try again.',
+                                        isError: true,
+                                      );
+                                    }
+                                  }
+                                } catch (e) {
+                                  if (rootContext.mounted) {
+                                    _showCustomSnackbar(
+                                      rootContext,
+                                      'Error',
+                                      'Failed to add reaction. Please try again.',
+                                      isError: true,
+                                    );
+                                  }
+                                }
+                              } : null,
                             ),
                           ),
                         ),
@@ -2564,5 +2833,101 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
       ),
     );
   }
-}
 
+  Widget _buildBlogOptions(BuildContext context, Map<String, dynamic> blog) {
+    final userIdRaw = blog['user_id'] ?? blog['created_by'];
+    final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+    
+    // Check if we have any options to show
+    final hasOptions = posterId != null && posterId != currentUserId;
+    
+    // Only show the PopupMenuButton if there are options
+    if (!hasOptions) {
+      return SizedBox(width: 40); // Empty placeholder for alignment
+    }
+    
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'blog',
+            contentId: blog['id'] is int ? blog['id'] : int.parse(blog['id'].toString()),
+          );
+        } else if (value == 'block') {
+          final userIdRaw = blog['user_id'] ?? blog['created_by'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            if (currentUserId == userId) {
+              _showCustomSnackbar(context, 'Info', 'You cannot block yourself');
+              return;
+            }
+
+            final userName = blog['user_name'] ?? 'this blogger';
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                if (currentUserId != null) {
+                  await UserBlockingService.blockUser(userId);
+                  _showCustomSnackbar(context, 'Success', 'User blocked');
+                  Navigator.of(context).pop(); // Back to list
+                }
+              } catch (e) {
+                _showCustomSnackbar(context, 'Error', 'Failed to block user', isError: true);
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) {
+        final List<PopupMenuEntry<String>> items = [];
+        
+        // Only show options if it's NOT the current user's blog
+        if (posterId != null && posterId != currentUserId) {
+          items.add(
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Text('Report Content'),
+                ],
+              ),
+            ),
+          );
+          items.add(
+            const PopupMenuItem(
+              value: 'block',
+              child: Row(
+                children: [
+                  Icon(Icons.block, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Text('Block User'),
+                ],
+              ),
+            ),
+          );
+        }
+        
+        return items;
+      },
+    );
+  }
+}

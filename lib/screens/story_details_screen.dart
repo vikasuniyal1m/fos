@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
 import 'package:fruitsofspirit/services/stories_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/services/terms_service.dart';
+import 'package:fruitsofspirit/screens/terms_acceptance_screen.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
+
+import '../utils/app_theme.dart';
 
 /// Story Details Screen - Modern Social Media Style
 class StoryDetailsScreen extends StatefulWidget {
@@ -31,14 +40,70 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
 
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    final lower = message.toLowerCase();
+    final isModeration = lower.contains('community guidelines') ||
+        lower.contains('inappropriate content') ||
+        lower.contains('terms') ||
+        lower.contains('moderation');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (isModeration)
+                  const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 20),
+                if (isModeration)
+                  const SizedBox(width: 8),
+                Text(
+                  isModeration ? 'Community Guidelines' : title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? Colors.red : AppTheme.iconscolor),
+        duration: isModeration ? const Duration(seconds: 5) : const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _loadUserId();
-    final storyId = Get.arguments as int? ?? 0;
-    if (storyId > 0) {
-      _loadStoryDetails(storyId);
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final storyId = ModalRoute.of(context)?.settings.arguments as int? ?? 0;
+        if (storyId > 0) {
+          _loadStoryDetails(storyId);
+        }
+      }
+    });
   }
 
   @override
@@ -111,9 +176,33 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       await _loadUserId();
     }
     if (userId == 0) {
-      Get.snackbar('Login Required', 'Please login to react', backgroundColor: Colors.orange);
+      _showCustomSnackbar(
+        context,
+        'Login Required',
+        'Please login to react',
+        isError: true,
+      );
       return;
     }
+    // Show a loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (loadingContext) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const CircularProgressIndicator(
+            color: Color(0xFF8B4513),
+            strokeWidth: 3,
+          ),
+        ),
+      ),
+    );
+
     try {
       await EmojisService.useEmoji(
         userId: userId,
@@ -122,9 +211,25 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         postId: storyId,
       );
       await _loadComments(storyId);
-      Get.snackbar('Success', 'Reaction added', backgroundColor: Colors.green, colorText: Colors.white, duration: const Duration(seconds: 1));
+      
+      if (mounted) {
+        Navigator.of(context).pop(); // Dismiss loading dialog
+        _showCustomSnackbar(
+          context,
+          'Success',
+          'Reaction added',
+        );
+      }
     } catch (e) {
-      Get.snackbar('Error', 'Failed to add reaction: ${e.toString()}', backgroundColor: Colors.red);
+      if (mounted) {
+        Navigator.of(context).pop(); // Dismiss loading dialog
+        _showCustomSnackbar(
+          context,
+          'Error',
+          'Failed to add reaction: ${e.toString()}',
+          isError: true,
+        );
+      }
     }
   }
 
@@ -135,37 +240,37 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
 
     try {
       final storyData = await StoriesService.getStoryDetails(storyId);
-      
+
       // Load emojis and comments
       await Future.wait([
         _loadAvailableEmojis(),
         _loadQuickEmojis(),
         _loadComments(storyId),
       ]);
-      
+
       // Debug: Print story data to check fields
       print('📖 Story Data: category=${storyData['category']}, testimony=${storyData['testimony']}, title=${storyData['title']}');
-      
+
       setState(() {
         story = storyData;
         isLoading = false;
       });
-      
+
       // Load comments
       _loadComments(storyId);
     } catch (e) {
       setState(() {
         isLoading = false;
       });
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        isError: true,
       );
     }
   }
-  
+
   // Helper method to check if story is a testimony
   bool _isTestimony(Map<String, dynamic> storyData) {
     // Check category field
@@ -177,28 +282,28 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         return true;
       }
     }
-    
+
     // Check testimony field
     final testimony = storyData['testimony'] as String?;
     if (testimony != null && testimony.isNotEmpty) {
       print('✅ Detected as Testimony by testimony field');
       return true;
     }
-    
+
     // Check title for testimony keyword
     final title = storyData['title'] as String?;
     if (title != null && title.toLowerCase().contains('testimony')) {
       print('✅ Detected as Testimony by title: $title');
       return true;
     }
-    
+
     // Check content for testimony keyword
     final content = storyData['content'] as String?;
     if (content != null && content.toLowerCase().contains('testimony')) {
       print('✅ Detected as Testimony by content');
       return true;
     }
-    
+
     print('📖 Detected as Story (not testimony)');
     return false;
   }
@@ -211,17 +316,17 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         postId: storyId,
         userId: userId > 0 ? userId : null,
       );
-      
+
       print('✅ Loaded ${commentsList.length} top-level comments from API');
-      
+
       // Flatten nested structure - API returns comments with nested replies array
       // We need to flatten it to a single list for our UI
       final flattenedComments = <Map<String, dynamic>>[];
-      
+
       void flattenComments(List<dynamic> commentsToFlatten, {int? parentId}) {
         for (var comment in commentsToFlatten) {
           final commentMap = Map<String, dynamic>.from(comment);
-          
+
           // Set parent_comment_id if this is a nested reply
           if (parentId != null) {
             commentMap['parent_comment_id'] = parentId;
@@ -232,17 +337,17 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
               commentMap['parent_comment_id'] = null;
             }
           }
-          
+
           // Remove the nested replies array (we'll flatten it)
           final nestedReplies = commentMap.remove('replies') as List<dynamic>?;
-          
+
           // Add this comment to flattened list
           flattenedComments.add(commentMap);
-          
+
           // Recursively flatten nested replies
           if (nestedReplies != null && nestedReplies.isNotEmpty) {
-            final commentId = commentMap['id'] is int 
-                ? commentMap['id'] 
+            final commentId = commentMap['id'] is int
+                ? commentMap['id']
                 : (commentMap['id'] is String ? int.tryParse(commentMap['id']) : null);
             if (commentId != null) {
               flattenComments(nestedReplies, parentId: commentId);
@@ -250,35 +355,35 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
           }
         }
       }
-      
+
       flattenComments(commentsList);
-      
+
       // Parse emoji reactions from comments (similar to blogs controller)
       final emojiReactions = <String, List<Map<String, dynamic>>>{};
       final textComments = <Map<String, dynamic>>[];
-      
+
       for (var comment in flattenedComments) {
         final content = comment['content'] as String? ?? comment['comment'] as String? ?? '';
         final trimmed = content.trim();
-        
+
         // Check if this is an emoji reaction
         bool isEmojiReaction = false;
         String? emojiKey;
-        
+
         if (trimmed.length <= 4 && _isEmoji(trimmed)) {
           isEmojiReaction = true;
           emojiKey = trimmed;
         } else if (trimmed.contains('_') && (
-          trimmed.contains('joy') || trimmed.contains('peace') || 
-          trimmed.contains('love') || trimmed.contains('patience') || 
-          trimmed.contains('kindness') || trimmed.contains('goodness') || 
+          trimmed.contains('joy') || trimmed.contains('peace') ||
+          trimmed.contains('love') || trimmed.contains('patience') ||
+          trimmed.contains('kindness') || trimmed.contains('goodness') ||
           trimmed.contains('faithfulness') || trimmed.contains('gentleness') ||
-          trimmed.contains('meekness') || trimmed.contains('self') || 
+          trimmed.contains('meekness') || trimmed.contains('self') ||
           trimmed.contains('control')
         )) {
           isEmojiReaction = true;
           emojiKey = trimmed;
-        } else if (trimmed.contains('uploads/emojis/') || trimmed.contains('emojis/') || 
+        } else if (trimmed.contains('uploads/emojis/') || trimmed.contains('emojis/') ||
                    trimmed.contains('.png') || trimmed.contains('.jpg')) {
           isEmojiReaction = true;
           emojiKey = trimmed;
@@ -286,7 +391,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
           isEmojiReaction = true;
           emojiKey = trimmed;
         }
-        
+
         if (isEmojiReaction && emojiKey != null) {
           // It's an emoji reaction
           if (!emojiReactions.containsKey(emojiKey)) {
@@ -303,9 +408,9 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
           textComments.add(comment);
         }
       }
-      
+
       print('✅ Flattened to ${textComments.length} text comments and ${emojiReactions.length} emoji reaction types');
-      
+
       setState(() {
         comments = textComments;
         storyEmojiReactions = emojiReactions;
@@ -321,26 +426,26 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
     }
 
     if (userId == 0) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Login Required',
         'Please login to comment',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withOpacity(0.8),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
       );
       return;
     }
 
-    final text = parentCommentId != null 
+    final text = parentCommentId != null
         ? (replyControllers[parentCommentId]?.text.trim() ?? '')
         : commentController.text.trim();
-    
+
     if (text.isEmpty) return;
+
+    // FIX: Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
 
     try {
       print('📤 Adding ${parentCommentId != null ? "REPLY" : "COMMENT"}: storyId=$storyId, parentCommentId=$parentCommentId, content=${text.substring(0, text.length > 50 ? 50 : text.length)}...');
-      
+
       final newCommentId = await CommentsService.addComment(
         userId: userId,
         postType: 'story',
@@ -348,9 +453,9 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         content: text,
         parentCommentId: parentCommentId,
       );
-      
+
       print('✅ ${parentCommentId != null ? "Reply" : "Comment"} added successfully: ID=$newCommentId');
-      
+
       if (parentCommentId != null) {
         replyControllers[parentCommentId]?.clear();
         // Automatically expand parent comment to show the new reply
@@ -359,22 +464,22 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       } else {
       commentController.clear();
       }
-      
+
       // Add a small delay to ensure database is updated
       await Future.delayed(const Duration(milliseconds: 500));
-      
+
       // Reload comments to show the new reply
       await _loadComments(storyId);
-      
+
       // Ensure parent comment is expanded after reload to show new reply
       if (parentCommentId != null) {
         setState(() {
           expandedReplies.add(parentCommentId);
         });
       }
-      
+
       setState(() {}); // Force UI refresh
-      
+
       print('📋 Total comments after reload: ${comments.length}');
       if (parentCommentId != null) {
         final parentComment = comments.firstWhere(
@@ -391,17 +496,14 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
           print('📋 Replies for parent $parentCommentId: ${replies.length}');
         }
       }
-      
+
       // Show success message
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Success',
         parentCommentId != null ? 'Reply added successfully' : 'Comment added successfully',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green.withOpacity(0.8),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
       );
-      
+
       // Scroll to top of comments after adding
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -411,11 +513,11 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         );
       }
     } catch (e) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        isError: true,
       );
     }
   }
@@ -439,17 +541,14 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       await _loadUserId();
     }
     if (userId == 0) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Login Required',
         'Please login to like comments',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withOpacity(0.8),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
       );
       return;
     }
-    
+
     try {
       await CommentsService.toggleCommentLike(
         userId: userId,
@@ -459,23 +558,34 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       await _loadComments(storyId);
       setState(() {});
     } catch (e) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'Error',
         e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+        isError: true,
       );
     }
   }
 
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
-    
+    if (dateString == null || dateString.isEmpty) return 'Just now';
+
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
-      
+
       if (difference.inDays > 365) {
         final years = (difference.inDays / 365).floor();
         return '$years ${years == 1 ? 'year' : 'years'} ago';
@@ -484,7 +594,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -492,7 +602,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -500,7 +610,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
   Widget build(BuildContext context) {
     final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
     String? imageUrl;
-    
+
     // Check all possible image fields
     if (story['file_path'] != null && (story['file_path'] as String).isNotEmpty) {
       final path = story['file_path'] as String;
@@ -518,7 +628,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
 
     // Check if it's a testimony for theme
     final isTestimony = _isTestimony(story);
-    
+
     return Scaffold(
       backgroundColor: isTestimony ? const Color(0xFFFAF6EC) : Colors.grey[50],
       appBar: PreferredSize(
@@ -526,6 +636,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
           ResponsiveHelper.appBarHeight(context),
         ),
         child: AppBar(
+
           backgroundColor: isTestimony ? const Color(0xFFFAF6EC) : Colors.white,
           elevation: 0,
           leading: Container(
@@ -540,16 +651,57 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                 color: const Color(0xFF8B4513),
                 size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
               ),
-              onPressed: () => Get.back(),
+              onPressed: () => Navigator.of(context).pop(),
             ),
           ),
-        title: Row(
+          actions: [
+            Container(
+              margin: EdgeInsets.symmetric(
+                horizontal: ResponsiveHelper.spacing(context, 8),
+                vertical: ResponsiveHelper.spacing(context, 8),
+              ),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: Icon(
+                  Icons.share_rounded,
+                  color: const Color(0xFF8B4513),
+                  size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
+                ),
+                onPressed: () {
+                  final isTestimony = _isTestimony(story);
+                  final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                  String? storyMediaUrl;
+                  if (story['file_path'] != null && (story['file_path'] as String).isNotEmpty) {
+                    final path = story['file_path'] as String;
+                    storyMediaUrl = path.startsWith('http') ? path : baseUrl + path;
+                  } else if (story['image_url'] != null && (story['image_url'] as String).isNotEmpty) {
+                    final path = story['image_url'] as String;
+                    storyMediaUrl = path.startsWith('http') ? path : baseUrl + path;
+                  }
+
+                  ShareHelper.shareContent(
+                    context: context,
+                    contentType: isTestimony ? 'testimony' : 'story',
+                    contentId: story['id'] is int ? story['id'] : int.tryParse(story['id'].toString()) ?? 0,
+                    title: story['title'] ?? (isTestimony ? 'Testimony' : 'Story'),
+                    content: story['testimony'] ?? story['content'],
+                    mediaUrl: storyMediaUrl,
+                  );
+                },
+              ),
+            ),
+          ],
+          title: Row(
+
           children: [
             Builder(
               builder: (context) {
                 // Check if it's a testimony using helper method
                 final isTestimony = _isTestimony(story);
-                
+
                 return Container(
                   padding: EdgeInsets.symmetric(
                     horizontal: ResponsiveHelper.spacing(context, 10),
@@ -654,7 +806,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                             Builder(
                               builder: (context) {
                                 final isTestimonyCard = _isTestimony(story);
-                                
+
                                 return Container(
                                   margin: EdgeInsets.only(
                                     top: ResponsiveHelper.spacing(context, 8),
@@ -834,7 +986,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                                     builder: (context) {
                                                       // Use helper method to check if it's a testimony
                                                       final isTestimony = _isTestimony(story);
-                                                      
+
                                                       return Container(
                                                         padding: EdgeInsets.symmetric(
                                                           horizontal: ResponsiveHelper.spacing(context, 8),
@@ -940,10 +1092,11 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                             ],
                                           ),
                                         ),
+                                        _buildStoryOptions(context, story),
                                       ],
                                     ),
                                   ),
-                                  
+
                                   // Story Image with decorative border - Always show if available
                                   if (imageUrl != null && imageUrl.isNotEmpty)
                                     Container(
@@ -1107,7 +1260,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                             ),
                                       ),
                                     ),
-                                  
+
                                   // Content Section
                                   Padding(
                                     padding: ResponsiveHelper.padding(
@@ -1136,13 +1289,13 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                               ),
                                             ),
                                           ),
-                                        
+
                                         // Fruit Tag - Enhanced with Theme
                             if (story['fruit_tag'] != null)
                               Builder(
                                 builder: (context) {
                                   final isTestimonyTag = _isTestimony(story);
-                                  
+
                                   return Container(
                                     margin: EdgeInsets.only(
                                       bottom: ResponsiveHelper.spacing(context, 12),
@@ -1211,7 +1364,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                   );
                                 },
                               ),
-                            
+
                             // Content
                                         if (story['content'] != null)
                             Text(
@@ -1229,7 +1382,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                       ],
                                     ),
                                   ),
-                                  
+
                                   // Emoji Reactions Section
                                   Padding(
                                     padding: ResponsiveHelper.padding(
@@ -1244,7 +1397,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                 );
                               },
                             ),
-                            
+
                             // Comments Section - Enhanced Design
                             Container(
                               margin: EdgeInsets.only(
@@ -1360,7 +1513,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                       ],
                                     ),
                                   ),
-                                  
+
                                   // Comments List - Nested Comments Support
                             Builder(
                               builder: (context) {
@@ -1376,7 +1529,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                   }
                                   return false;
                                 }).toList();
-                                
+
                                 if (topLevelComments.isEmpty) {
                                   return Padding(
                                     padding: ResponsiveHelper.padding(
@@ -1428,31 +1581,24 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                     ),
                                   );
                                 }
-                                
+
                                 return Column(
                                   children: topLevelComments.map(
                                     (comment) => _buildCommentItem(
-                                      context, 
-                                      comment, 
+                                      context,
+                                      comment,
                                       story['id'] as int,
                                     ),
                                   ).toList(),
                                 );
                               },
                             ),
-                                ],
-                              ),
-                            ),
-                            
-                            // Bottom spacing for comment input
-                            SizedBox(
-                              height: ResponsiveHelper.spacing(context, 80),
-                            ),
                           ],
                         ),
                       ),
-                    ),
-                    
+
+
+
                     // Comment Input Bar - Enhanced Design
                     Container(
                       decoration: BoxDecoration(
@@ -1513,7 +1659,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                 SizedBox(
                                   width: ResponsiveHelper.spacing(context, 12),
                                 ),
-                              
+
                               // Comment Input - Enhanced
                           Expanded(
                                 child: Container(
@@ -1558,12 +1704,12 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                         ),
                                         color: Colors.grey[600],
                                       ),
-                                      prefixIcon: Icon(
-                                        Icons.edit_note_rounded,
-                                        size: ResponsiveHelper.iconSize(context, mobile: 20),
-                                        color: userId > 0
-                                            ? const Color(0xFF8B4513).withOpacity(0.6)
-                                            : Colors.grey[400],
+                                      prefixIcon: IconButton(
+                                        icon: const Icon(
+                                          Icons.emoji_emotions_outlined,
+                                          color: Color(0xFF8B4513),
+                                        ),
+                                        onPressed: () => _showEmojiPicker(context, story['id'] as int),
                                       ),
                                       border: InputBorder.none,
                                 contentPadding: EdgeInsets.symmetric(
@@ -1585,11 +1731,11 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                   ),
                                 ),
                               ),
-                              
+
                               SizedBox(
                                 width: ResponsiveHelper.spacing(context, 8),
                               ),
-                              
+
                               // Send Button - Enhanced
                               Material(
                                 color: Colors.transparent,
@@ -1644,6 +1790,10 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                         ),
                       ),
                     ),
+      ]
+                        )
+                    )
+                    )
                   ],
                 ),
     );
@@ -1656,16 +1806,16 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
     if (commentId == null) {
       return const SizedBox.shrink();
     }
-    
+
     // Handle parent comment ID - can be int, String, or null
     final parentCommentIdRaw = comment['parent_comment_id'];
-    final parentCommentId = parentCommentIdRaw == null 
-        ? null 
-        : (parentCommentIdRaw is int 
-            ? parentCommentIdRaw 
+    final parentCommentId = parentCommentIdRaw == null
+        ? null
+        : (parentCommentIdRaw is int
+            ? parentCommentIdRaw
             : (parentCommentIdRaw is String ? int.tryParse(parentCommentIdRaw) : null));
     final isTopLevel = parentCommentId == null || parentCommentId == 0;
-    
+
     // Get replies for this comment - handle both int and String types
     final replies = comments.where((c) {
       final cParentId = c['parent_comment_id'];
@@ -1679,14 +1829,14 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       // Reply's parent_comment_id should match this comment's id, and reply's id should be different
       return parentIdInt == commentId && cId != commentId;
     }).toList();
-    
+
     // Initialize reply controller if not exists
     if (!replyControllers.containsKey(commentId)) {
       replyControllers[commentId] = TextEditingController();
     }
-    
+
     final showReplies = expandedReplies.contains(commentId);
-    
+
     return Container(
       padding: ResponsiveHelper.padding(
         context,
@@ -1695,7 +1845,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       ),
       decoration: BoxDecoration(
         border: Border(
-          top: isTopLevel 
+          top: isTopLevel
               ? BorderSide(
                   color: Colors.grey[200]!,
                   width: 0.5,
@@ -1755,9 +1905,9 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                         ),
                 ),
               ),
-              
+
             SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-              
+
               // Comment Content
             Expanded(
               child: Column(
@@ -1776,7 +1926,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                           ResponsiveHelper.borderRadius(context, mobile: 16),
                         ),
                         border: Border.all(
-                          color: isTopLevel 
+                          color: isTopLevel
                               ? const Color(0xFF8B4513).withOpacity(0.1)
                               : Colors.grey[300]!,
                           width: 1,
@@ -1826,11 +1976,23 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                   color: Colors.grey[600],
                                 ),
                               ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 8)),
+                              // Report Button - Only show for other users' comments
+                              if (this.userId != 0 && (comment['user_id'] != null && comment['user_id'].toString() != this.userId.toString()))
+                                InkWell(
+                                  onTap: () => _showReportDialog(context, comment),
+                                  child: Icon(
+                                    Icons.report_gmailerrorred_outlined,
+                                    size: ResponsiveHelper.iconSize(context, mobile: 14),
+                                    color: Colors.grey[400],
+                                  ),
+                                ),
                             ],
                           ),
                           SizedBox(height: ResponsiveHelper.spacing(context, 6)),
                           // Comment Text
-                  Text(
+                          FruitEmojiHelper.buildCommentText(
+                            context,
                     comment['content'] as String? ?? '',
                     style: ResponsiveHelper.textStyle(
                       context,
@@ -1847,7 +2009,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                 ],
                       ),
                     ),
-                    
+
                     // Actions Row - Like and Reply
                     Padding(
                       padding: EdgeInsets.only(
@@ -1962,7 +2124,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                         ],
                       ),
                     ),
-                    
+
                     // Reply Input
                     if (showReplyInput[commentId] ?? false)
                       Padding(
@@ -1971,7 +2133,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                         ),
                         child: _buildReplyInput(context, commentId, storyId),
                       ),
-                    
+
                     // Nested Replies
                     if (showReplies && replies.isNotEmpty)
                       Padding(
@@ -1994,13 +2156,13 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       ),
     );
   }
-  
+
   Widget _buildReplyInput(BuildContext context, int parentCommentId, int storyId) {
     if (!replyControllers.containsKey(parentCommentId)) {
       replyControllers[parentCommentId] = TextEditingController();
     }
     final replyController = replyControllers[parentCommentId]!;
-    
+
     return Container(
       padding: ResponsiveHelper.padding(
         context,
@@ -2084,7 +2246,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
   Widget _buildEmojiReactions(BuildContext context, int storyId) {
     final hasReactions = storyEmojiReactions.isNotEmpty;
     final quickEmojisList = quickEmojis;
-    
+
     // Debug logging
     print('🔍 _buildEmojiReactions: hasReactions=$hasReactions, reactions count=${storyEmojiReactions.length}');
     if (hasReactions) {
@@ -2092,7 +2254,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
         print('   - Emoji key: "$key" (${users.length} users)');
       });
     }
-    
+
     return Container(
       padding: ResponsiveHelper.padding(
         context,
@@ -2158,7 +2320,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
             ],
           ),
             SizedBox(height: ResponsiveHelper.spacing(context, 10)),
-            
+
             // Quick Emoji Buttons - Phone Style (No borders, minimal gap)
           Wrap(
             spacing: ResponsiveHelper.spacing(context, 6),
@@ -2202,10 +2364,10 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                       emoji = baseName;
                     }
                   }
-                  
+
                   // If still empty, skip this emoji (don't make it clickable)
                   final isValidEmoji = emoji != null && emoji.trim().isNotEmpty;
-                  
+
                   return Material(
                     color: Colors.transparent,
                     child: InkWell(
@@ -2254,7 +2416,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
               ),
             ],
           ),
-          
+
           // Display Reactions Count - Phone Style with Actual Emojis
           if (hasReactions) ...[
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
@@ -2270,17 +2432,17 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                         final firstReaction = storyEmojiReactions.entries.first;
                         final emojiChar = firstReaction.key;
                         Map<String, dynamic>? fruitEmoji;
-                        
+
                         // Find matching emoji
                         for (var emoji in availableEmojis) {
                           final emojiCharFromList = emoji['emoji_char'] as String? ?? '';
-                          if (emojiCharFromList.trim() == emojiChar.trim() || 
+                          if (emojiCharFromList.trim() == emojiChar.trim() ||
                               emojiCharFromList == emojiChar) {
                             fruitEmoji = emoji;
                             break;
                           }
                         }
-                        
+
                         if (fruitEmoji != null) {
                           return HomeScreen.buildEmojiDisplay(
                             context,
@@ -2322,22 +2484,22 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                 final emojiKey = entry.key;
                 final usersWhoReacted = entry.value as List<Map<String, dynamic>>;
                 Map<String, dynamic>? fruitEmoji;
-                
+
                 // Try multiple matching strategies
                 for (var emoji in availableEmojis) {
                   final emojiCharFromList = emoji['emoji_char'] as String? ?? '';
                   final emojiCodeFromList = emoji['code'] as String? ?? '';
                   final emojiImageUrlFromList = emoji['image_url'] as String? ?? '';
                   final emojiIdFromList = emoji['id']?.toString() ?? '';
-                  
+
                   // Strategy 1: Match by emoji_char
-                  if (emojiCharFromList.isNotEmpty && 
+                  if (emojiCharFromList.isNotEmpty &&
                       (emojiCharFromList.trim() == emojiKey.trim() || emojiCharFromList == emojiKey)) {
                     fruitEmoji = emoji;
                     break;
                   }
                   // Strategy 2: Match by code
-                  if (emojiCodeFromList.isNotEmpty && 
+                  if (emojiCodeFromList.isNotEmpty &&
                       (emojiCodeFromList.trim() == emojiKey.trim() || emojiCodeFromList == emojiKey)) {
                     fruitEmoji = emoji;
                     break;
@@ -2347,21 +2509,21 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                     // Extract filename from both URLs
                     String? keyFilename;
                     String? listFilename;
-                    
+
                     if (emojiKey.contains('/')) {
                       keyFilename = emojiKey.split('/').last.replaceAll('%20', ' ').toLowerCase();
                     } else {
                       keyFilename = emojiKey.toLowerCase();
                     }
-                    
+
                     if (emojiImageUrlFromList.contains('/')) {
                       listFilename = emojiImageUrlFromList.split('/').last.replaceAll('%20', ' ').toLowerCase();
                     } else {
                       listFilename = emojiImageUrlFromList.toLowerCase();
                     }
-                    
-                    if (keyFilename == listFilename || 
-                        emojiImageUrlFromList.contains(emojiKey) || 
+
+                    if (keyFilename == listFilename ||
+                        emojiImageUrlFromList.contains(emojiKey) ||
                         emojiKey.contains(emojiImageUrlFromList)) {
                       fruitEmoji = emoji;
                       break;
@@ -2373,12 +2535,13 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                     break;
                   }
                 }
-                
+
                 return GestureDetector(
                   onTap: () {
                     // Show dialog with users who reacted
-                    Get.dialog(
-                      Dialog(
+                    showDialog(
+                      context: context,
+                      builder: (context) => Dialog(
                         child: Container(
                           padding: ResponsiveHelper.padding(context, all: 20),
                           constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
@@ -2410,9 +2573,9 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                     final user = usersWhoReacted[index];
                                     return ListTile(
                                       leading: CircleAvatar(
-                                        backgroundImage: user['profile_photo'] != null 
+                                        backgroundImage: user['profile_photo'] != null
                                             ? NetworkImage(
-                                                (user['profile_photo'] as String).startsWith('http://') || 
+                                                (user['profile_photo'] as String).startsWith('http://') ||
                                                 (user['profile_photo'] as String).startsWith('https://')
                                                   ? user['profile_photo'] as String
                                                   : 'https://fruitofthespirit.templateforwebsites.com/${user['profile_photo']}'
@@ -2427,7 +2590,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                               ),
                               SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                               TextButton(
-                                onPressed: () => Get.back(),
+                                onPressed: () => Navigator.of(context).pop(),
                                 child: const Text('Close'),
                               ),
                             ],
@@ -2510,7 +2673,12 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: () => Get.back(),
+                  onPressed: (){
+                    // Close the bottom sheet
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  },
                 ),
               ],
             ),
@@ -2526,7 +2694,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                         childAspectRatio: 1,
                       ),
                       itemCount: availableEmojis.length,
-                      itemBuilder: (context, index) {
+                      itemBuilder: (gridContext, index) {
                         final emojiData = availableEmojis[index];
                         String? emoji = emojiData['emoji_char'] as String?;
                         if (emoji == null || emoji.trim().isEmpty) {
@@ -2546,14 +2714,17 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                             emoji = baseName;
                           }
                         }
-                        
+
                         final isValidEmoji = emoji != null && emoji.trim().isNotEmpty;
-                        
+
                         return Material(
                           color: Colors.transparent,
                           child: InkWell(
                             onTap: isValidEmoji ? () async {
-                              Get.back();
+                              // Close the bottom sheet
+                              if (context.mounted) {
+                                Navigator.of(context).pop();
+                              }
                               await _addEmojiReaction(storyId, emoji!);
                             } : null,
                             borderRadius: BorderRadius.circular(12),
@@ -2576,5 +2747,206 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       ),
     );
   }
-}
 
+  void _showReportDialog(BuildContext context, Map<String, dynamic> comment) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Report Content'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Choose an action:'),
+            const SizedBox(height: 16),
+            if (comment['user_id'] != null && comment['user_id'].toString() != this.userId.toString()) ...[
+              ListTile(
+                leading: const Icon(Icons.report_outlined, color: Colors.orange),
+                title: const Text('Report Comment'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final commentId = comment['id'] is int ? comment['id'] : int.parse(comment['id'].toString());
+                  await ReportUtils.handleReportButtonTap(
+                    context: context,
+                    contentType: 'story_comment',
+                    contentId: commentId,
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.block, color: Colors.red),
+                title: const Text('Block User'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final userIdRaw = comment['user_id'];
+                  if (userIdRaw != null) {
+                    final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+                    if (userId == null) return;
+
+                    final userName = comment['user_name'] ?? 'this user';
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: Text('Block $userName?'),
+                        content: const Text('You will no longer see content from this user.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+                          TextButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              child: const Text('Block', style: TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true) {
+                      try {
+                        await UserBlockingService.blockUser(userId);
+                        if (mounted) {
+                          _showCustomSnackbar(
+                            context,
+                            'Success',
+                            'User blocked',
+                          );
+                        }
+                        _loadComments(story['id'] as int);
+                      } catch (e) {
+                        if (mounted) {
+                          _showCustomSnackbar(
+                            context,
+                            'Error',
+                            'Failed to block user',
+                            isError: true,
+                          );
+                        }
+                      }
+                    }
+                  }
+                },
+              ),
+            ] else
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('This is your own comment.', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStoryOptions(BuildContext context, Map<String, dynamic> story) {
+    final userIdRaw = story['user_id'] ?? story['created_by'];
+    final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+    
+    // Check if we have any options to show
+    final hasOptions = posterId != null && posterId != this.userId;
+    
+    // Only show the PopupMenuButton if there are options
+    if (!hasOptions) {
+      return SizedBox(width: 40); // Empty placeholder for alignment
+    }
+    
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          final storyId = story['id'] is int ? story['id'] : int.parse(story['id'].toString());
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'story',
+            contentId: storyId,
+          );
+        } else if (value == 'block') {
+          final userIdRaw = story['user_id'] ?? story['created_by'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            if (this.userId == userId) {
+              _showCustomSnackbar(
+                context,
+                'Info',
+                'You cannot block yourself',
+              );
+              return;
+            }
+
+            final userName = story['user_name'] ?? 'this poster';
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                await UserBlockingService.blockUser(userId);
+                if (mounted) {
+                  _showCustomSnackbar(
+                    context,
+                    'Success',
+                    'User blocked',
+                  );
+                  Navigator.of(context).pop(); // Back to list
+                }
+              } catch (e) {
+                if (mounted) {
+                  _showCustomSnackbar(
+                    context,
+                    'Error',
+                    'Failed to block user',
+                    isError: true,
+                  );
+                }
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) {
+        final List<PopupMenuEntry<String>> items = [];
+        
+        // Only show options if it's NOT the current user's story
+        if (posterId != null && posterId != this.userId) {
+          items.add(
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Text('Report Content'),
+                ],
+              ),
+            ),
+          );
+          items.add(
+            const PopupMenuItem(
+              value: 'block',
+              child: Row(
+                children: [
+                  Icon(Icons.block, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Text('Block User'),
+                ],
+              ),
+            ),
+          );
+        }
+        
+        return items;
+      },
+    );
+  }
+}

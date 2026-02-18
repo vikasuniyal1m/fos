@@ -12,6 +12,9 @@ import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
+
+import '../utils/app_theme.dart';
 
 /// Fruit Details Screen
 /// Shows stories, videos, photos related to a specific fruit
@@ -33,6 +36,43 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   var emotionEmojis = <Map<String, dynamic>>[];
   var userId = 0;
   String? fruitName;
+
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -60,7 +100,9 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   Future<void> _loadFruitDetails() async {
     final fruitData = Get.arguments;
     if (fruitData == null) {
-      Get.back();
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
       return;
     }
 
@@ -87,12 +129,14 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
       setState(() {
         isLoading = false;
       });
-      Get.snackbar(
-        'Error',
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        _showCustomSnackbar(
+          context,
+          'Error',
+          e.toString().replaceAll('Exception: ', ''),
+          isError: true,
+        );
+      }
     }
   }
 
@@ -213,7 +257,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
               color: const Color(0xFF8B4513),
               size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
             ),
-            onPressed: () => Get.back(),
+            onPressed: () => Navigator.of(context).pop(),
           ),
           title: Text(
             fruitName ?? 'Fruit Details',
@@ -282,7 +326,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
             ),
             SizedBox(height: ResponsiveHelper.spacing(context, 16)),
             ElevatedButton(
-              onPressed: () => Get.toNamed(Routes.CREATE_STORY),
+              onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_STORY),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF8B4513),
               ),
@@ -412,7 +456,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         ),
       ),
       child: InkWell(
-        onTap: () => Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']),
+        onTap: () => PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: story['id']),
         borderRadius: BorderRadius.circular(
           ResponsiveHelper.borderRadius(context, mobile: 16),
         ),
@@ -520,7 +564,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         : null;
     
     return GestureDetector(
-      onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -623,7 +667,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         : (filePath.isNotEmpty ? baseUrl + filePath : null);
     
     return GestureDetector(
-      onTap: () => Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(
@@ -826,20 +870,22 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
                 userId: userId,
                 emoji: emojiChar.toString(),
               );
-              Get.snackbar(
-                'Recorded',
-                'Your feeling has been recorded',
-                backgroundColor: Colors.green,
-                colorText: Colors.white,
-                duration: const Duration(seconds: 2),
-              );
+              if (mounted) {
+                _showCustomSnackbar(
+                  context,
+                  'Recorded',
+                  'Your feeling has been recorded',
+                );
+              }
             } else {
-              Get.snackbar(
-                'Login Required',
-                'Please login to record your feeling',
-                backgroundColor: Colors.orange,
-                colorText: Colors.white,
-              );
+              if (mounted) {
+                _showCustomSnackbar(
+                  context,
+                  'Login Required',
+                  'Please login to record your feeling',
+                  isError: true,
+                );
+              }
             }
           } catch (e) {
             print('Error recording emoji: $e');

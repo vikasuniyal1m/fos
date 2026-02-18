@@ -3,7 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/group_chat_service.dart';
-import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/services/user_storage.dart' as us;
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+
+import '../routes/app_pages.dart';
+import '../utils/app_theme.dart';
 
 /// Group Chat Controller
 /// Manages real-time chat messages
@@ -34,7 +39,7 @@ class GroupChatController extends GetxController {
   }
 
   Future<void> _loadUserId() async {
-    final id = await UserStorage.getUserId();
+    final id = await us.UserStorage.getUserId();
     if (id != null) {
       userId.value = id;
     }
@@ -105,6 +110,13 @@ class GroupChatController extends GetxController {
         if (msg['message'] == null || msg['message'] == 'null') {
           msg['message'] = '';
         }
+
+        // Ensure message_type is correctly identified as 'emoji' for fruit/URL messages
+        final content = msg['message']?.toString() ?? '';
+        final mType = msg['message_type']?.toString();
+        if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
+          msg['message_type'] = 'emoji';
+        }
         return msg;
       }).toList();
 
@@ -122,15 +134,21 @@ class GroupChatController extends GetxController {
       
       _currentOffset += filteredMessages.length;
       
-      // Force UI update - create new list instance
-      final currentMessages = List<Map<String, dynamic>>.from(messages);
-      messages.value = [];
-      await Future.delayed(const Duration(milliseconds: 10));
-      messages.value = currentMessages;
       messages.refresh();
 
       if (filteredMessages.isNotEmpty) {
-        lastMessageId = filteredMessages.first['id'] as int?;
+        // Find the newest message ID in the batch
+        final newestId = filteredMessages.map((m) {
+          final idValue = m['id'];
+          if (idValue is int) return idValue;
+          if (idValue is String) return int.tryParse(idValue) ?? 0;
+          return 0;
+        }).reduce((a, b) => a > b ? a : b);
+        
+        // Only update lastMessageId if it's the first load or if the new ID is larger
+        if (lastMessageId == null || newestId > lastMessageId!) {
+          lastMessageId = newestId;
+        }
       }
 
       hasMore.value = filteredMessages.length >= 50;
@@ -208,16 +226,44 @@ class GroupChatController extends GetxController {
         if (msg['message'] == null || msg['message'] == 'null') {
           msg['message'] = '';
         }
+
+        // Ensure message_type is correctly identified as 'emoji' for fruit/URL messages
+        final content = msg['message']?.toString() ?? '';
+        final mType = msg['message_type']?.toString();
+        if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
+          msg['message_type'] = 'emoji';
+        }
         return msg;
       }).toList();
 
-      // Get existing message IDs to avoid duplicates
-      final existingIds = messages.map((m) => m['id'] as int).toSet();
+      // Get existing message IDs to avoid duplicates - check both msg_id and id
+      final existingIds = <String>{};
+      for (var m in messages) {
+        if (m['msg_id'] != null) {
+          existingIds.add(m['msg_id'].toString());
+        }
+        if (m['id'] != null) {
+          existingIds.add(m['id'].toString());
+        }
+      }
       
       // Filter out messages that already exist
       final trulyNewMessages = newMessages.where((msg) {
-        final msgId = msg['id'] as int?;
-        return msgId != null && !existingIds.contains(msgId);
+        final msgMsgId = msg['msg_id']?.toString();
+        final msgId = msg['id']?.toString();
+        
+        // If message has msg_id, check against existing msg_ids
+        if (msgMsgId != null && existingIds.contains(msgMsgId)) {
+          return false;
+        }
+        
+        // If message has id, check against existing ids
+        if (msgId != null && existingIds.contains(msgId)) {
+          return false;
+        }
+        
+        // Message is truly new
+        return true;
       }).toList();
 
       if (trulyNewMessages.isNotEmpty) {
@@ -226,7 +272,13 @@ class GroupChatController extends GetxController {
         messages.refresh(); // Update UI
         
         // Update lastMessageId to the newest message
-        final newestId = trulyNewMessages.map((m) => m['id'] as int).reduce((a, b) => a > b ? a : b);
+        final newestId = trulyNewMessages.map((m) {
+          final idVal = m['id'];
+          if (idVal is int) return idVal;
+          if (idVal is String) return int.tryParse(idVal) ?? 0;
+          return 0;
+        }).reduce((a, b) => a > b ? a : b);
+        
         if (newestId > (lastMessageId ?? 0)) {
           lastMessageId = newestId;
         }
@@ -244,6 +296,21 @@ class GroupChatController extends GetxController {
     File? file,
     String messageType = 'text',
   }) async {
+    // If text is a fruit emoji, automatically set messageType to 'emoji'
+    final textTrimmed = text.trim();
+    if (messageType == 'text' && textTrimmed.isNotEmpty) {
+      if (FruitEmojiHelper.isFruit(textTrimmed) || textTrimmed.length <= 2) {
+        // Checking for Unicode emojis as well
+        final emojiRegex = RegExp(
+          r'[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2764}\u{FE0F}]|[\u{2728}]|[\u{2B50}]',
+          unicode: true,
+        );
+        if (emojiRegex.hasMatch(textTrimmed) || FruitEmojiHelper.isFruit(textTrimmed)) {
+          messageType = 'emoji';
+        }
+      }
+    }
+
     if (userId.value == 0) {
       await _loadUserId();
     }
@@ -258,6 +325,47 @@ class GroupChatController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content (only for text messages)
+    if (text.trim().isNotEmpty) {
+      final moderationCheck = ContentModerationService.checkContent(text);
+      if (!moderationCheck['isClean']) {
+        message.value = moderationCheck['message'];
+        final ctx = Get.context;
+        if (ctx != null) {
+          ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(right: 12),
+                    child: Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 28),
+                  ),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Community Guidelines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                        Text(moderationCheck['message'], style: const TextStyle(color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF5D4037),
+              duration: const Duration(seconds: 5),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
+        
+        return false;
+      }
+    }
+
     isSending.value = true;
     message.value = '';
 
@@ -270,28 +378,102 @@ class GroupChatController extends GetxController {
         file: file,
       );
       
-      sentMessage['group_id'] = groupId;
-      sentMessage['user_id'] = userId.value;
-      if ((sentMessage['message'] == null || sentMessage['message'] == '' || sentMessage['message'] == 'null') &&
-          sentMessage['text'] != null &&
-          sentMessage['text'] is String &&
-          (sentMessage['text'] as String).trim().isNotEmpty) {
-        sentMessage['message'] = (sentMessage['text'] as String).trim();
+      // Extract flattened message from messages_list if it exists (to match backend format)
+      Map<String, dynamic> flattenedMessage = sentMessage;
+      
+      // If sentMessage has messages_list, extract the first message from it (since we always have one message per row now)
+      if (sentMessage.containsKey('messages_list') && sentMessage['messages_list'] != null) {
+        final messagesList = sentMessage['messages_list'];
+        if (messagesList is List && messagesList.isNotEmpty) {
+          final firstMessage = messagesList[0];
+          if (firstMessage is Map<String, dynamic>) {
+            // Create flattened message using the individual message data
+            flattenedMessage = {
+              'id': sentMessage['id'],
+              'msg_id': firstMessage['msg_id'],
+              'user_id': sentMessage['user_id'],
+              'user_name': sentMessage['user_name'],
+              'profile_photo': sentMessage['profile_photo'],
+              'group_id': groupId,
+              'message': firstMessage['text'] ?? sentMessage['message'] ?? '',
+              'message_type': firstMessage['message_type'] ?? sentMessage['message_type'] ?? 'text',
+              'file_url': firstMessage['file_url'] ?? sentMessage['file_url'],
+              'created_at': firstMessage['time'] ?? sentMessage['created_at'] ?? DateTime.now().toString(),
+              'status': sentMessage['status'] ?? 'active'
+            };
+          }
+        }
+      } else {
+        // Ensure basic fields are set if no messages_list
+        flattenedMessage['group_id'] = groupId;
+        flattenedMessage['user_id'] = userId.value;
+        flattenedMessage['msg_id'] = flattenedMessage['msg_id'] ?? 'msg_' + flattenedMessage['id'].toString() + '_' + DateTime.now().millisecondsSinceEpoch.toString();
       }
-      if (sentMessage['created_at'] == null && sentMessage['time'] != null) {
-        sentMessage['created_at'] = sentMessage['time'];
+
+      // Ensure message text is present
+      if ((flattenedMessage['message'] == null || flattenedMessage['message'] == '' || flattenedMessage['message'] == 'null')) {
+        flattenedMessage['message'] = flattenedMessage['text'] ?? '';
       }
-      if (sentMessage['message'] == null || sentMessage['message'] == 'null') {
-        sentMessage['message'] = '';
+
+      // Ensure message_type is correctly identified as 'emoji' for fruit/URL messages
+      final content = flattenedMessage['message']?.toString() ?? '';
+      final mType = flattenedMessage['message_type']?.toString();
+      if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
+        flattenedMessage['message_type'] = 'emoji';
+      }
+
+      // Ensure timestamp is present
+      if (flattenedMessage['created_at'] == null) {
+        flattenedMessage['created_at'] = flattenedMessage['time'] ?? DateTime.now().toString();
+      }
+
+      // Add current user info to the message so it displays correctly immediately
+      try {
+        final user = await us.UserStorage.getUser();
+        if (user != null) {
+          flattenedMessage['user_name'] = user['name'];
+          flattenedMessage['profile_photo'] = user['profile_photo'];
+        }
+      } catch (e) {
+        print('Error adding user info to sent message: $e');
       }
       
-      // Add the newly sent message to the list
-      messages.add(sentMessage);
-      messages.refresh();
+      // Handle different ID fields returned by backend (id, msg_id)
+      final rawId = flattenedMessage['id'] ?? flattenedMessage['msg_id'];
+      int? sentMessageId;
+      if (rawId is int) {
+        sentMessageId = rawId;
+      } else if (rawId is String) {
+        sentMessageId = int.tryParse(rawId);
+      }
+
+      // Map msg_id to id for consistency if id is missing
+      if (flattenedMessage['id'] == null && rawId != null) {
+        flattenedMessage['id'] = rawId;
+      }
       
-      // Update lastMessageId if this is the newest message
-      if (sentMessage['id'] != null && (sentMessage['id'] as int) > (lastMessageId ?? 0)) {
-        lastMessageId = sentMessage['id'] as int;
+      // Prevent duplicates in the local list
+      final existingMsgIds = <String>{};
+      for (var m in messages) {
+        if (m['msg_id'] != null) {
+          existingMsgIds.add(m['msg_id'].toString());
+        }
+        if (m['id'] != null) {
+          existingMsgIds.add(m['id'].toString());
+        }
+      }
+      
+      final currentMsgId = flattenedMessage['msg_id']?.toString() ?? flattenedMessage['id']?.toString();
+      
+      if (currentMsgId != null && !existingMsgIds.contains(currentMsgId)) {
+        // Add the newly sent message to the end (newest messages at bottom)
+        messages.add(flattenedMessage);
+        messages.refresh();
+        
+        // Update lastMessageId if it's a numeric ID
+        if (sentMessageId != null && sentMessageId > (lastMessageId ?? 0)) {
+          lastMessageId = sentMessageId;
+        }
       }
       
       // Check for any other new messages that might have arrived
@@ -299,14 +481,44 @@ class GroupChatController extends GetxController {
 
       return true;
     } catch (e) {
-      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
-      Get.snackbar(
-        'Error',
-        'Failed to send message: ${e.toString().replaceAll('Exception: ', '')}',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
+      final errorMsg = e.toString().replaceAll('Exception: ', '');
+      final isModeration = errorMsg.contains('community guidelines');
+      message.value = 'Error: $errorMsg';
+      final ctx = Get.context;
+      if (ctx != null) {
+        ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Icon(
+                    isModeration ? Icons.security_rounded : Icons.info_outline,
+                    color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                    size: 28,
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(isModeration ? 'Community Guidelines' : 'Notice', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                      Text(errorMsg, style: const TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.grey[800],
+            duration: Duration(seconds: isModeration ? 5 : 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
       return false;
     } finally {
       isSending.value = false;
@@ -368,7 +580,12 @@ class GroupChatController extends GetxController {
       }).toList();
 
       // Get existing message IDs
-      final existingIds = messages.map((m) => m['id'] as int).toSet();
+      final existingIds = messages.map((m) {
+        final idVal = m['id'];
+        if (idVal is int) return idVal;
+        if (idVal is String) return int.tryParse(idVal) ?? 0;
+        return 0;
+      }).toSet();
       
       // Add only truly new messages
       final trulyNewMessages = newMessages.where((msg) {
@@ -381,7 +598,13 @@ class GroupChatController extends GetxController {
         messages.refresh();
         
         // Update lastMessageId
-        final newestId = trulyNewMessages.map((m) => m['id'] as int).reduce((a, b) => a > b ? a : b);
+        final newestId = trulyNewMessages.map((m) {
+          final idVal = m['id'];
+          if (idVal is int) return idVal;
+          if (idVal is String) return int.tryParse(idVal) ?? 0;
+          return 0;
+        }).reduce((a, b) => a > b ? a : b);
+        
         if (newestId > (lastMessageId ?? 0)) {
           lastMessageId = newestId;
         }

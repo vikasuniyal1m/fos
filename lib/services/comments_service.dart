@@ -1,5 +1,6 @@
 import '../config/api_config.dart';
 import 'api_service.dart';
+import 'report_service.dart';
 
 /// Comments Service
 /// Handles comments on blogs, prayers, videos, gallery
@@ -129,24 +130,20 @@ class CommentsService {
     required int commentId,
     String? reason,
   }) async {
-    final body = {
-      'user_id': userId.toString(),
-      'comment_id': commentId.toString(),
-    };
-    
-    if (reason != null && reason.isNotEmpty) {
-      body['reason'] = reason;
-    }
-    
-    final response = await ApiService.post(
-      '${ApiConfig.comments}?action=report',
-      body: body,
+    // Use the unified report service instead of the comments-specific endpoint
+    // This ensures consistent reporting behavior across all content types
+    final success = await ReportService.reportContent(
+      contentType: 'comment',
+      contentId: commentId,
+      reason: reason ?? 'General concern',
+      description: '',
     );
 
-    if (response['success'] == true && response['data'] != null) {
-      return response['data']['id'] as int;
+    if (success) {
+      // Return commentId as a placeholder since the unified service doesn't return an ID
+      return commentId;
     } else {
-      throw ApiException(response['message'] ?? 'Failed to report comment');
+      throw ApiException('Failed to report comment');
     }
   }
 

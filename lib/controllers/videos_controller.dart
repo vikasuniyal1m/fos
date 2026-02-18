@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/advanced_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Videos Controller
 /// Manages videos data and operations
@@ -50,6 +53,15 @@ class VideosController extends GetxController {
     loadLiveVideos();
   }
 
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allVideos = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
+    }
+  }
+
   /// Load user ID from storage
   Future<void> _loadUserId() async {
     final id = await UserStorage.getUserId();
@@ -73,6 +85,7 @@ class VideosController extends GetxController {
       final approvedVideos = await VideosService.getVideos(
         status: 'Approved',
         fruitTag: null, // Always load all videos for cache
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
@@ -80,7 +93,8 @@ class VideosController extends GetxController {
       // If user wants to see their pending videos, load them too
       List<Map<String, dynamic>> allVideos = List.from(approvedVideos);
       
-      if (includePending && userId.value > 0) {
+      // Always include pending videos if a user is logged in
+      if (userId.value > 0) {
         try {
           final pendingVideos = await VideosService.getVideos(
             status: 'Pending',
@@ -94,6 +108,13 @@ class VideosController extends GetxController {
         } catch (e) {
           print('Error loading pending videos: $e');
         }
+      }
+
+      print('📹 Total Videos Loaded: ${allVideos.length} (Approved: ${approvedVideos.length})');
+      for (var video in allVideos) {
+        final status = video['status'] ?? 'Unknown';
+        final thumbnailPath = video['thumbnail_path'] ?? 'N/A';
+        print('   - Video: ${video['file_path']} (Status: $status, Thumbnail: $thumbnailPath)');
       }
 
       if (refresh || currentPage.value == 0) {
@@ -149,7 +170,10 @@ class VideosController extends GetxController {
     message.value = '';
 
     try {
-      final video = await VideosService.getVideoDetails(videoId);
+      final video = await VideosService.getVideoDetails(
+        videoId,
+        currentUserId: userId.value > 0 ? userId.value : null,
+      );
       selectedVideo.value = video;
       
       // Load comments and emojis
@@ -426,8 +450,37 @@ class VideosController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content in title or description
+    if (title != null && title.isNotEmpty) {
+      final titleCheck = ContentModerationService.checkContent(title);
+      if (!titleCheck['isClean']) {
+        message.value = 'Title: ${titleCheck['message']}';
+        _showModerationSnackbar(titleCheck['message']);
+        return false;
+      }
+    }
+    
+    if (description != null && description.isNotEmpty) {
+      final descCheck = ContentModerationService.checkContent(description);
+      if (!descCheck['isClean']) {
+        message.value = 'Description: ${descCheck['message']}';
+        _showModerationSnackbar(descCheck['message']);
+        return false;
+      }
+    }
+
     isLoading.value = true;
     message.value = 'Uploading video...';
+
+    print('📤 VideosController.uploadVideo: Preparing upload...');
+    await _loadUserId();
+    print('📤 VideosController.uploadVideo: Using userId: ${userId.value}');
+
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      isLoading.value = false;
+      return false;
+    }
 
     try {
       await VideosService.uploadVideo(
@@ -468,6 +521,14 @@ class VideosController extends GetxController {
 
     if (userId.value == 0) {
       message.value = 'Please login first';
+      return false;
+    }
+
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
       return false;
     }
 
@@ -619,5 +680,39 @@ class VideosController extends GetxController {
       loadLiveVideos(),
     ]);
   }
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    final ctx = Get.context;
+    if (ctx != null) {
+      ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+              ),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Community Guidelines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(message, style: const TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF5D4037),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  }
 }
-

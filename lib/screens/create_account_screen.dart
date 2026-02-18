@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/bindings/InitialBinding.dart';
 import 'dart:io' show Platform;
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:icons_plus/icons_plus.dart';
@@ -9,7 +10,10 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:fruitsofspirit/services/auth_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
-import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/services/intro_service.dart';
+
+import '../utils/app_theme.dart';
 
 class CreateAccountScreen extends StatefulWidget {
   const CreateAccountScreen({Key? key}) : super(key: key);
@@ -23,13 +27,17 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   bool _isConfirmPasswordVisible = false;
   bool _agreeToTerms = false;
   bool _isLoading = false;
+  String? _registrationError; // Inline error message
+  String? _errorField; // Track which field has the error
   String _selectedRole = 'User'; // Default role: User or Blogger
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
+
   final _formKey = GlobalKey<FormState>();
+  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
   @override
   void dispose() {
@@ -41,32 +49,83 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     super.dispose();
   }
 
+  void _showCustomSnackbar(String title, String message, {bool isError = false, Color? backgroundColor}) {
+    if (!mounted) return;
+    
+    // Use WidgetsBinding to ensure we are not in the middle of a build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: backgroundColor ?? (isError ? Colors.red.withOpacity(0.9) : AppTheme.iconscolor),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
+  }
+
   Future<void> _createAccount() async {
     if (!_formKey.currentState!.validate()) {
+      setState(() {
+        _autoValidateMode = AutovalidateMode.onUserInteraction;
+      });
       return;
     }
+    
+    setState(() {
+      _autoValidateMode = AutovalidateMode.onUserInteraction;
+    });
 
     if (!_agreeToTerms) {
-      Get.snackbar(
+      _showCustomSnackbar(
         'Terms Required',
         'Please accept Terms & Conditions',
-        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.orange.withOpacity(0.8),
-        colorText: Colors.white,
       );
       return;
     }
 
     setState(() {
       _isLoading = true;
+      _registrationError = null;
+      _errorField = null;
     });
 
     try {
       final email = _emailController.text.trim();
       final phone = _phoneController.text.trim();
       
-      if (email.isEmpty && phone.isEmpty) {
-        throw ApiException('Email or phone is required');
+      if (email.isEmpty) {
+        throw ApiException('Email is required');
       }
 
       Map<String, dynamic> user = await AuthService.register(
@@ -161,9 +220,18 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       } else {
         // Regular user - save and go to home
         await UserStorage.saveUser(user);
-        if (mounted) {
-          Get.offAllNamed(Routes.HOME);
+        // Re-initialize controllers
+        InitialBinding().dependencies();
+        
+         if (mounted) {
+          _showCustomSnackbar(
+            'Success',
+            'Your account has been created successfully',
+            backgroundColor: AppTheme.iconscolor,
+          );
+          Get.offAllNamed(Routes.DASHBOARD);
         }
+        
       }
     } on ApiException catch (e) {
       // Log server error to console (for debugging)
@@ -174,77 +242,68 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         // Parse error message and show professional, user-friendly messages
         String errorTitle = 'Registration Failed';
         String errorMessage = 'Unable to create account. Please try again.';
+        String? errorField;
         
         // Check for specific error types and show appropriate messages
         final errorLower = e.message.toLowerCase();
         
         if (errorLower.contains('email') && (errorLower.contains('already') || errorLower.contains('exists') || errorLower.contains('taken'))) {
           errorTitle = 'Email Already Registered';
-          errorMessage = 'This email address is already registered. Please use a different email or try logging in.';
+          errorMessage = 'This email address is already registered.';
+          errorField = 'email';
         } else if (errorLower.contains('phone') && (errorLower.contains('already') || errorLower.contains('exists') || errorLower.contains('taken'))) {
           errorTitle = 'Phone Already Registered';
-          errorMessage = 'This phone number is already registered. Please use a different phone number or try logging in.';
+          errorMessage = 'This phone number is already registered.';
+          errorField = 'phone';
         } else if (errorLower.contains('password') && (errorLower.contains('weak') || errorLower.contains('short') || errorLower.contains('invalid'))) {
           errorTitle = 'Weak Password';
-          errorMessage = 'Password is too weak. Please use a stronger password with at least 6 characters.';
+          errorMessage = 'Password is too weak (min 6 characters).';
+          errorField = 'password';
         } else if (errorLower.contains('password') && errorLower.contains('match')) {
           errorTitle = 'Password Mismatch';
-          errorMessage = 'Passwords do not match. Please make sure both password fields are the same.';
+          errorMessage = 'Passwords do not match.';
+          errorField = 'confirm_password';
         } else if (errorLower.contains('name') && (errorLower.contains('required') || errorLower.contains('empty'))) {
           errorTitle = 'Name Required';
-          errorMessage = 'Please enter your full name to continue.';
+          errorMessage = 'Please enter your full name.';
+          errorField = 'name';
         } else if (errorLower.contains('terms') || errorLower.contains('accept')) {
           errorTitle = 'Terms Required';
-          errorMessage = 'Please accept the Terms & Conditions to create an account.';
+          errorMessage = 'Please accept the Terms & Conditions.';
         } else if (errorLower.contains('validation') || errorLower.contains('invalid')) {
           errorTitle = 'Invalid Information';
-          errorMessage = 'Please check all fields and ensure they are filled correctly.';
+          errorMessage = 'Please check this field.';
         } else {
           // Generic error - don't show server message to user
-          errorMessage = 'Unable to create account. Please check your information and try again.';
+          errorMessage = e.message; // Show actual message if not categorized
         }
         
-        Get.snackbar(
-          errorTitle,
-          errorMessage,
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.error_outline,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
-          shouldIconPulse: true,
-          isDismissible: true,
-          dismissDirection: DismissDirection.horizontal,
-        );
+        setState(() {
+          _registrationError = errorMessage;
+          _errorField = errorField;
+        });
+
+        // Trigger validation to show error inline if a field was identified
+        if (_errorField != null) {
+          _formKey.currentState?.validate();
+        } else {
+          // Show snackbar for non-field specific errors
+          _showCustomSnackbar(
+            errorTitle,
+            errorMessage,
+            isError: true,
+          );
+        }
       }
     } on NetworkException catch (e) {
       // Log network error to console
       print('❌ Registration Network Error: ${e.message}');
       
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Connection Error',
           'No internet connection. Please check your network settings and try again.',
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.wifi_off,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
-          shouldIconPulse: true,
-          isDismissible: true,
-          dismissDirection: DismissDirection.horizontal,
         );
       }
     } catch (e) {
@@ -253,23 +312,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       print('❌ Error Type: ${e.runtimeType}');
       
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Registration Failed',
           'An unexpected error occurred. Please try again. If the problem persists, contact support.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.warning_amber_rounded,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
-          shouldIconPulse: true,
-          isDismissible: true,
-          dismissDirection: DismissDirection.horizontal,
+          isError: true,
         );
       }
     } finally {
@@ -284,12 +330,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   Future<void> _signInWithApple() async {
     // Check if Sign in with Apple is available (iOS 13+)
     if (!Platform.isIOS) {
-      Get.snackbar(
+      _showCustomSnackbar(
         'Not Available',
         'Sign in with Apple is only available on iOS devices.',
-        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.orange.withOpacity(0.9),
-        colorText: Colors.white,
       );
       return;
     }
@@ -335,8 +379,16 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       // Save user data
       await UserStorage.saveUser(user);
 
+      // Re-initialize controllers
+      InitialBinding().dependencies();
+
       if (mounted) {
-        Get.offAllNamed(Routes.HOME);
+        _showCustomSnackbar(
+          'Success',
+          'Logged in successfully with Apple',
+          backgroundColor: AppTheme.iconscolor,
+        );
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on SignInWithAppleAuthorizationException catch (e) {
       // Handle Apple Sign In specific errors
@@ -354,13 +406,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
           errorMessage = 'An unknown error occurred. Please try again.';
         }
 
-        Get.snackbar(
+        _showCustomSnackbar(
           'Sign in with Apple',
           errorMessage,
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
         );
       }
     } on ApprovalPendingException catch (e) {
@@ -405,33 +454,26 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Authentication Failed',
           e.message,
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
+          isError: true,
         );
       }
     } on NetworkException catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Connection Error',
           'No internet connection. Please check your network settings and try again.',
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
         );
       }
     } catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Unexpected Error',
           'An unexpected error occurred. Please try again. If the problem persists, contact support.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
+          isError: true,
         );
       }
     } finally {
@@ -527,9 +569,16 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       await UserStorage.saveUser(user);
       print('✅ User data saved');
 
+      // Re-initialize controllers
+      InitialBinding().dependencies();
+
       if (mounted) {
-        print('🏠 Navigating to home...');
-        Get.offAllNamed(Routes.HOME);
+        _showCustomSnackbar(
+          'Success',
+          'Logged in successfully with Google',
+          backgroundColor: AppTheme.iconscolor,
+        );
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {
       if (mounted) {
@@ -573,31 +622,18 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Google Sign In Failed',
           e.message,
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.error_outline,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
-          ),
+          isError: true,
         );
       }
     } on NetworkException catch (e) {
       if (mounted) {
-        Get.snackbar(
+        _showCustomSnackbar(
           'Connection Error',
           'No internet connection. Please check your network settings and try again.',
-          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
         );
       }
     } catch (e, stackTrace) {
@@ -670,25 +706,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && context.mounted) {
-            try {
-              Get.snackbar(
-                errorTitle,
-                errorMessage,
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.red.withOpacity(0.9),
-                colorText: Colors.white,
-                duration: const Duration(seconds: 6),
-                margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-                borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-                icon: Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.white,
-                  size: ResponsiveHelper.iconSize(context, mobile: 24),
-                ),
-              );
-            } catch (snackbarError) {
-              print('⚠️ Could not show snackbar: $snackbarError');
-            }
+            _showCustomSnackbar(
+              errorTitle,
+              errorMessage,
+              isError: true,
+            );
           }
         });
       }
@@ -723,6 +745,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                 padding: ResponsiveHelper.safePadding(context, horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20),
             child: Form(
               key: _formKey,
+              autovalidateMode: _autoValidateMode,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -766,13 +789,16 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     controller: _nameController,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
+                      if (_errorField == 'name' && _registrationError != null) {
+                        return _registrationError;
+                      }
                       if (value == null || value.trim().isEmpty) {
                         return 'Please enter your name';
                       }
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.person, color: Color(0xFFC79211)),
+                      prefixIcon: const Icon(Icons.person, color: AppTheme.iconscolor),
                       hintText: "Full Name",
                       filled: true,
                       fillColor: Colors.white,
@@ -786,7 +812,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -797,6 +823,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'name') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Email Input
@@ -805,19 +839,21 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
-                      final email = value?.trim() ?? '';
-                      final phone = _phoneController.text.trim();
-                      if (email.isEmpty && phone.isEmpty) {
-                        return 'Please enter email or phone';
+                      if (_errorField == 'email' && _registrationError != null) {
+                        return _registrationError;
                       }
-                      if (email.isNotEmpty && !GetUtils.isEmail(email)) {
+                      final email = value?.trim() ?? '';
+                      if (email.isEmpty) {
+                        return 'Please enter email';
+                      }
+                      if (!GetUtils.isEmail(email)) {
                         return 'Please enter a valid email';
                       }
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.email, color: Color(0xFFC79211)),
-                      hintText: "Email (Optional if phone provided)",
+                      prefixIcon: const Icon(Icons.email, color: AppTheme.iconscolor),
+                      hintText: "Email ",
                       filled: true,
                       fillColor: Colors.white,
                       border: OutlineInputBorder(
@@ -830,7 +866,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -841,6 +877,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'email') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Phone Input
@@ -849,16 +893,35 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     keyboardType: TextInputType.phone,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
-                      final phone = value?.trim() ?? '';
-                      final email = _emailController.text.trim();
-                      if (email.isEmpty && phone.isEmpty) {
-                        return 'Please enter email or phone';
+                      if (_errorField == 'phone' && _registrationError != null) {
+                        return _registrationError;
                       }
+                      final phone = value?.trim() ?? '';
+                      
+                      if (phone.isNotEmpty) {
+                        if (!phone.startsWith('+')) {
+                          return 'Start with country code (e.g. +1)';
+                        }
+                        
+                        // Remove '+' for digit counting
+                        final digitsOnly = phone.replaceAll(RegExp(r'[^0-9]'), '');
+                        
+                        // Check if total digits are enough (Country Code + 10 digits)
+                        // Minimum valid length is usually 11 digits (1 digit CC + 10 digit number)
+                        if (digitsOnly.length < 11) {
+                          return 'Enter valid number (Country Code + 10 digits)';
+                        }
+                        
+                        if (!RegExp(r'^\+[0-9]+$').hasMatch(phone)) {
+                          return 'Only numbers and + allowed';
+                        }
+                      }
+                      
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.phone, color: Color(0xFFC79211)),
-                      hintText: "Phone (Optional if email provided)",
+                      prefixIcon: const Icon(Icons.phone, color: AppTheme.iconscolor),
+                      hintText: "Phone (+1234567890)",
                       filled: true,
                       fillColor: Colors.white,
                       border: OutlineInputBorder(
@@ -871,7 +934,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -882,6 +945,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'phone') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Password Input
@@ -890,6 +961,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     obscureText: !_isPasswordVisible,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
+                      if (_errorField == 'password' && _registrationError != null) {
+                        return _registrationError;
+                      }
                       if (value == null || value.isEmpty) {
                         return 'Please enter password';
                       }
@@ -899,14 +973,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.lock, color: Color(0xFFC79211)),
+                      prefixIcon:  Icon(Icons.lock, color: AppTheme.iconscolor),
                       hintText: "Password",
                       filled: true,
                       fillColor: Colors.white,
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          color: const Color(0xFFC79211),
+                          color:  AppTheme.iconscolor,
                         ),
                         onPressed: () {
                           setState(() {
@@ -916,15 +990,15 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -935,6 +1009,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'password') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Confirm Password Input
@@ -943,6 +1025,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     obscureText: !_isConfirmPasswordVisible,
                     textInputAction: TextInputAction.done,
                     validator: (value) {
+                      if (_errorField == 'confirm_password' && _registrationError != null) {
+                        return _registrationError;
+                      }
                       if (value == null || value.isEmpty) {
                         return 'Please confirm password';
                       }
@@ -953,14 +1038,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     },
                     onFieldSubmitted: (_) => _createAccount(),
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.lock, color: Color(0xFFC79211)),
+                      prefixIcon: const Icon(Icons.lock, color: AppTheme.iconscolor),
                       hintText: "Confirm Password",
                       filled: true,
                       fillColor: Colors.white,
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          color: const Color(0xFFC79211),
+                          color: AppTheme.iconscolor,
                         ),
                         onPressed: () {
                           setState(() {
@@ -970,15 +1055,15 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -989,6 +1074,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         borderSide: BorderSide(color: Colors.red, width: ResponsiveHelper.spacing(context, 2)),
                       ),
                     ),
+                    onChanged: (value) {
+                      if (_errorField == 'confirm_password') {
+                        setState(() {
+                          _errorField = null;
+                          _registrationError = null;
+                        });
+                      }
+                    },
                   ),
                   SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 14)),
                   // Role Selection Dropdown
@@ -1005,7 +1098,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       return null;
                     },
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.person_outline, color: Color(0xFFC79211)),
+                      prefixIcon: const Icon(Icons.person_outline, color: AppTheme.iconscolor),
                       labelText: "Select Role",
                       hintText: "Choose your role",
                       filled: true,
@@ -1013,15 +1106,15 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       contentPadding: ResponsiveHelper.safePadding(context, all: 12),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
@@ -1107,7 +1200,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                           _agreeToTerms = newValue ?? false;
                         });
                       },
-                      activeColor: const Color(0xFFC79211),
+                      activeColor: AppTheme.iconscolor,
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                     Expanded(
@@ -1128,7 +1221,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                             child: Text(
                               "Terms And Conditions",
                               style: TextStyle(
-                                color: const Color(0xFF5C4033),
+                                color: Colors.black,
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
                                 fontWeight: FontWeight.bold,
                                 fontFamily: 'MontserratAlternates',
@@ -1145,32 +1238,27 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   // Create Account Button
                 SizedBox(
                   width: double.infinity,
-                  height: ResponsiveHelper.buttonHeight(
-                    context,
-                    mobile: 65,
-                    tablet: 65,  // Taller for tablets
-                  ),
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _createAccount,
-                      style: ResponsiveHelper.adaptiveButtonStyle(
-                        context,
-                        backgroundColor: const Color(0xFF9F9467),
-                        foregroundColor: Colors.white,
-                      ).copyWith(
-                        backgroundColor: MaterialStateProperty.resolveWith((states) {
-                          if (states.contains(MaterialState.disabled)) {
-                            return Colors.grey;
-                          }
-                          return const Color(0xFF9F9467);
-                        }),
-                        elevation: MaterialStateProperty.all(4),
-                        shadowColor: MaterialStateProperty.all(const Color(0xFF9F9467).withOpacity(0.4)),
-                        shape: MaterialStateProperty.all(
-                          RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                          ),
+                    style: ResponsiveHelper.adaptiveButtonStyle(
+                      context,
+                      backgroundColor: const Color(0xFF9F9467),
+                      foregroundColor: Colors.white,
+                    ).copyWith(
+                      backgroundColor: MaterialStateProperty.resolveWith((states) {
+                        if (states.contains(MaterialState.disabled)) {
+                          return Colors.grey;
+                        }
+                        return const Color(0xFF9F9467);
+                      }),
+                      elevation: MaterialStateProperty.all(4),
+                      shadowColor: MaterialStateProperty.all(const Color(0xFF9F9467).withOpacity(0.4)),
+                      shape: MaterialStateProperty.all(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
                         ),
                       ),
+                    ),
                     child: _isLoading
                         ? SizedBox(
                             height: ResponsiveHelper.iconSize(context, mobile: 20),
@@ -1224,11 +1312,6 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   if (Platform.isIOS)
                     SizedBox(
                       width: double.infinity,
-                      height: ResponsiveHelper.buttonHeight(
-                        context, 
-                        mobile: 50,
-                        tablet: 56,
-                      ),
                       child: SignInWithAppleButton(
                         onPressed: () {
                           if (!_isLoading) {
@@ -1239,7 +1322,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         height: ResponsiveHelper.buttonHeight(
                           context, 
                           mobile: 50,
-                          tablet: 56,
+                          tablet: 60,
                         ),
                       ),
                     ),
@@ -1248,11 +1331,6 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   // Google Sign In Button - Full Width for Better UX (Always Visible)
                   SizedBox(
                     width: double.infinity,
-                    height: ResponsiveHelper.buttonHeight(
-                      context,
-                      mobile: 50,
-                      tablet: 75,
-                    ),
                     child: ElevatedButton.icon(
                       onPressed: _isLoading ? null : () async {
                         print('🔵🔵🔵 Google Sign In button TAPPED!');
@@ -1273,18 +1351,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                             // Only show snackbar if context is available and widget is mounted
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (mounted && context.mounted) {
-                                try {
-                                  Get.snackbar(
-                                    'Error',
-                                    'Failed to start Google Sign In: ${e.toString()}',
-                                    snackPosition: SnackPosition.BOTTOM,
-                                    backgroundColor: Colors.red.withOpacity(0.9),
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 5),
-                                  );
-                                } catch (snackbarError) {
-                                  print('⚠️ Could not show snackbar: $snackbarError');
-                                }
+                                _showCustomSnackbar(
+                                  'Error',
+                                  'Failed to start Google Sign In: ${e.toString()}',
+                                  isError: true,
+                                );
                               }
                             });
                           }

@@ -10,69 +10,134 @@ import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Blogger Zone Screen - Social Media Style
 /// Professional, attractive UI with like, comment, and question functionality
-class BloggerZoneScreen extends GetView<BlogsController> {
+class BloggerZoneScreen extends StatefulWidget {
   const BloggerZoneScreen({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    // Load blogs on init
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (controller.blogs.isEmpty && !controller.isLoading.value) {
-        controller.filterUserId.value = 0;
-        controller.loadBlogs(refresh: true);
-      }
-    });
+  State<BloggerZoneScreen> createState() => _BloggerZoneScreenState();
+}
 
+class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
+  late final BlogsController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = Get.find<BlogsController>();
+    
+    // Refresh user data from server to get latest role/status
+    controller.refreshUserData();
+    
+    // Load blogs on init if not already loaded
+    if (controller.blogs.isEmpty && !controller.isLoading.value) {
+      controller.filterUserId.value = 0;
+      controller.loadBlogs(refresh: true);
+    }
+  }
+
+  void _showCustomSnackbar(String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red.withOpacity(0.9) : AppTheme.iconscolor,
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
         backgroundColor: Colors.white,
-      appBar: const StandardAppBar(),
+      appBar: const StandardAppBar(        showBackButton: true,
+      ),
       body: Obx(() {
-        // Show request button for non-bloggers
-        if (controller.userRole.value != 'Blogger') {
+        final isBlogger = controller.userRole.value == 'Blogger';
+        final isActive = controller.userStatus.value == 'Active';
+        final hasPendingRequest = controller.userRole.value == 'PendingBlogger';
+        final isUser = controller.userRole.value == 'User';
+
+        // If user is a regular user or has a pending request, hide the main blog list and show appropriate view
+        if (isUser || hasPendingRequest) {
           return _buildNonBloggerView(context);
         }
 
-        // Show blog list for bloggers
-        if (controller.isLoading.value && controller.blogs.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-              strokeWidth: ResponsiveHelper.spacing(context, 3),
+        // Show blog list for approved bloggers
+        if (isBlogger && isActive) {
+          if (controller.isLoading.value && controller.blogs.isEmpty) {
+            return Center(
+              child: CircularProgressIndicator(
+                color: AppTheme.iconscolor,
+                strokeWidth: ResponsiveHelper.spacing(context, 3),
+              ),
+            );
+          }
+
+          if (controller.blogs.isEmpty) {
+            return _buildEmptyState(context);
+          }
+
+          return RefreshIndicator(
+            onRefresh: () => controller.loadBlogs(refresh: true),
+            color: AppTheme.iconscolor,
+            backgroundColor: Colors.white,
+            child: ListView.builder(
+              padding: ResponsiveHelper.padding(context, vertical: 12),
+              itemCount: controller.blogs.length,
+              itemBuilder: (context, index) {
+                final blog = controller.blogs[index];
+                return _buildSocialMediaBlogCard(context, blog, controller);
+              },
             ),
           );
         }
-
-        if (controller.blogs.isEmpty) {
-          return _buildEmptyState(context);
-        }
-
-        return RefreshIndicator(
-          onRefresh: () => controller.loadBlogs(refresh: true),
-          color: AppTheme.iconscolor,
-          backgroundColor: Colors.white,
-          child: ListView.builder(
-            padding: ResponsiveHelper.padding(context, vertical: 12),
-            itemCount: controller.blogs.length,
-            itemBuilder: (context, index) {
-              final blog = controller.blogs[index];
-              return _buildSocialMediaBlogCard(context, blog, controller);
-            },
-          ),
-        );
+        
+        // Default case, should ideally not be reached if all roles are handled
+        return const SizedBox.shrink();
       }),
       floatingActionButton: Obx(() {
-        final isBlogger = controller.userRole.value == 'Blogger';
-        final isActive = controller.userStatus.value == 'Active';
-        final hasPendingRequest = controller.userRole.value == 'Blogger' && 
-                                  (controller.userStatus.value == 'Inactive' || controller.userStatus.value == 'Pending');
-        
-        // Show button only if user is approved Blogger (role=Blogger, status=Active)
-        if (isBlogger && isActive) {
+        final userRole = controller.userRole.value;
+        final userStatus = controller.userStatus.value;
+
+        // 1. If user is an approved Blogger, show "New Post" button
+        if (userRole == 'Blogger' && userStatus == 'Active') {
           return FloatingActionButton.extended(
-            onPressed: () => Get.toNamed(Routes.CREATE_BLOG),
+            onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_BLOG),
             backgroundColor: AppTheme.iconscolor,
             elevation: 8,
             icon: Container(
@@ -99,31 +164,72 @@ class BloggerZoneScreen extends GetView<BlogsController> {
             ),
           );
         }
-        
-        // Show disabled button with message if pending approval
-        if (hasPendingRequest) {
+
+        // 2. If user has a pending blogger request (including 'PendingBlogger' role), show disabled "Request Sent to Admin" button
+        if (controller.isBloggerRequestPending.value) {
           return FloatingActionButton.extended(
             onPressed: () {
-              Get.snackbar(
-                'Approval Pending',
-                'Waiting for approval from admin. You cannot create posts until your blogger request is approved.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.orange.withOpacity(0.9),
-                colorText: Colors.white,
-                duration: const Duration(seconds: 3),
+              _showCustomSnackbar(
+                'Request Sent',
+                'Your blogger request has been sent to admin. You will be a blogger soon!'
               );
             },
-            backgroundColor: Colors.grey,
-            elevation: 8,
-            icon: Icon(
-              Icons.pending,
+            backgroundColor: Colors.grey[400],
+            elevation: 4,
+            icon: const Icon(
+              Icons.hourglass_empty_rounded,
               color: Colors.white,
-              size: ResponsiveHelper.iconSize(context, mobile: 22),
+              size: 20,
             ),
+            label: const Text(
+              'Request Sent to Admin',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+          );
+        }
+        
+        // 3. If user is a regular 'User', show enabled "Become a Blogger" button
+        if (userRole == 'User') {
+          return FloatingActionButton.extended(
+            onPressed: controller.isLoading.value ? null : () async {
+              // Request blogger access
+              final success = await controller.requestBloggerAccess();
+              
+              if (success) {
+                _showCustomSnackbar(
+                  'Success',
+                  'Your blogger request has been sent. Admin will review your request.'
+                );
+              } else {
+                _showCustomSnackbar(
+                  'Notice',
+                  controller.message.value.isNotEmpty 
+                      ? controller.message.value 
+                      : 'Failed to send request. Please try again.',
+                  isError: true
+                );
+              }
+            },
+            backgroundColor: AppTheme.iconscolor,
+            elevation: 8,
+            icon: controller.isLoading.value 
+              ? const SizedBox(
+                  width: 20, 
+                  height: 20, 
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                )
+              : const Icon(
+                  Icons.person_add,
+                  color: Colors.white,
+                  size: 22,
+                ),
             label: Text(
-              'Waiting for Approval',
-              style: ResponsiveHelper.textStyle(
-                context,
+              controller.isLoading.value ? 'Sending...' : 'Become a Blogger',
+              style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
@@ -133,62 +239,8 @@ class BloggerZoneScreen extends GetView<BlogsController> {
           );
         }
         
-        // Show button for non-bloggers to request access
-        return FloatingActionButton.extended(
-          onPressed: () async {
-            // Show snackbar and then request blogger access
-            Get.snackbar(
-              'Become a Blogger',
-              'Requesting blogger access...',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: AppTheme.iconscolor.withOpacity(0.9),
-              colorText: Colors.white,
-              duration: const Duration(seconds: 2),
-            );
-            
-            // Request blogger access
-            final success = await controller.requestBloggerAccess();
-            
-            if (success) {
-              Get.snackbar(
-                'Request Sent',
-                'Your blogger request has been sent. Admin will review your request.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.green.withOpacity(0.9),
-                colorText: Colors.white,
-                duration: const Duration(seconds: 3),
-              );
-            } else {
-              Get.snackbar(
-                'Error',
-                controller.message.value.isNotEmpty 
-                    ? controller.message.value 
-                    : 'Failed to send request. Please try again.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.red.withOpacity(0.9),
-                colorText: Colors.white,
-                duration: const Duration(seconds: 3),
-              );
-            }
-          },
-          backgroundColor: AppTheme.iconscolor,
-          elevation: 8,
-          icon: Icon(
-            Icons.person_add,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 22),
-          ),
-          label: Text(
-            'Become a Blogger',
-            style: ResponsiveHelper.textStyle(
-              context,
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              letterSpacing: 0.5,
-            ),
-          ),
-        );
+        // Default case: Hide the button if none of the above conditions are met.
+        return const SizedBox.shrink();
       }),
     );
   }
@@ -225,7 +277,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
     }
 
     return InkWell(
-      onTap: () => Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 16)),
@@ -319,7 +371,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                       color: AppTheme.iconscolor,
                     ),
                     onPressed: () {
-                      Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']);
+                      PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
                     },
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
@@ -377,45 +429,49 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                 children: [
                   // Left: Likes count with icon - Only show if > 0
                   if (likeCount > 0)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.favorite,
-                          size: 18,
-                          color: AppTheme.iconscolor,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$likeCount',
-                          style: TextStyle(
-                            fontSize: 14,
+                    Expanded(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.favorite,
+                            size: 18,
                             color: AppTheme.iconscolor,
-                            fontWeight: FontWeight.normal,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Text(
+                            '$likeCount',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.iconscolor,
+                              fontWeight: FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   // Right: Comments count with icon - Only show if > 0
                   if (commentCount > 0)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.comment_outlined,
-                          size: 18,
-                          color: AppTheme.iconscolor,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$commentCount',
-                          style: TextStyle(
-                            fontSize: 14,
+                    Expanded(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.comment_outlined,
+                            size: 18,
                             color: AppTheme.iconscolor,
-                            fontWeight: FontWeight.normal,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Text(
+                            '$commentCount',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.iconscolor,
+                              fontWeight: FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                 ],
               ),
@@ -427,10 +483,22 @@ class BloggerZoneScreen extends GetView<BlogsController> {
   }
   
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
+    
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -441,7 +509,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -449,7 +517,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -462,8 +530,10 @@ class BloggerZoneScreen extends GetView<BlogsController> {
     return SingleChildScrollView(
       padding: ResponsiveHelper.padding(context, all: 20),
       child: Column(
+
         children: [
-          SizedBox(height: ResponsiveHelper.spacing(context, 40)),
+
+          // SizedBox(height: ResponsiveHelper.spacing(context, 40)),
           Container(
             padding: ResponsiveHelper.padding(context, all: 28),
             decoration: BoxDecoration(
@@ -495,8 +565,8 @@ class BloggerZoneScreen extends GetView<BlogsController> {
               letterSpacing: 0.5,
             ),
           ),
-          SizedBox(height: ResponsiveHelper.spacing(context, 18)),
-            
+          // SizedBox(height: ResponsiveHelper.spacing(context, 18)),
+
             // Show pending request message if applicable
             if (hasPendingRequest) ...[
               Container(
@@ -577,8 +647,8 @@ class BloggerZoneScreen extends GetView<BlogsController> {
               height: 1.6,
             ),
           ),
-          SizedBox(height: ResponsiveHelper.spacing(context, 44)),
-          _buildRequestButton(context),
+          // SizedBox(height: ResponsiveHelper.spacing(context, 44)),
+          // _buildRequestButton(context),
             ],
           SizedBox(height: ResponsiveHelper.spacing(context, 24)),
           if (controller.blogs.isNotEmpty) ...[
@@ -659,7 +729,7 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    padding: ResponsiveHelper.padding(context, all: 6),
+                    padding: ResponsiveHelper.padding(context, all: 1),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       shape: BoxShape.circle,
@@ -671,14 +741,19 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                     ),
                   ),
                   SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                  Text(
-                    'Send Request To Become a Blogger',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 0.3,
+                  Flexible(
+                    child: Text(
+                      'Request Blogger Access',
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -768,7 +843,14 @@ class BloggerZoneScreen extends GetView<BlogsController> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Get.back(),
+              onPressed: (){
+                final dialogContext = Get.overlayContext;
+                if (dialogContext != null) {
+                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                } else if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+              },
               child: Text(
                 'Cancel',
                 style: ResponsiveHelper.textStyle(
@@ -780,14 +862,13 @@ class BloggerZoneScreen extends GetView<BlogsController> {
             ),
             ElevatedButton(
               onPressed: () async {
-                Get.back();
                 final success = await controller.requestBloggerAccess();
                 if (success) {
                   Get.snackbar(
                     'Success',
                     'Request sent successfully! Admin will review your request.',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
+                    backgroundColor: AppTheme.iconscolor,
+                    colorText: Colors.black,
                     duration: const Duration(seconds: 3),
                   );
                 } else {
@@ -797,6 +878,12 @@ class BloggerZoneScreen extends GetView<BlogsController> {
                     backgroundColor: Colors.red,
                     colorText: Colors.white,
                   );
+                }
+                final dialogContext = Get.overlayContext;
+                if (dialogContext != null) {
+                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                } else if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
                 }
               },
               style: ElevatedButton.styleFrom(

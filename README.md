@@ -1,609 +1,441 @@
-# 📱 Complete Screen Sizes Reference Guide
+# Fruit of the Spirit App
 
-This document provides comprehensive lists of all iPhone and Android device screen sizes with brand names, along with guidelines for creating responsive UI in Flutter.
+## Project Overview
+The Fruit of the Spirit app is a comprehensive mobile application built with Flutter, designed to foster spiritual growth and community interaction. It provides features for user authentication, content consumption (blogs, videos, gallery, stories), community engagement (prayer requests, groups, comments), and various utilities to enhance the user experience.
 
-## 📋 Table of Contents
-1. [iPhone Screen Sizes](#iphone-screen-sizes)
-2. [Android Screen Sizes](#android-screen-sizes)
-3. [Measuring Screen Sizes](#measuring-screen-sizes)
-4. [Responsive UI Implementation](#responsive-ui-implementation)
-5. [Breakpoints & Device Categories](#breakpoints--device-categories)
-6. [Testing Checklist](#testing-checklist)
+## Features
 
----
+*   **User Authentication & Profiles:** Secure login, registration, and comprehensive user profile management.
+*   **Content Management:** Access to spiritual "Fruits" (categories), engaging blog posts, inspiring videos, a rich image gallery, and personal stories.
+*   **Community & Interaction:** Submit and view prayer requests, join and manage user groups, engage through comments, and express with emojis.
+*   **Notifications & Reminders:** Stay updated with notifications and set personalized prayer reminders.
+*   **Multimedia Experience:** Seamless video playback, easy image and video picking/cropping, and audio playback.
+*   **Video Conferencing:** Integrated video conferencing capabilities using Agora RTC Engine.
+*   **Offline Support:** Robust offline data storage powered by Hive.
+*   **Responsive Design:** Optimized user interface for various screen sizes using Flutter ScreenUtil.
+*   **Deep Linking & Sharing:** Effortless deep linking and content sharing functionalities.
+*   **Internationalization:** Multi-language support for a global audience.
+*   **Search Functionality:** Efficient search to find content and users.
+*   **Analytics:** Integrated analytics to understand user engagement.
+*   **E-commerce:** Future-proofed with e-commerce capabilities.
+*   **Third-Party Integrations:** Firebase for backend services, Sign in with Apple, and Google Sign In for convenient authentication.
 
-## 📱 iPhone Screen Sizes
+## Installation/Setup
 
-### iPhone Models (Portrait Orientation)
+### Prerequisites
+*   Flutter SDK (version ^3.9.0 or higher)
+*   Dart SDK (compatible with Flutter SDK)
+*   A code editor like VS Code or Android Studio
+*   Firebase project setup (for authentication and other services)
+*   Agora.io account (for video conferencing features)
 
-| Device Name | Screen Size (Points) | Physical Resolution | Pixel Density | Release Year | Category |
-|------------|---------------------|---------------------|---------------|--------------|----------|
-| **iPhone SE (1st gen)** | 320 × 568 | 640 × 1136 | @2x | 2016 | Small Phone |
-| **iPhone SE (2nd gen)** | 375 × 667 | 750 × 1334 | @2x | 2020 | Small Phone |
-| **iPhone SE (3rd gen)** | 375 × 667 | 750 × 1334 | @2x | 2022 | Small Phone |
-| **iPhone 6** | 375 × 667 | 750 × 1334 | @2x | 2014 | Medium Phone |
-| **iPhone 6 Plus** | 414 × 736 | 1080 × 1920 | @3x | 2014 | Large Phone |
-| **iPhone 6s** | 375 × 667 | 750 × 1334 | @2x | 2015 | Medium Phone |
-| **iPhone 6s Plus** | 414 × 736 | 1080 × 1920 | @3x | 2015 | Large Phone |
-| **iPhone 7** | 375 × 667 | 750 × 1334 | @2x | 2016 | Medium Phone |
-| **iPhone 7 Plus** | 414 × 736 | 1080 × 1920 | @3x | 2016 | Large Phone |
-| **iPhone 8** | 375 × 667 | 750 × 1334 | @2x | 2017 | Medium Phone |
-| **iPhone 8 Plus** | 414 × 736 | 1080 × 1920 | @3x | 2017 | Large Phone |
-| **iPhone X** | 375 × 812 | 1125 × 2436 | @3x | 2017 | Medium Phone |
-| **iPhone XS** | 375 × 812 | 1125 × 2436 | @3x | 2018 | Medium Phone |
-| **iPhone XS Max** | 414 × 896 | 1242 × 2688 | @3x | 2018 | Large Phone |
-| **iPhone XR** | 414 × 896 | 828 × 1792 | @2x | 2018 | Large Phone |
-| **iPhone 11** | 414 × 896 | 828 × 1792 | @2x | 2019 | Large Phone |
-| **iPhone 11 Pro** | 375 × 812 | 1125 × 2436 | @3x | 2019 | Medium Phone |
-| **iPhone 11 Pro Max** | 414 × 896 | 1242 × 2688 | @3x | 2019 | Large Phone |
-| **iPhone 12 mini** | 375 × 812 | 1080 × 2340 | @3x | 2020 | Medium Phone |
-| **iPhone 12** | 390 × 844 | 1170 × 2532 | @3x | 2020 | Medium Phone |
-| **iPhone 12 Pro** | 390 × 844 | 1170 × 2532 | @3x | 2020 | Medium Phone |
-| **iPhone 12 Pro Max** | 428 × 926 | 1284 × 2778 | @3x | 2020 | Large Phone |
-| **iPhone 13 mini** | 375 × 812 | 1080 × 2340 | @3x | 2021 | Medium Phone |
-| **iPhone 13** | 390 × 844 | 1170 × 2532 | @3x | 2021 | Medium Phone |
-| **iPhone 13 Pro** | 390 × 844 | 1170 × 2532 | @3x | 2021 | Medium Phone |
-| **iPhone 13 Pro Max** | 428 × 926 | 1284 × 2778 | @3x | 2021 | Large Phone |
-| **iPhone 14** | 390 × 844 | 1170 × 2532 | @3x | 2022 | Medium Phone |
-| **iPhone 14 Plus** | 428 × 926 | 1284 × 2778 | @3x | 2022 | Large Phone |
-| **iPhone 14 Pro** | 393 × 852 | 1179 × 2556 | @3x | 2022 | Medium Phone |
-| **iPhone 14 Pro Max** | 430 × 932 | 1290 × 2796 | @3x | 2022 | Large Phone |
-| **iPhone 15** | 393 × 852 | 1179 × 2556 | @3x | 2023 | Medium Phone |
-| **iPhone 15 Plus** | 430 × 932 | 1290 × 2796 | @3x | 2023 | Large Phone |
-| **iPhone 15 Pro** | 393 × 852 | 1179 × 2556 | @3x | 2023 | Medium Phone |
-| **iPhone 15 Pro Max** | 430 × 932 | 1290 × 2796 | @3x | 2023 | Large Phone |
-| **iPhone 16** | 393 × 852 | 1179 × 2556 | @3x | 2024 | Medium Phone |
-| **iPhone 16 Plus** | 430 × 932 | 1290 × 2796 | @3x | 2024 | Large Phone |
-| **iPhone 16 Pro** | 402 × 873 | 1206 × 2619 | @3x | 2024 | Medium Phone |
-| **iPhone 16 Pro Max** | 442 × 960 | 1326 × 2880 | @3x | 2024 | Large Phone |
+### Steps
 
-### iPad Models (Tablets)
+1.  **Clone the repository:**
+    ```bash
+    git clone [repository_url]
+    cd fruitsofspirit
+    ```
+2.  **Install dependencies:**
+    ```bash
+    flutter pub get
+    ```
+3.  **Configure Firebase:**
+    *   Follow the official FlutterFire documentation to set up Firebase for your Android and iOS projects.
+    *   Place your `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) files in the respective project directories.
+4.  **Configure Agora:**
+    *   Obtain your App ID from the Agora.io console and configure it within the application (refer to `lib/config/agora_config.dart` if it exists, or relevant service files).
+5.  **Run the application:**
+    ```bash
+    flutter run
+    ```
 
-| Device Name | Screen Size (Points) | Physical Resolution | Pixel Density | Release Year | Category |
-|------------|---------------------|---------------------|---------------|--------------|----------|
-| **iPad Mini (1st-5th gen)** | 768 × 1024 | 768 × 1024 | @1x/@2x | 2012-2021 | Small Tablet |
-| **iPad Mini (6th gen)** | 744 × 1133 | 1488 × 2266 | @2x | 2021 | Small Tablet |
-| **iPad (1st-9th gen)** | 768 × 1024 | 768 × 1024 | @1x/@2x | 2010-2021 | Small Tablet |
-| **iPad (10th gen)** | 820 × 1180 | 1640 × 2360 | @2x | 2022 | Small Tablet |
-| **iPad Air (1st-4th gen)** | 768 × 1024 | 1536 × 2048 | @2x | 2013-2020 | Small Tablet |
-| **iPad Air (5th gen)** | 820 × 1180 | 1640 × 2360 | @2x | 2022 | Small Tablet |
-| **iPad Pro 9.7"** | 768 × 1024 | 1536 × 2048 | @2x | 2016 | Small Tablet |
-| **iPad Pro 10.5"** | 834 × 1112 | 1668 × 2224 | @2x | 2017 | Small Tablet |
-| **iPad Pro 11" (1st-4th gen)** | 834 × 1194 | 1668 × 2388 | @2x | 2018-2022 | Small Tablet |
-| **iPad Pro 12.9" (1st-6th gen)** | 1024 × 1366 | 2048 × 2732 | @2x | 2015-2022 | Large Tablet |
-| **iPad Pro 12.9" (M4)** | 1024 × 1378 | 2048 × 2756 | @2x | 2024 | Large Tablet |
+## Usage
+The app is designed for intuitive navigation. Upon launching, users can register or log in. The main dashboard provides access to various sections like Home, Fruits, Prayer Requests, Videos, and Gallery.
 
-### iPhone Screen Size Categories
+## Technologies Used
 
-#### Small Phones (< 360px width)
-- iPhone SE (1st gen): 320 × 568
-- iPhone SE (2nd gen): 375 × 667
-- iPhone SE (3rd gen): 375 × 667
+*   **Framework:** Flutter (version ^3.9.0)
+*   **State Management:** GetX
+*   **Local Storage:** Hive, Shared Preferences
+*   **Networking:** `http` package
+*   **Authentication:** Firebase Auth, Google Sign In, Sign in with Apple
+*   **Multimedia:** `video_player`, `image_picker`, `image_cropper`, `audioplayers`
+*   **Video Conferencing:** Agora RTC Engine
+*   **UI/UX:** `flutter_screenutil`, `lottie` (for animations)
+*   **Internationalization:** `easy_localization`
+*   **Deep Linking:** `app_links`
+*   **Sharing:** `share_plus`
+*   **Other:** `permission_handler`, `cached_network_image`, `url_launcher`, `icons_plus`, `bootstrap_icons`
 
-#### Medium Phones (360-414px width)
-- iPhone 6, 6s, 7, 8: 375 × 667
-- iPhone X, XS, 11 Pro: 375 × 812
-- iPhone 12 mini, 13 mini: 375 × 812
-- iPhone 12, 12 Pro, 13, 13 Pro: 390 × 844
-- iPhone 14, 15: 393 × 852
-- iPhone 14 Pro, 15 Pro: 393 × 852
-- iPhone 16 Pro: 402 × 873
+## Contributing
+Contributions are welcome! Please follow these steps:
+1.  Fork the repository.
+2.  Create a new branch (`git checkout -b feature/your-feature-name`).
+3.  Make your changes.
+4.  Commit your changes (`git commit -m 'Add new feature'`).
+5.  Push to the branch (`git push origin feature/your-feature-name`).
+6.  Open a Pull Request.
 
-#### Large Phones (414-600px width)
-- iPhone 6 Plus, 6s Plus, 7 Plus, 8 Plus: 414 × 736
-- iPhone XR, 11: 414 × 896
-- iPhone XS Max, 11 Pro Max: 414 × 896
-- iPhone 12 Pro Max, 13 Pro Max: 428 × 926
-- iPhone 14 Plus, 15 Plus: 428 × 926
-- iPhone 14 Pro Max, 15 Pro Max: 430 × 932
-- iPhone 16 Plus: 430 × 932
-- iPhone 16 Pro Max: 442 × 960
+## License
+[Specify your license here, e.g., MIT License]
+
+## Contact
+For any inquiries or support, please contact [Your Email Address or Contact Information].
+
+## UGC Moderation Workflow and Roadmap
+
+This section outlines the necessary steps to implement robust User-Generated Content (UGC) moderation features in the Fruit of the Spirit app, addressing App Review Guideline 1.2.
+
+**Core Requirements:**
+1.  **EULA Acceptance:** Users must explicitly agree to Terms & Conditions (EULA) that clearly state a zero-tolerance policy for objectionable content.
+2.  **Content Filtering:** A mechanism to filter objectionable content.
+3.  **Content Flagging:** Users can flag objectionable content.
+4.  **User Blocking:** Users can block abusive users, with developer notification and instant content removal from the blocker's feed.
 
 ---
 
-## 🤖 Android Screen Sizes
+### **Phase 1: EULA (End User License Agreement) Implementation**
 
-### Popular Android Phones (Portrait Orientation)
+**Objective:** Ensure all users explicitly agree to the app's Terms & Conditions before using the app.
 
-| Device Name | Screen Size (dp) | Physical Resolution | DPI | Release Year | Category |
-|------------|-----------------|---------------------|-----|--------------|----------|
-| **Samsung Galaxy S6** | 360 × 640 | 1440 × 2560 | 577 | 2015 | Medium Phone |
-| **Samsung Galaxy S7** | 360 × 640 | 1440 × 2560 | 577 | 2016 | Medium Phone |
-| **Samsung Galaxy S8** | 360 × 740 | 1440 × 2960 | 568 | 2017 | Medium Phone |
-| **Samsung Galaxy S9** | 360 × 740 | 1440 × 2960 | 568 | 2018 | Medium Phone |
-| **Samsung Galaxy S10** | 360 × 760 | 1440 × 3040 | 550 | 2019 | Medium Phone |
-| **Samsung Galaxy S10+** | 411 × 846 | 1440 × 3040 | 526 | 2019 | Large Phone |
-| **Samsung Galaxy S20** | 360 × 800 | 1440 × 3200 | 563 | 2020 | Medium Phone |
-| **Samsung Galaxy S20+** | 384 × 854 | 1440 × 3200 | 525 | 2020 | Large Phone |
-| **Samsung Galaxy S20 Ultra** | 412 × 915 | 1440 × 3200 | 511 | 2020 | Large Phone |
-| **Samsung Galaxy S21** | 360 × 800 | 1080 × 2400 | 421 | 2021 | Medium Phone |
-| **Samsung Galaxy S21+** | 384 × 854 | 1080 × 2400 | 394 | 2021 | Large Phone |
-| **Samsung Galaxy S21 Ultra** | 412 × 915 | 1440 × 3200 | 515 | 2021 | Large Phone |
-| **Samsung Galaxy S22** | 360 × 780 | 1080 × 2340 | 425 | 2022 | Medium Phone |
-| **Samsung Galaxy S22+** | 384 × 854 | 1080 × 2340 | 393 | 2022 | Large Phone |
-| **Samsung Galaxy S22 Ultra** | 412 × 915 | 1440 × 3088 | 501 | 2022 | Large Phone |
-| **Samsung Galaxy S23** | 360 × 780 | 1080 × 2340 | 425 | 2023 | Medium Phone |
-| **Samsung Galaxy S23+** | 384 × 854 | 1080 × 2340 | 393 | 2023 | Large Phone |
-| **Samsung Galaxy S23 Ultra** | 412 × 915 | 1440 × 3088 | 501 | 2023 | Large Phone |
-| **Samsung Galaxy S24** | 360 × 780 | 1080 × 2340 | 425 | 2024 | Medium Phone |
-| **Samsung Galaxy S24+** | 384 × 854 | 1080 × 2340 | 393 | 2024 | Large Phone |
-| **Samsung Galaxy S24 Ultra** | 412 × 915 | 1440 × 3120 | 501 | 2024 | Large Phone |
-| **Samsung Galaxy S25** | 360 × 780 | 1080 × 2340 | 425 | 2025 | Medium Phone |
-| **Samsung Galaxy S25+** | 384 × 854 | 1080 × 2340 | 393 | 2025 | Large Phone |
-| **Samsung Galaxy S25 Ultra** | 412 × 915 | 1440 × 3120 | 501 | 2025 | Large Phone |
-| **Samsung Galaxy Note 8** | 411 × 823 | 1440 × 2960 | 521 | 2017 | Large Phone |
-| **Samsung Galaxy Note 9** | 411 × 846 | 1440 × 2960 | 516 | 2018 | Large Phone |
-| **Samsung Galaxy Note 10** | 360 × 760 | 1080 × 2280 | 400 | 2019 | Medium Phone |
-| **Samsung Galaxy Note 10+** | 412 × 869 | 1440 × 3040 | 498 | 2019 | Large Phone |
-| **Samsung Galaxy Note 20** | 412 × 915 | 1080 × 2400 | 393 | 2020 | Large Phone |
-| **Samsung Galaxy Note 20 Ultra** | 412 × 915 | 1440 × 3088 | 501 | 2020 | Large Phone |
-| **Google Pixel 2** | 411 × 731 | 1080 × 1920 | 420 | 2017 | Large Phone |
-| **Google Pixel 2 XL** | 411 × 823 | 1440 × 2560 | 538 | 2017 | Large Phone |
-| **Google Pixel 3** | 393 × 786 | 1080 × 2160 | 443 | 2018 | Medium Phone |
-| **Google Pixel 3 XL** | 412 × 846 | 1440 × 2960 | 523 | 2018 | Large Phone |
-| **Google Pixel 4** | 393 × 851 | 1080 × 2280 | 444 | 2019 | Medium Phone |
-| **Google Pixel 4 XL** | 412 × 869 | 1440 × 3040 | 537 | 2019 | Large Phone |
-| **Google Pixel 5** | 393 × 851 | 1080 × 2340 | 432 | 2020 | Medium Phone |
-| **Google Pixel 6** | 412 × 915 | 1080 × 2400 | 411 | 2021 | Large Phone |
-| **Google Pixel 6 Pro** | 412 × 915 | 1440 × 3120 | 512 | 2021 | Large Phone |
-| **Google Pixel 7** | 412 × 915 | 1080 × 2400 | 411 | 2022 | Large Phone |
-| **Google Pixel 7 Pro** | 412 × 915 | 1440 × 3120 | 512 | 2022 | Large Phone |
-| **Google Pixel 8** | 412 × 915 | 1080 × 2400 | 428 | 2023 | Large Phone |
-| **Google Pixel 8 Pro** | 412 × 915 | 1344 × 2992 | 489 | 2023 | Large Phone |
-| **Google Pixel 9** | 412 × 915 | 1080 × 2400 | 428 | 2024 | Large Phone |
-| **Google Pixel 9 Pro** | 412 × 915 | 1344 × 2992 | 489 | 2024 | Large Phone |
-| **OnePlus 5** | 411 × 731 | 1080 × 1920 | 401 | 2017 | Large Phone |
-| **OnePlus 5T** | 411 × 823 | 1080 × 2160 | 401 | 2017 | Large Phone |
-| **OnePlus 6** | 411 × 823 | 1080 × 2280 | 402 | 2018 | Large Phone |
-| **OnePlus 6T** | 411 × 823 | 1080 × 2340 | 402 | 2018 | Large Phone |
-| **OnePlus 7** | 412 × 892 | 1080 × 2400 | 402 | 2019 | Large Phone |
-| **OnePlus 7 Pro** | 412 × 892 | 1440 × 3120 | 516 | 2019 | Large Phone |
-| **OnePlus 8** | 412 × 915 | 1080 × 2400 | 402 | 2020 | Large Phone |
-| **OnePlus 8 Pro** | 412 × 915 | 1440 × 3168 | 525 | 2020 | Large Phone |
-| **OnePlus 9** | 412 × 915 | 1080 × 2400 | 402 | 2021 | Large Phone |
-| **OnePlus 9 Pro** | 412 × 915 | 1440 × 3216 | 525 | 2021 | Large Phone |
-| **OnePlus 10 Pro** | 412 × 915 | 1440 × 3216 | 525 | 2022 | Large Phone |
-| **OnePlus 11** | 412 × 915 | 1440 × 3216 | 525 | 2023 | Large Phone |
-| **OnePlus 12** | 412 × 915 | 1440 × 3168 | 510 | 2024 | Large Phone |
-| **Xiaomi Mi 9** | 393 × 851 | 1080 × 2340 | 403 | 2019 | Medium Phone |
-| **Xiaomi Mi 10** | 393 × 851 | 1080 × 2340 | 403 | 2020 | Medium Phone |
-| **Xiaomi Mi 11** | 393 × 851 | 1440 × 3200 | 515 | 2021 | Medium Phone |
-| **Xiaomi Mi 12** | 393 × 851 | 1080 × 2400 | 419 | 2022 | Medium Phone |
-| **Xiaomi Mi 13** | 393 × 851 | 1080 × 2400 | 419 | 2023 | Medium Phone |
-| **Xiaomi Mi 14** | 393 × 851 | 1200 × 2670 | 460 | 2024 | Medium Phone |
-| **Huawei P20** | 360 × 748 | 1080 × 2244 | 428 | 2018 | Medium Phone |
-| **Huawei P30** | 360 × 780 | 1080 × 2340 | 422 | 2019 | Medium Phone |
-| **Huawei P40** | 360 × 780 | 1080 × 2340 | 422 | 2020 | Medium Phone |
-| **Huawei P50** | 360 × 780 | 1224 × 2700 | 456 | 2021 | Medium Phone |
-| **Huawei P60** | 360 × 780 | 1224 × 2700 | 456 | 2023 | Medium Phone |
-| **Oppo Find X** | 375 × 812 | 1080 × 2340 | 401 | 2018 | Medium Phone |
-| **Oppo Find X2** | 412 × 915 | 1440 × 3168 | 525 | 2020 | Large Phone |
-| **Oppo Find X3** | 412 × 915 | 1440 × 3216 | 525 | 2021 | Large Phone |
-| **Oppo Find X5** | 412 × 915 | 1440 × 3216 | 525 | 2022 | Large Phone |
-| **Vivo X50** | 360 × 800 | 1080 × 2376 | 398 | 2020 | Medium Phone |
-| **Vivo X60** | 360 × 800 | 1080 × 2376 | 398 | 2021 | Medium Phone |
-| **Vivo X70** | 360 × 800 | 1080 × 2376 | 398 | 2021 | Medium Phone |
-| **Vivo X80** | 360 × 800 | 1080 × 2400 | 398 | 2022 | Medium Phone |
-| **Vivo X90** | 360 × 800 | 1260 × 2800 | 453 | 2023 | Medium Phone |
-| **Motorola Moto G** | 360 × 640 | 720 × 1280 | 294 | 2013 | Medium Phone |
-| **Motorola Moto X** | 360 × 640 | 720 × 1280 | 312 | 2013 | Medium Phone |
-| **Motorola Edge** | 360 × 800 | 1080 × 2340 | 385 | 2020 | Medium Phone |
-| **Motorola Edge+** | 412 × 915 | 1080 × 2340 | 385 | 2020 | Large Phone |
-| **Sony Xperia 1** | 411 × 823 | 1644 × 3840 | 643 | 2019 | Large Phone |
-| **Sony Xperia 5** | 360 × 800 | 1080 × 2520 | 449 | 2019 | Medium Phone |
-| **Sony Xperia 10** | 360 × 800 | 1080 × 2520 | 457 | 2019 | Medium Phone |
+**Frontend (Flutter) Modifications:**
 
-### Android Tablets
+*   **`lib/screens/onboarding_screen.dart` / `lib/routes/app_pages.dart`:**
+    *   **Logic:** On first app launch or after a significant EULA update, redirect users to a dedicated EULA acceptance screen.
+    *   **Implementation:**
+        *   Check `UserStorage.hasAcceptedEula()` (already implemented, needs integration into the app's initial flow).
+        *   If `false`, navigate to `EulaScreen`.
+*   **`lib/screens/eula_screen.dart` (Already created, needs integration):**
+    *   **UI:** Display the full Terms & Conditions content (fetched from `TermsService`).
+    *   **Interaction:** Include a prominent checkbox "I agree to the Terms & Conditions" and an "Accept and Continue" button. The button should only be enabled when the checkbox is ticked.
+    *   **Logic:** Upon acceptance, call `UserStorage.setEulaAccepted(true)` and then navigate the user to the main app (e.g., `Routes.LOGIN` or `Routes.HOME`).
+*   **`lib/services/user_storage.dart` (Already modified):**
+    *   **Logic:** `setEulaAccepted(bool accepted)` and `hasAcceptedEula()` methods are already in place using Hive to store acceptance status locally.
+*   **`lib/screens/profile_screen.dart` / `lib/screens/settings_screen.dart`:**
+    *   **UI:** Add an option for users to view the current Terms & Conditions at any time.
 
-| Device Name | Screen Size (dp) | Physical Resolution | DPI | Release Year | Category |
-|------------|-----------------|---------------------|-----|--------------|----------|
-| **Samsung Galaxy Tab S6** | 800 × 1280 | 1600 × 2560 | 287 | 2019 | Small Tablet |
-| **Samsung Galaxy Tab S7** | 800 × 1280 | 1600 × 2560 | 287 | 2020 | Small Tablet |
-| **Samsung Galaxy Tab S8** | 800 × 1280 | 1600 × 2560 | 287 | 2022 | Small Tablet |
-| **Samsung Galaxy Tab S9** | 800 × 1280 | 1600 × 2560 | 287 | 2023 | Small Tablet |
-| **Samsung Galaxy Tab S7+** | 1024 × 1366 | 1752 × 2800 | 266 | 2020 | Large Tablet |
-| **Samsung Galaxy Tab S8+** | 1024 × 1366 | 1752 × 2800 | 266 | 2022 | Large Tablet |
-| **Samsung Galaxy Tab S9+** | 1024 × 1366 | 1752 × 2800 | 266 | 2023 | Large Tablet |
-| **Samsung Galaxy Tab S9 Ultra** | 1024 × 1366 | 1848 × 2960 | 280 | 2023 | Large Tablet |
-| **Google Pixel Tablet** | 1024 × 1366 | 1600 × 2560 | 240 | 2023 | Large Tablet |
-| **Lenovo Tab P11** | 800 × 1280 | 1200 × 2000 | 213 | 2021 | Small Tablet |
-| **Lenovo Tab P12** | 1024 × 1366 | 1600 × 2560 | 240 | 2022 | Large Tablet |
-| **Xiaomi Pad 5** | 800 × 1280 | 1600 × 2560 | 275 | 2021 | Small Tablet |
-| **Xiaomi Pad 6** | 800 × 1280 | 1800 × 2880 | 309 | 2023 | Small Tablet |
+**Backend (PHP) Modifications:**
 
-### Android Screen Size Categories
-
-#### Small Phones (< 360px width)
-- Older budget Android phones: 320 × 480, 320 × 533, 360 × 640
-
-#### Medium Phones (360-414px width)
-- Most standard Android phones: 360 × 640, 360 × 720, 360 × 780, 360 × 800
-- Samsung Galaxy S series (standard): 360 × 800
-- Google Pixel (standard): 393 × 851
-- Xiaomi Mi series: 393 × 851
-- Huawei P series: 360 × 780
-
-#### Large Phones (414-600px width)
-- Samsung Galaxy S series (Plus/Ultra): 384 × 854, 412 × 915
-- Samsung Galaxy Note series: 411 × 823, 412 × 915
-- Google Pixel (XL/Pro): 412 × 915
-- OnePlus series: 411 × 823, 412 × 915
-- Oppo Find X series: 412 × 915
-
-#### Small Tablets (600-768px width)
-- Most Android tablets: 600 × 960, 800 × 1280
-- Samsung Galaxy Tab S (standard): 800 × 1280
-- Xiaomi Pad: 800 × 1280
-
-#### Large Tablets (768px+ width)
-- Samsung Galaxy Tab S (Plus/Ultra): 1024 × 1366
-- Google Pixel Tablet: 1024 × 1366
-- Large Android tablets: 1024 × 1366, 1200 × 1920
+*   **`terms.php` (Existing):**
+    *   **Content:** Ensure the terms content explicitly includes clauses about acceptable behavior, UGC guidelines, and a zero-tolerance policy for objectionable/abusive content. This is crucial for legal compliance.
+*   **(Optional) New Endpoint: `eula_acceptance.php`:**
+    *   **Purpose:** To record server-side confirmation of EULA acceptance for each user. This provides a robust audit trail.
+    *   **Functionality:** Accepts `user_id` and `eula_version` (from `terms.php`) to log acceptance.
 
 ---
 
-## 📏 Measuring Screen Sizes
+### **Phase 2: Content Filtering**
 
-### In Flutter
+**Objective:** Prevent objectionable content from being posted and ensure a safe environment.
 
-#### Method 1: Using MediaQuery
-```dart
-import 'package:flutter/material.dart';
+**Frontend (Flutter) Modifications:**
 
-void getScreenSize(BuildContext context) {
-  final mediaQuery = MediaQuery.of(context);
-  final screenWidth = mediaQuery.size.width;
-  final screenHeight = mediaQuery.size.height;
-  final devicePixelRatio = mediaQuery.devicePixelRatio;
-  
-  print('Screen Width: $screenWidth');
-  print('Screen Height: $screenHeight');
-  print('Device Pixel Ratio: $devicePixelRatio');
-  print('Physical Width: ${screenWidth * devicePixelRatio}');
-  print('Physical Height: ${screenHeight * devicePixelRatio}');
-}
-```
+*   **`lib/screens/create_prayer_screen.dart` (and other UGC submission screens):**
+    *   **Pre-submission Check (Optional but Recommended):** Implement a basic client-side profanity filter. This provides immediate feedback to the user but is not a substitute for server-side filtering.
+    *   **Implementation:**
+        *   Before calling `prayersController.createPrayer()`, add a function to check `contentController.text.trim()` against a local list of common objectionable words.
+        *   If objectionable content is detected, show a `Get.snackbar` warning and prevent submission.
+*   **`lib/controllers/prayers_controller.dart` (and other content controllers):**
+    *   **Integration:** Ensure all content submission methods pass the content through a server-side filtering process.
 
-#### Method 2: Using ScreenSize Utility (Already Implemented)
-```dart
-import 'utils/screen_size.dart';
+**Backend (PHP) Modifications:**
 
-// Initialize in your widget
-@override
-Widget build(BuildContext context) {
-  ScreenSize.init(context);
-  
-  // Access screen dimensions
-  print('Width: ${ScreenSize.screenWidth}');
-  print('Height: ${ScreenSize.screenHeight}');
-  print('Device Type: ${ScreenSize.deviceCategory}');
-}
-```
-
-#### Method 3: Using ScreenUtil (Already Implemented)
-```dart
-import 'package:flutter_screenutil/flutter_screenutil.dart';
-
-// Access responsive sizes
-double width = 200.w;  // Responsive width
-double height = 100.h; // Responsive height
-double fontSize = 16.sp; // Responsive font size
-double radius = 8.r;     // Responsive radius
-```
-
-### Device Preview (Development)
-```dart
-// Already configured in main.dart
-// In debug mode, Device Preview is automatically enabled
-// You can test on different device sizes without physical devices
-```
-
-### Physical Device Testing
-1. Connect device via USB
-2. Run `flutter run` in terminal
-3. Check logs for screen dimensions
-4. Use Flutter DevTools to inspect layout
+*   **New Service/Function: `ContentModerationService.php`:**
+    *   **Purpose:** Centralized logic for filtering all UGC.
+    *   **Functionality:**
+        *   **Keyword/Phrase Filtering:** Maintain a dynamic list of objectionable keywords and phrases (e.g., profanity, hate speech, sexually explicit terms). This list should be configurable by administrators.
+        *   **AI/ML Integration (Advanced):** Consider integrating with third-party content moderation APIs (e.g., Google Cloud Content Moderation, Azure Content Moderator) for more sophisticated analysis, including image/video content, sentiment analysis, and context-aware filtering.
+        *   **Action:**
+            *   **Block:** If content is clearly and severely objectionable, block the submission entirely and return an error to the client.
+            *   **Quarantine:** For borderline or suspicious content, mark it for manual review by an administrator. The content should not be visible to other users until approved.
+            *   **Sanitize:** Automatically replace or censor certain words (e.g., `****`) if appropriate for less severe violations.
+*   **`prayers.php`, `blogs.php`, `comments.php`, `stories.php` (and other UGC endpoints):**
+    *   **Integration:** Before inserting any new UGC into the database, pass the content through `ContentModerationService.php`.
+    *   **Database Schema Update:** Add a `moderation_status` column (e.g., `pending`, `approved`, `rejected`, `flagged`) and `moderation_notes` to relevant UGC tables.
 
 ---
 
-## 🎨 Responsive UI Implementation
+### **Phase 3: User Flagging Mechanism**
 
-### Current Implementation
+**Objective:** Empower users to report objectionable content.
 
-Your app already uses a comprehensive responsive system:
+**Frontend (Flutter) Modifications:**
 
-#### 1. ScreenSize Utility (`lib/utils/screen_size.dart`)
-- Automatic device type detection
-- Responsive text sizes
-- Responsive spacing
-- Grid configurations
-- Safe area handling
+*   **UI Integration:**
+    *   **`lib/widgets/prayer_card.dart` (and similar widgets for blogs, videos, comments):** Add a "Report" or "Flag" icon/button (e.g., in a three-dot menu) next to each piece of UGC.
+    *   **`lib/screens/comment_list_screen.dart`:** Add a "Report" option for individual comments.
+*   **Report Flow:**
+    *   **`lib/screens/report_content_screen.dart` (New Screen):**
+        *   **UI:** When a user taps "Report," navigate to this screen.
+        *   **Options:** Provide a list of clear reporting categories (e.g., "Hate Speech," "Nudity," "Spam," "Harassment," "Misinformation").
+        *   **Input:** (Optional) Allow users to add a brief text description for their report.
+        *   **Confirmation:** A confirmation dialog before sending the report.
+    *   **`lib/services/report_service.dart` (New Service):**
+        *   **Functionality:** A new service to handle sending report data to the backend.
+        *   **Method:** `reportContent({String contentType, int contentId, String reason, String? description})`.
+    *   **User Feedback:** Display a success message (e.g., `Get.snackbar`) after a report is submitted.
 
-#### 2. ScreenUtil Integration
-- Design size: 375 × 812 (iPhone X standard)
-- Automatic scaling based on device size
-- Responsive units: `.w`, `.h`, `.sp`, `.r`
+**Backend (PHP) Modifications:**
 
-### Best Practices
-
-#### 1. Use ScreenSize for All Sizing
-```dart
-// ✅ Good
-Container(
-  padding: EdgeInsets.all(ScreenSize.paddingMedium),
-  child: Text(
-    'Hello',
-    style: TextStyle(fontSize: ScreenSize.textLarge),
-  ),
-)
-
-// ❌ Bad
-Container(
-  padding: EdgeInsets.all(16), // Fixed size
-  child: Text(
-    'Hello',
-    style: TextStyle(fontSize: 16), // Fixed size
-  ),
-)
-```
-
-#### 2. Prevent Text Overflow
-```dart
-// ✅ Good
-Text(
-  productName,
-  maxLines: 2,
-  overflow: TextOverflow.ellipsis,
-  style: TextStyle(fontSize: ScreenSize.textMedium),
-)
-
-// ❌ Bad
-Text(productName) // Can overflow
-```
-
-#### 3. Use Flexible Layouts
-```dart
-// ✅ Good
-Row(
-  children: [
-    Flexible(
-      child: Text(
-        longText,
-        overflow: TextOverflow.ellipsis,
-      ),
-    ),
-    Icon(Icons.arrow_forward),
-  ],
-)
-
-// ❌ Bad
-Row(
-  children: [
-    Text(longText), // Can overflow
-    Icon(Icons.arrow_forward),
-  ],
-)
-```
-
-#### 4. Responsive Grids
-```dart
-// ✅ Good
-GridView.builder(
-  crossAxisCount: ScreenSize.gridCrossAxisCount, // 2 on phone, 3 on tablet
-  childAspectRatio: ScreenSize.productCardAspectRatio,
-  crossAxisSpacing: ScreenSize.gridSpacing,
-  mainAxisSpacing: ScreenSize.gridSpacing,
-  // ...
-)
-```
-
-#### 5. Safe Area Handling
-```dart
-// ✅ Good
-SafeArea(
-  child: Scaffold(
-    body: YourContent(),
-  ),
-)
-```
-
-#### 6. Scrollable Content
-```dart
-// ✅ Good - For long content
-SingleChildScrollView(
-  child: Column(
-    children: [
-      // Your content
-    ],
-  ),
-)
-```
+*   **New Endpoint: `report.php`:**
+    *   **Purpose:** Receives and processes user reports.
+    *   **Input:** `user_id` (reporter), `content_type` (e.g., 'prayer', 'comment', 'blog'), `content_id`, `reason`, `description` (optional).
+    *   **Database Schema Update:** Create a new `reports` table:
+        *   `id` (PK)
+        *   `reporter_user_id` (FK to users table)
+        *   `content_type`
+        *   `content_id`
+        *   `reason`
+        *   `description`
+        *   `status` (e.g., `pending`, `reviewed`, `action_taken`)
+        *   `created_at`
+        *   `updated_at`
+    *   **Logic:**
+        *   Store the report in the `reports` table.
+        *   **Admin Notification:** Implement a system to notify administrators (e.g., email, internal dashboard alert) about new reports.
+        *   **Content Status Update:** Optionally, automatically change the `moderation_status` of the reported content to `flagged` or `pending_review` in its respective table.
 
 ---
 
-## 📊 Breakpoints & Device Categories
+### **Phase 4: User Blocking Mechanism**
 
-### Current Breakpoints (from ScreenSize utility)
+**Objective:** Allow users to block abusive individuals and notify developers.
 
-| Category | Width Range | Examples |
-|----------|------------|----------|
-| **Small Phone** | < 360px | iPhone SE (1st gen), small Android phones |
-| **Medium Phone** | 360-414px | iPhone 12, iPhone 13, Samsung Galaxy S21, Google Pixel |
-| **Large Phone** | 414-600px | iPhone 14 Pro Max, Samsung Galaxy S24 Ultra, Google Pixel 8 Pro |
-| **Small Tablet** | 600-768px | iPad Mini, Samsung Galaxy Tab S8 |
-| **Large Tablet** | ≥ 768px | iPad Pro, Samsung Galaxy Tab S9 Ultra |
+**Frontend (Flutter) Modifications:**
 
-### Responsive Scale Factors
+*   **UI Integration:**
+    *   **User Profile Screens (`lib/screens/profile_screen.dart`):** Add a "Block User" button.
+    *   **Comment/Group Interactions:** Add a "Block User" option in context menus where user interactions occur.
+*   **Blocking Flow:**
+    *   **Confirmation:** A confirmation dialog asking "Are you sure you want to block this user? You will no longer see their content, and they will not be able to interact with you."
+    *   **`lib/services/user_blocking_service.dart` (New Service):**
+        *   **Functionality:** A new service to handle sending block requests to the backend.
+        *   **Method:** `blockUser({int blockedUserId})`.
+    *   **Immediate UI Update:** Upon successful blocking, immediately hide all content from the blocked user within the blocker's app view. This can be achieved by filtering local data or refreshing relevant feeds.
+    *   **User Feedback:** Display a success message (e.g., `Get.snackbar`).
 
-| Device Type | Text Scale | Spacing Scale |
-|------------|-----------|---------------|
-| Small Phone | 0.85 | 0.8 |
-| Medium Phone | 0.95 | 0.9 |
-| Large Phone | 1.0 | 1.0 |
-| Tablet | 1.1 | 1.2 |
+**Backend (PHP) Modifications:**
 
-### Grid Configurations
-
-| Device Type | Grid Columns | Grid Spacing |
-|------------|--------------|--------------|
-| Phone | 2 | 16.w |
-| Tablet | 3 | 20.w |
-
----
-
-## ✅ Testing Checklist
-
-### Device Testing Priority
-
-#### High Priority (Most Common)
-- [ ] iPhone 12/13 (390 × 844) - Medium Phone
-- [ ] iPhone 14 Pro Max (430 × 932) - Large Phone
-- [ ] Samsung Galaxy S24 (360 × 780) - Medium Phone
-- [ ] Samsung Galaxy S24 Ultra (412 × 915) - Large Phone
-- [ ] Google Pixel 8 (412 × 915) - Large Phone
-
-#### Medium Priority
-- [ ] iPhone SE (375 × 667) - Small Phone
-- [ ] iPhone 16 Pro Max (442 × 960) - Large Phone
-- [ ] iPad Mini (744 × 1133) - Small Tablet
-- [ ] iPad Pro 12.9" (1024 × 1366) - Large Tablet
-- [ ] Samsung Galaxy Tab S9 (800 × 1280) - Small Tablet
-
-#### Low Priority (Edge Cases)
-- [ ] iPhone SE (1st gen) (320 × 568) - Smallest Phone
-- [ ] Very large Android tablets (1024 × 1366+)
-
-### Testing Scenarios
-
-#### Portrait Orientation
-- [ ] All screens render correctly
-- [ ] No overflow errors
-- [ ] Text is readable
-- [ ] Buttons are tappable
-- [ ] Images load correctly
-- [ ] Navigation works smoothly
-
-#### Landscape Orientation
-- [ ] Layouts adapt properly
-- [ ] Grids show more columns
-- [ ] No overflow errors
-- [ ] Content is accessible
-
-#### Accessibility
-- [ ] Text scaling works (system font size)
-- [ ] Touch targets are large enough (44×44 minimum)
-- [ ] Colors have sufficient contrast
-- [ ] Screen readers work
-
-### Device Preview Testing
-
-Use Device Preview (already configured) to test on:
-- iPhone SE (small phone)
-- iPhone 12 (medium phone)
-- iPhone 14 Pro Max (large phone)
-- iPad Mini (small tablet)
-- iPad Pro (large tablet)
-- Pixel 5 (Android medium)
-- Samsung Galaxy S21 (Android large)
+*   **New Endpoint: `block_user.php`:**
+    *   **Purpose:** Handles user blocking requests.
+    *   **Input:** `blocker_user_id`, `blocked_user_id`.
+    *   **Database Schema Update:** Create a new `user_blocks` table:
+        *   `id` (PK)
+        *   `blocker_user_id` (FK to users table)
+        *   `blocked_user_id` (FK to users table)
+        *   `created_at`
+    *   **Logic:**
+        *   Record the block relationship in the `user_blocks` table.
+        *   **Content Filtering:** Modify all content retrieval queries (for prayers, comments, groups, etc.) to exclude content from `blocked_user_id` when requested by `blocker_user_id`.
+        *   **Developer Notification:** **Crucial:** When a user is blocked, automatically generate an internal notification or report to administrators/developers. This should include `blocker_user_id`, `blocked_user_id`, and potentially a link to the `blocked_user_id`'s profile for review. This fulfills the "notify the developer of the inappropriate content" requirement.
+        *   **Automated Content Review:** Consider automatically flagging or quarantining all recent UGC from the `blocked_user_id` for administrator review.
 
 ---
 
-## 🔧 Quick Reference
+### **Phase 5: Administrator Tools (Backend/Admin Panel)**
 
-### Common Screen Sizes
+**Objective:** Provide administrators with the tools to manage UGC and users effectively.
 
-#### iPhone (Most Common)
-- **iPhone 12/13**: 390 × 844 (Medium)
-- **iPhone 14 Pro Max**: 430 × 932 (Large)
-- **iPhone 15 Pro**: 393 × 852 (Medium)
-- **iPhone 16 Pro Max**: 442 × 960 (Large)
+**Backend (PHP) / Admin Panel (Separate Application):**
 
-#### Android (Most Common)
-- **Samsung Galaxy S24**: 360 × 780 (Medium)
-- **Samsung Galaxy S24 Ultra**: 412 × 915 (Large)
-- **Google Pixel 8**: 412 × 915 (Large)
-- **OnePlus 12**: 412 × 915 (Large)
-
-### Design Reference Size
-- **Base Design Size**: 375 × 812 (iPhone X)
-- This is the reference size used in `ScreenUtilInit`
-
-### Code Snippets
-
-#### Get Current Screen Size
-```dart
-ScreenSize.init(context);
-print('Width: ${ScreenSize.screenWidth}');
-print('Height: ${ScreenSize.screenHeight}');
-print('Device: ${ScreenSize.deviceCategory}');
-```
-
-#### Responsive Container
-```dart
-Container(
-  width: ScreenSize.widthPercent(90), // 90% of screen width
-  height: ScreenSize.heightPercent(50), // 50% of screen height
-  padding: EdgeInsets.all(ScreenSize.paddingMedium),
-)
-```
-
-#### Responsive Text
-```dart
-Text(
-  'Hello World',
-  style: TextStyle(
-    fontSize: ScreenSize.textLarge,
-    fontWeight: FontWeight.w600,
-  ),
-)
-```
-
-#### Responsive Button
-```dart
-ElevatedButton(
-  style: ElevatedButton.styleFrom(
-    minimumSize: Size(
-      double.infinity,
-      ScreenSize.buttonHeightMedium,
-    ),
-    padding: EdgeInsets.symmetric(
-      horizontal: ScreenSize.buttonPaddingHorizontal,
-      vertical: ScreenSize.buttonPaddingVertical,
-    ),
-  ),
-  onPressed: () {},
-  child: Text('Button'),
-)
-```
+*   **Admin Dashboard:** A dedicated web interface for administrators.
+*   **Report Management:**
+    *   View all pending reports.
+    *   Review reported content and user profiles.
+    *   Take action: approve, reject, delete content, warn user, suspend user, ban user.
+    *   Mark reports as reviewed.
+*   **User Management:**
+    *   View user profiles, including their UGC history.
+    *   Ability to suspend or ban users.
+    *   View user blocking relationships.
+*   **Content Filtering Configuration:**
+    *   Manage the list of objectionable keywords/phrases for the content filter.
+    *   Configure sensitivity levels for automated filtering.
+*   **EULA Management:**
+    *   View current EULA version.
+    *   (Optional) Upload new EULA versions, which would trigger re-acceptance for all users.
 
 ---
 
-## 📚 Additional Resources
+### **Module-Specific Emoji Handling Roadmap**
 
-### Flutter Documentation
-- [Responsive Design](https://docs.flutter.dev/development/ui/layout/responsive)
-- [MediaQuery](https://api.flutter.dev/flutter/widgets/MediaQuery-class.html)
-- [LayoutBuilder](https://api.flutter.dev/flutter/widgets/LayoutBuilder-class.html)
+This section outlines a comprehensive roadmap for implementing module-specific emoji handling, addressing the user's request to save "how are you feeling" data to the database without affecting other components and resolving non-visible updates.
 
-### Package Documentation
-- [flutter_screenutil](https://pub.dev/packages/flutter_screenutil)
-- [device_preview](https://pub.dev/packages/device_preview)
+**Objective:** Implement a flexible and efficient system for users to express feelings (general) and react to specific content (posts, comments) using emojis, ensuring data integrity, performance, and real-time visibility.
 
-### Tools
-- Flutter DevTools - Layout Explorer
-- Device Preview - Multi-device testing
-- Android Studio - Layout Inspector
-- Xcode - View Debugger
+**Note on Compatibility:** Based on a thorough analysis of the `mysqldatabasetablewithdata` file, the proposed changes to the `emoji_usage` table (adding a composite index) and the `emojis.php` API (enhancing existing endpoints and adding new ones) are designed to be **non-breaking**. Existing functionalities will remain unaffected, and the implementation will ensure smooth operation.
 
 ---
 
-**Last Updated**: 2025-01-27  
-**Version**: 1.0.0  
-**Maintained By**: E-Commerce Development Team
+### **Phase 1: Database Preparation**
 
-#   f o s  
- #   f o s n e w  
- #   f r u i t s o f s p i r i t  
- #   f r u i t s o f s p i r i t  
- #   f r u i t s o f s p i r i t  
- 
+**Objective:** Optimize the `emoji_usage` table for module-specific emoji reactions and general feeling tracking.
+
+*   **`database_migrations/update_emoji_usage_replace_feeling.sql`:**
+    *   **Action:** Add a composite index to the `emoji_usage` table to improve query performance for module-specific lookups.
+    *   **SQL:**
+        ```sql
+        -- Add a composite index for efficient lookups by post_type and post_id
+        CREATE INDEX idx_emoji_usage_post_type_post_id ON emoji_usage (post_type, post_id);
+        ```
+    *   **Rationale:** This index will significantly speed up queries when fetching emojis for a specific post type and ID, or when querying for general feelings (where `post_type` and `post_id` are `NULL`).
+
+---
+
+### **Phase 2: Backend API Enhancement (PHP)**
+
+**Objective:** Extend the `emojis.php` API to support saving, retrieving, and managing module-specific emoji reactions and general user feelings.
+
+*   **`api/emojis.php`:**
+    *   **Action 1: Enhance `saveEmojiReaction` (or similar existing endpoint):**
+        *   **Functionality:** Modify the existing endpoint (or create a new one) to accept `post_type` and `post_id` as optional parameters.
+        *   **Logic:**
+            *   If `post_type` and `post_id` are provided, save the emoji as a reaction to that specific content.
+            *   If `post_type` and `post_id` are `NULL`, save the emoji as a general "how are you feeling" entry.
+            *   Ensure that for general feelings, only the latest entry for a user is considered active (i.e., update existing or insert new).
+        *   **Example Request (General Feeling):**
+            ```
+            POST /api/emojis.php
+            {
+                "user_id": 37,
+                "emoji": "joy_pineapple_02",
+                "post_type": null,
+                "post_id": null
+            }
+            ```
+        *   **Example Request (Post Reaction):**
+            ```
+            POST /api/emojis.php
+            {
+                "user_id": 37,
+                "emoji": "love_strawberry_01",
+                "post_type": "blog",
+                "post_id": 123
+            }
+            ```
+    *   **Action 2: Implement `getEmojiReactions` Endpoint:**
+        *   **Functionality:** A new endpoint to fetch all emoji reactions for a specific `post_type` and `post_id`.
+        *   **Example Request:**
+            ```
+            GET /api/emojis.php?action=get_reactions&post_type=blog&post_id=123
+            ```
+        *   **Response:** A list of emojis and their counts, or detailed user reactions.
+    *   **Action 3: Implement `getUserFeeling` Endpoint:**
+        *   **Functionality:** A new endpoint to fetch the latest general "how are you feeling" emoji for a specific user.
+        *   **Logic:** Query `emoji_usage` where `user_id` matches, and `post_type` and `post_id` are `NULL`, ordered by `created_at` DESC, limit 1.
+        *   **Example Request:**
+            ```
+            GET /api/emojis.php?action=get_user_feeling&user_id=37
+            ```
+        *   **Response:** The latest feeling emoji object for the user, or `null` if none exists.
+
+---
+
+### **Phase 3: Flutter Frontend Integration**
+
+**Objective:** Integrate the new API endpoints into the Flutter application, update UI components, and manage local caching for real-time updates.
+
+*   **`lib/services/api_service.dart`:**
+    *   **Action 1: Add `saveEmojiReaction` Method:**
+        *   **Signature:**
+            ```dart
+            Future<ApiResponse> saveEmojiReaction({
+              required int userId,
+              required String emoji,
+              String? postType,
+              int? postId,
+            });
+            ```
+        *   **Logic:** Call the backend `emojis.php` endpoint with the appropriate parameters.
+    *   **Action 2: Add `getEmojiReactions` Method:**
+        *   **Signature:**
+            ```dart
+            Future<ApiResponse<List<Map<String, dynamic>>>> getEmojiReactions({
+              required String postType,
+              required int postId,
+            });
+            ```
+        *   **Logic:** Call the backend `emojis.php` endpoint to fetch reactions for a specific post.
+    *   **Action 3: Add `getUserFeeling` Method:**
+        *   **Signature:**
+            ```dart
+            Future<ApiResponse<Map<String, dynamic>?>> getUserFeeling({
+              required int userId,
+            });
+            ```
+        *   **Logic:** Call the backend `emojis.php` endpoint to fetch the user's latest general feeling.
+
+*   **`lib/screens/fruits_screen.dart` (or relevant "How are you feeling" UI component):**
+    *   **Action 1: Display Current Feeling:**
+        *   **Logic:** On `initState`, call `ApiService.getUserFeeling()` to fetch and display the user's current feeling.
+    *   **Action 2: Update Feeling:**
+        *   **Logic:** When a user selects a new "how are you feeling" emoji:
+            1.  Call `ApiService.saveEmojiReaction()` with `postType: null` and `postId: null`.
+            2.  **Crucially, invalidate the local Hive cache for `fruits_screen_emojis` and `fruits_screen_all_variants` immediately after a successful update.** This will force `_loadFruitEmojis()` to fetch fresh data from the API, resolving the "non-visible updates" issue.
+            3.  Refresh the UI to reflect the new feeling.
+    *   **Action 3: Cache Management:**
+        *   **Logic:** Ensure that `_loadFruitEmojis()` always prioritizes fresh data from the API after a feeling update, and only uses cache for initial, instant display. Implement a mechanism to clear relevant cache entries when data is updated.
+
+*   **`lib/controllers/gallery_controller.dart`, `lib/controllers/blogs_controller.dart` (and other content-specific controllers):**
+    *   **Action:** Modify existing emoji reaction logic to use `ApiService.saveEmojiReaction()` with `postType` and `postId` parameters.
+    *   **Action:** Implement `ApiService.getEmojiReactions()` to display reactions for specific posts.
+
+---
+
+### **Phase 4: Testing and Validation**
+
+**Objective:** Ensure all new functionalities work as expected, are performant, and do not introduce regressions.
+
+*   **Unit Tests:**
+    *   Write unit tests for `ApiService` methods (`saveEmojiReaction`, `getEmojiReactions`, `getUserFeeling`).
+    *   Test `emojis.php` backend endpoints for various scenarios (valid/invalid input, general feeling, post reactions).
+*   **Integration Tests:**
+    *   Test the end-to-end flow of saving and retrieving general user feelings.
+    *   Test the end-to-end flow of saving and retrieving post-specific emoji reactions.
+    *   Verify that updating a feeling immediately reflects on the UI (cache invalidation working).
+*   **Performance Testing:**
+    *   Monitor database query performance with the new index.
+    *   Assess API response times for emoji-related endpoints.
+*   **User Acceptance Testing (UAT):**
+    *   Have users test the "how are you feeling" feature and post reactions to ensure an intuitive and bug-free experience.
+    *   Verify that no other components are negatively affected.
+
+---
+
+### **Summary of Key Modification Areas for Emoji Handling:**
+
+*   **Database:** `emoji_usage` table (add composite index).
+*   **Backend (PHP):** `api/emojis.php` (enhance existing or add new endpoints for saving/getting general feelings and module-specific reactions).
+*   **Frontend (Flutter):**
+    *   `lib/services/api_service.dart` (add new methods for emoji API calls).
+    *   `lib/screens/fruits_screen.dart` (or "How are you feeling" UI): Integrate API calls, implement cache invalidation, update UI display logic.
+    *   `lib/controllers/gallery_controller.dart`, `lib/controllers/blogs_controller.dart` (and other content controllers): Update emoji reaction logic.
+    *   `lib/services/hive_cache_service.dart` (or similar): Ensure cache invalidation mechanisms are robust.
+
+
+---
+
+### **Summary of Key Modification Areas:**
+
+*   **Frontend (Flutter):**
+    *   `lib/screens/onboarding_screen.dart`: EULA redirection logic.
+    *   `lib/screens/eula_screen.dart`: EULA display and acceptance UI/logic.
+    *   `lib/services/user_storage.2.dart`: EULA acceptance status (already done).
+    *   `lib/screens/create_prayer_screen.dart` (and other UGC submission screens): Client-side content filtering (optional), integration with server-side filtering.
+    *   `lib/widgets/prayer_card.dart` (and similar content display widgets): "Report" button/menu.
+    *   `lib/screens/report_content_screen.dart` (New): UI for reporting content.
+    *   `lib/services/report_service.dart` (New): Logic for sending reports.
+    *   User Profile/Interaction screens: "Block User" button/menu.
+    *   `lib/services/user_blocking_service.dart` (New): Logic for blocking users.
+    *   Content display logic: Filter out blocked users' content.
+*   **Backend (PHP):**
+    *   `terms.php`: Update EULA content with moderation clauses.
+    *   `ContentModerationService.php` (New): Centralized content filtering logic.
+    *   `prayers.php`, `blogs.php`, `comments.php`, `stories.php`: Integrate content filtering before saving UGC.
+    *   `report.php` (New): Endpoint for receiving user reports.
+    *   `block_user.php` (New): Endpoint for handling user blocks.
+    *   Database Schema: New tables for `reports` and `user_blocks`. Add `moderation_status` to UGC tables.
+    *   Admin Notification System: For new reports and user blocks.
+    *   (Optional) `eula_acceptance.php` (New): Endpoint to record server-side EULA acceptance.
+    *   (Optional) Admin Panel: A separate web application for moderation.

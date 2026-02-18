@@ -9,6 +9,10 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Prayer Requests Screen
 /// Modern, user-friendly design with attractive UI
@@ -38,11 +42,22 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
 
   /// Format time ago
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -53,7 +68,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -61,7 +76,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -123,7 +138,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           StandardAppBar.buildActionIcon(
             context,
             icon: Icons.add_rounded,
-            onTap: () => Get.toNamed(Routes.CREATE_PRAYER),
+            onTap: () async => await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER),
           ),
         ],
       ),
@@ -219,7 +234,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           ),
         ],
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 2),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 2),
     );
   }
 
@@ -271,7 +286,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           ),
           SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
           ElevatedButton(
-            onPressed: () => Get.toNamed(Routes.CREATE_PRAYER),
+            onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.iconscolor,
               padding: ResponsiveHelper.padding(
@@ -354,6 +369,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
   Widget _buildPrayerCard(BuildContext context, Map<String, dynamic> prayer, PrayersController controller) {
     final isAnonymous = prayer['is_anonymous'] == 1 || prayer['is_anonymous'] == true;
     final userName = isAnonymous ? 'Anonymous' : (prayer['user_name'] ?? prayer['name'] ?? 'Anonymous');
+    final isPending = prayer['status'] == 'Pending' || prayer['status'] == 'pending';
     String? profilePhotoUrl;
     if (!isAnonymous && prayer['profile_photo'] != null && prayer['profile_photo'].toString().isNotEmpty) {
       final photoPath = prayer['profile_photo'].toString();
@@ -374,7 +390,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
     final category = prayer['category'] as String? ?? prayer['type'] as String? ?? prayer['prayer_type'] as String? ?? 'Prayer Request';
     
     return InkWell(
-      onTap: () => Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: ResponsiveHelper.safeMargin(
@@ -395,11 +411,13 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
           ],
         ),
         clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            // Header - Profile + Name + Subtitle (Exact match home page)
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header - Profile + Name + Subtitle (Exact match home page)
             Padding(
               padding: ResponsiveHelper.padding(
                 context,
@@ -468,6 +486,10 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
                       ],
                     ),
                   ),
+                  // Only show options (Report/Block) if the prayer is NOT created by the current user
+                  if (prayer['user_id'] != null && 
+                      prayer['user_id'].toString() != controller.userId.value.toString())
+                    _buildPrayerOptions(context, prayer),
                 ],
               ),
             ),
@@ -547,9 +569,130 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
                 ],
               ),
             ),
+              ],
+            ),
+            // Add Pending badge for prayers
+            if (isPending)
+              Positioned(
+                top: ResponsiveHelper.isMobile(context) ? 8 : 10,
+                right: ResponsiveHelper.isMobile(context) ? 8 : 10,
+                child: Container(
+                  padding: ResponsiveHelper.padding(
+                    context,
+                    horizontal: ResponsiveHelper.isMobile(context) ? 8 : 10,
+                    vertical: ResponsiveHelper.isMobile(context) ? 5 : 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(
+                      ResponsiveHelper.borderRadius(
+                        context,
+                        mobile: 16,
+                        tablet: 20,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.pending,
+                        size: ResponsiveHelper.iconSize(context, mobile: 12),
+                        color: Colors.white,
+                      ),
+                      SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                      Text(
+                        'Pending',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 10),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPrayerOptions(BuildContext context, Map<String, dynamic> prayer) {
+    // Don't show the menu if it's the current user's content
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'prayer',
+            contentId: prayer['id'] is int ? prayer['id'] : int.parse(prayer['id'].toString()),
+          );
+        } else if (value == 'block') {
+          final userIdRaw = prayer['user_id'] ?? prayer['created_by'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            final currentUserId = await UserStorage.getUserId();
+            if (currentUserId == userId) {
+              Get.snackbar('Info', 'You cannot block yourself');
+              return;
+            }
+
+            final userName = prayer['user_name'] ?? prayer['name'] ?? 'this user';
+            final confirmed = await Get.dialog<bool>(
+              AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Get.back(result: true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                if (currentUserId != null) {
+                  await UserBlockingService.blockUser(userId);
+                  Get.snackbar('Success', 'User blocked');
+                  Get.find<PrayersController>().loadPrayers(refresh: true);
+                }
+              } catch (e) {
+                Get.snackbar('Error', 'Failed to block user');
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'report',
+          child: Row(
+            children: [
+              Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+              SizedBox(width: 8),
+              Text('Report Content'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'block',
+          child: Row(
+            children: [
+              Icon(Icons.block, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text('Block User'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

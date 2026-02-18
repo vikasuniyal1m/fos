@@ -8,8 +8,9 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
-import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
+
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Gallery Screen - Social Media Style
 /// User-friendly design like home page with modern UI
@@ -22,14 +23,6 @@ class GalleryScreen extends StatefulWidget {
 
 class _GalleryScreenState extends State<GalleryScreen> {
   final controller = Get.find<GalleryController>();
-  final ScrollController _scrollController = ScrollController();
-  
-  // Header collapse/expand state (sticky behavior)
-  double _headerHeight = 200.0; // Initial header height
-  double _minHeaderHeight = 80.0; // Minimum collapsed height (sticky)
-  double _maxHeaderHeight = 200.0; // Maximum expanded height
-  double _lastScrollOffset = 0.0; // Track last scroll position
-  bool _isCollapsed = false; // Track if header is collapsed
 
   @override
   void initState() {
@@ -58,68 +51,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
         controller.loadPhotos(refresh: true);
       }
     });
-    
-    // Initialize header heights based on screen size
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        final screenHeight = MediaQuery.of(context).size.height;
-        setState(() {
-          _maxHeaderHeight = screenHeight * 0.25; // 25% of screen height
-          _minHeaderHeight = 80.0; // Minimum collapsed height
-          _headerHeight = _maxHeaderHeight;
-        });
-      }
-    });
-    
-    // Listen to scroll changes
-    _scrollController.addListener(_onScroll);
-  }
-  
-  void _onScroll() {
-    if (!mounted) return;
-    
-    final scrollOffset = _scrollController.offset;
-    final scrollDelta = scrollOffset - _lastScrollOffset;
-    _lastScrollOffset = scrollOffset;
-    
-    // If scrolled to top (within 100px), always expand header
-    if (scrollOffset <= 100.0) {
-      if (_isCollapsed || _headerHeight < _maxHeaderHeight) {
-        setState(() {
-          _headerHeight = _maxHeaderHeight;
-          _isCollapsed = false;
-        });
-      }
-      return;
-    }
-    
-    // When scrolling down, collapse header (threshold: 2px to avoid jitter)
-    if (scrollDelta > 2.0 && scrollOffset > 120.0) {
-      // Collapse threshold - once scrolled past 120px, collapse
-      if (!_isCollapsed || _headerHeight > _minHeaderHeight) {
-        setState(() {
-          _headerHeight = _minHeaderHeight;
-          _isCollapsed = true;
-        });
-      }
-    }
-    // When scrolling up, expand header (threshold: 2px to avoid jitter)
-    else if (scrollDelta < -2.0) {
-      // Expand header when scrolling up (anywhere, not just at top)
-      if (_isCollapsed || _headerHeight < _maxHeaderHeight) {
-        setState(() {
-          _headerHeight = _maxHeaderHeight;
-          _isCollapsed = false;
-        });
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
-    super.dispose();
   }
 
   @override
@@ -146,7 +77,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
           StandardAppBar.buildActionIcon(
             context,
             icon: Icons.camera_alt_rounded,
-            onTap: () => Get.toNamed(Routes.UPLOAD_PHOTO),
+            onTap: () async => await PaymentGate.navigateToFeature(Routes.UPLOAD_PHOTO),
           ),
         ],
       ),
@@ -264,71 +195,63 @@ class _GalleryScreenState extends State<GalleryScreen> {
           );
         }
 
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            // Main scrollable content
-            RefreshIndicator(
-              onRefresh: () => controller.refresh(),
-              color: AppTheme.iconscolor,
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                padding: EdgeInsets.zero,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header Section with Stats (collapsible on scroll)
-                    // When collapsed, add space for sticky header; when expanded, show full header
-                    if (!_isCollapsed) _buildHeaderSection(context),
-                    if (_isCollapsed) SizedBox(height: _minHeaderHeight),
-                    
-                    // Latest Moments Section
-                    Padding(
-                      padding: ResponsiveHelper.padding(
-                        context, 
-                        horizontal: ScreenSize.isSmallPhone 
-                            ? ScreenSize.spacingSmall 
-                            : ScreenSize.spacingMedium, 
-                        vertical: ScreenSize.spacingSmall,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Flexible(
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.collections_rounded,
-                                  size: ResponsiveHelper.iconSize(
-                                    context, 
-                                    mobile: ScreenSize.isSmallPhone ? 20 : 24,
-                                    tablet: 26,
-                                  ),
-                                  color: Colors.black,
-                                ),
-                                SizedBox(width: ScreenSize.spacingSmall),
-                                Flexible(
-                                  child: Text(
-                                    'Latest Moments',
-                                    style: ResponsiveHelper.textStyle(
-                                      context,
-                                      fontSize: ResponsiveHelper.fontSize(
-                                        context,
-                                        mobile: ScreenSize.isSmallPhone ? 18 : 22,
-                                        tablet: 24,
-                                      ),
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black,
+        return RefreshIndicator(
+          onRefresh: () => controller.refresh(),
+          color: AppTheme.iconscolor,
+          child: SingleChildScrollView(
+            physics: AlwaysScrollableScrollPhysics(),
+            child: Column(
+              children: [
+                // Header Section with Stats
+                _buildHeaderSection(context),
+                
+                // Latest Moments Section
+                controller.photos.isNotEmpty
+                    ? Padding(
+                        padding: ResponsiveHelper.padding(
+                          context, 
+                          horizontal: ScreenSize.isSmallPhone 
+                              ? ScreenSize.spacingSmall 
+                              : ScreenSize.spacingMedium, 
+                          vertical: ScreenSize.spacingSmall,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Flexible(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.collections_rounded,
+                                    size: ResponsiveHelper.iconSize(
+                                      context, 
+                                      mobile: ScreenSize.isSmallPhone ? 20 : 24,
+                                      tablet: 26,
                                     ),
-                                    overflow: TextOverflow.ellipsis,
-                                    maxLines: 1,
+                                    color: Colors.black,
                                   ),
-                                ),
-                              ],
+                                  SizedBox(width: ScreenSize.spacingSmall),
+                                  Flexible(
+                                    child: Text(
+                                      'Latest Moments',
+                                      style: ResponsiveHelper.textStyle(
+                                        context,
+                                        fontSize: ResponsiveHelper.fontSize(
+                                          context,
+                                          mobile: ScreenSize.isSmallPhone ? 18 : 22,
+                                          tablet: 24,
+                                        ),
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          if (controller.photos.isNotEmpty)
                             Container(
                               padding: ResponsiveHelper.padding(
                                 context, 
@@ -358,124 +281,84 @@ class _GalleryScreenState extends State<GalleryScreen> {
                                 ),
                               ),
                             ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      )
+                    : SizedBox(),
+                
+                // Photos Grid
+                controller.photos.isNotEmpty
+                    ? Padding(
+                        padding: ResponsiveHelper.padding(
+                          context, 
+                          horizontal: ScreenSize.isSmallPhone 
+                              ? ScreenSize.spacingSmall 
+                              : ScreenSize.spacingMedium,
+                        ),
+                        child: GridView.builder(
+                          padding: EdgeInsets.only(
+                            top: ScreenSize.spacingMedium,
+                          ),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: ResponsiveHelper.isMobile(context) 
+                                ? 2 
+                                : ResponsiveHelper.isTablet(context) 
+                                    ? 3 
+                                    : 4,
+                            crossAxisSpacing: ScreenSize.gridSpacing,
+                            mainAxisSpacing: ScreenSize.gridSpacing,
+                            childAspectRatio: ScreenSize.isSmallPhone
+                                ? 0.80  // More compact for small phones
+                                : ScreenSize.isMediumPhone
+                                    ? 0.82
+                                    : ScreenSize.isLargePhone
+                                        ? 0.85
+                                        : ScreenSize.isTablet
+                                            ? 0.90  // Wider on tablets
+                                            : 0.95,
+                          ),
+                          itemCount: controller.photos.length,
+                          shrinkWrap: true,
+                          physics: NeverScrollableScrollPhysics(),
+                          itemBuilder: (context, index) {
+                            final photo = controller.photos[index];
+                            return _buildMomentCard(context, photo);
+                          },
+                        ),
+                      )
+                    : _buildEmptyState(context),
+                
+                // Load More Button (if more photos available)
+                if (controller.photos.length >= 4)
+                  Padding(
+                    padding: ResponsiveHelper.padding(
+                      context,
+                      bottom: ScreenSize.isSmallPhone 
+                          ? ScreenSize.spacingLarge * 2 
+                          : ScreenSize.spacingLarge * 3,
+                      top: ScreenSize.spacingLarge,
                     ),
-                    SizedBox(height: ScreenSize.spacingMedium),
-                    
-                    // Photos Grid or Empty State
-                    if (controller.photos.isEmpty)
-                      _buildEmptyState(context)
-                    else
-                      _buildPhotosGrid(context),
-                    
-                    SizedBox(height: ScreenSize.spacingMedium),
-                    
-                    // Load More Button (if more photos available)
-                    if (controller.photos.length >= 4)
-                      _buildLoadMoreButton(context),
-                    
-                    SizedBox(height: ScreenSize.isSmallPhone 
-                        ? ScreenSize.spacingLarge * 2 
-                        : ScreenSize.spacingLarge * 3), // Space for bottom nav
-                  ],
-                ),
-              ),
+                    child: _buildLoadMoreButton(context),
+                  )
+                else if (controller.photos.isNotEmpty)
+                  SizedBox(height: ScreenSize.isSmallPhone 
+                      ? ScreenSize.spacingLarge * 2 
+                      : ScreenSize.spacingLarge * 3), // Space for bottom nav
+              ],
             ),
-            // Sticky header when collapsed (positioned below app bar)
-            if (_isCollapsed)
-                Positioned(
-                  top: ResponsiveHelper.safeHeight(
-                    context,
-                    mobile: 70,
-                    tablet: 80,
-                    desktop: 90,
-                  ),
-                  left: 0,
-                  right: 0,
-                  child: _buildStickyHeader(context),
-                ),
-            ],
-          );
+          ),
+        );
       }),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 4),
     );
   }
 
-  /// Build Sticky Header (shown when collapsed)
-  Widget _buildStickyHeader(BuildContext context) {
-    ScreenSize.init(context);
-    
-    return Container(
-      height: _minHeaderHeight,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: ResponsiveHelper.padding(
-            context,
-            horizontal: ScreenSize.isSmallPhone 
-                ? ScreenSize.spacingSmall 
-                : ScreenSize.spacingMedium,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.photo_library_rounded,
-                color: Colors.white,
-                size: ResponsiveHelper.iconSize(
-                  context, 
-                  mobile: 24,
-                  tablet: 28,
-                ),
-              ),
-              SizedBox(width: ScreenSize.spacingSmall),
-              Text(
-                'Gallery',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(
-                    context,
-                    mobile: 18,
-                    tablet: 20,
-                  ),
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Build Header Section with Stats (collapsible on scroll)
+  /// Build Header Section with Stats
   Widget _buildHeaderSection(BuildContext context) {
     // Initialize ScreenSize for responsive design
     ScreenSize.init(context);
     
-    // Calculate opacity based on header height (fade out when collapsed)
-    final opacity = ((_headerHeight - _minHeaderHeight) / (_maxHeaderHeight - _minHeaderHeight)).clamp(0.3, 1.0);
-    
-    // Hide header section when collapsed (sticky header will show instead)
-    if (_isCollapsed) {
-      return const SizedBox.shrink();
-    }
-    
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 100), // Smooth animation
-      height: _headerHeight,
+    return Container(
+      height: ScreenSize.isSmallPhone ? 150 : 200,
       clipBehavior: Clip.antiAlias,
       margin: ResponsiveHelper.padding(
         context, 
@@ -510,217 +393,160 @@ class _GalleryScreenState extends State<GalleryScreen> {
           ),
         ],
       ),
-      child: Opacity(
-        opacity: ((_headerHeight - _minHeaderHeight) / (_maxHeaderHeight - _minHeaderHeight)).clamp(0.3, 1.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Show/hide content based on header height
-            if (_headerHeight > _minHeaderHeight + 20) ...[
-              Flexible(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'Share Your Moments',
-                            style: ResponsiveHelper.textStyle(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Content Row
+          Flexible(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Share Your Moments',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: ResponsiveHelper.fontSize(
+                            context,
+                            mobile: ScreenSize.isSmallPhone ? 18 : 20,
+                            tablet: 22,
+                          ),
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      SizedBox(height: ScreenSize.spacingSmall),
+                      Expanded(
+                        child: Text(
+                          'Capture and share your spiritual journey with the community',
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: ResponsiveHelper.fontSize(
                               context,
-                              fontSize: ResponsiveHelper.fontSize(
-                                context,
-                                mobile: ScreenSize.isSmallPhone ? 18 : 20,
-                                tablet: 22,
-                              ),
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black,
+                              mobile: ScreenSize.isSmallPhone ? 13 : 14,
+                              tablet: 15,
                             ),
-                            maxLines: _headerHeight > _minHeaderHeight + 60 ? 2 : 1,
-                            overflow: TextOverflow.ellipsis,
+                            color: Colors.grey[700],
+                            height: 1.4,
                           ),
-                          if (_headerHeight > _minHeaderHeight + 60) ...[
-                            SizedBox(height: _headerHeight > _minHeaderHeight + 80 ? ScreenSize.spacingSmall : 4),
-                            Expanded(
-                              child: Text(
-                                'Capture and share your spiritual journey with the community',
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: ResponsiveHelper.fontSize(
-                                    context,
-                                    mobile: ScreenSize.isSmallPhone ? 13 : 14,
-                                    tablet: 15,
-                                  ),
-                                  color: Colors.grey[700],
-                                  height: 1.4,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.visible,
-                                softWrap: true,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (_headerHeight > _minHeaderHeight + 40) ...[
-                      SizedBox(width: ScreenSize.spacingMedium),
-                      Container(
-                        padding: ResponsiveHelper.padding(
-                        context, 
-                        all: ScreenSize.isSmallPhone 
-                            ? ScreenSize.spacingSmall 
-                            : ScreenSize.spacingMedium,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppTheme.iconscolor,
-                            AppTheme.iconscolor,
-                          ],
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.iconscolor.withOpacity(0.4),
-                            blurRadius: ScreenSize.isSmallPhone ? 6 : 8,
-                            offset: Offset(0, ScreenSize.isSmallPhone ? 2 : 4),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.camera_enhance_rounded,
-                        color: Colors.white,
-                        size: ResponsiveHelper.iconSize(
-                          context, 
-                          mobile: ScreenSize.isSmallPhone ? 28 : 32,
-                          tablet: 36,
+                          maxLines: 2,
+                          overflow: TextOverflow.visible,
+                          softWrap: true,
                         ),
                       ),
-                    ),
-                  ],
-                ],
-                ),
-              ),
-            ],
-            if (_headerHeight > _minHeaderHeight + 80) ...[
-                SizedBox(height: ScreenSize.spacingLarge),
-                SizedBox(
-                  width: double.infinity,
-                  height: ResponsiveHelper.buttonHeight(
-                    context, 
-                    mobile: ScreenSize.isSmallPhone ? 48 : 50,
-                    tablet: 54,
+                    ],
                   ),
-                  child: ElevatedButton(
-                    onPressed: () => Get.toNamed(Routes.UPLOAD_PHOTO),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.iconscolor,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          ResponsiveHelper.borderRadius(
-                            context, 
-                            mobile: ScreenSize.isSmallPhone ? 12 : 16,
-                            tablet: 20,
-                          ),
-                        ),
-                      ),
-                      elevation: 4,
-                      shadowColor: AppTheme.iconscolor.withOpacity(0.4),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.camera_alt_rounded,
-                          color: AppTheme.iconscolor,
-                          size: ResponsiveHelper.iconSize(
-                            context, 
-                            mobile: ScreenSize.isSmallPhone ? 20 : 22,
-                            tablet: 24,
-                          ),
-                        ),
-                        SizedBox(width: ScreenSize.spacingSmall),
-                        Flexible(
-                          child: Text(
-                            'Share A Moment',
-                            style: ResponsiveHelper.textStyle(
-                              context,
-                              fontSize: ResponsiveHelper.fontSize(
-                                context,
-                                mobile: ScreenSize.isSmallPhone ? 15 : 16,
-                                tablet: 17,
-                              ),
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                          ),
-                        ),
+                ),
+                SizedBox(width: ScreenSize.spacingMedium),
+                Container(
+                  padding: ResponsiveHelper.padding(
+                    context, 
+                    all: ScreenSize.isSmallPhone 
+                        ? ScreenSize.spacingSmall 
+                        : ScreenSize.spacingMedium,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppTheme.iconscolor,
+                        AppTheme.iconscolor,
                       ],
                     ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.iconscolor.withOpacity(0.4),
+                        blurRadius: ScreenSize.isSmallPhone ? 6 : 8,
+                        offset: Offset(0, ScreenSize.isSmallPhone ? 2 : 4),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.camera_enhance_rounded,
+                    color: Colors.white,
+                    size: ResponsiveHelper.iconSize(
+                      context, 
+                      mobile: ScreenSize.isSmallPhone ? 28 : 32,
+                      tablet: 36,
+                    ),
                   ),
                 ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Build Photos Grid
-  Widget _buildPhotosGrid(BuildContext context) {
-    // Initialize ScreenSize for responsive grid
-    ScreenSize.init(context);
-    
-    // Responsive grid columns: 2 for phones, 3 for tablets
-    final crossAxisCount = ResponsiveHelper.isMobile(context) 
-        ? 2 
-        : ResponsiveHelper.isTablet(context) 
-            ? 3 
-            : 4;
-    
-    // Responsive aspect ratio based on device size
-    final aspectRatio = ScreenSize.isSmallPhone
-        ? 0.80  // More compact for small phones
-        : ScreenSize.isMediumPhone
-            ? 0.82
-            : ScreenSize.isLargePhone
-                ? 0.85
-                : ScreenSize.isTablet
-                    ? 0.90  // Wider on tablets
-                    : 0.95;
-    
-    return Padding(
-      padding: ResponsiveHelper.padding(
-        context, 
-        horizontal: ScreenSize.isSmallPhone 
-            ? ScreenSize.spacingSmall 
-            : ScreenSize.spacingMedium,
-      ),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          crossAxisSpacing: ScreenSize.gridSpacing,
-          mainAxisSpacing: ScreenSize.gridSpacing,
-          childAspectRatio: aspectRatio,
-        ),
-        itemCount: controller.photos.length,
-        itemBuilder: (context, index) {
-          final photo = controller.photos[index];
-          return _buildMomentCard(context, photo);
-        },
+              ],
+            ),
+          ),
+          
+          // Upload Button
+          SizedBox(height: ScreenSize.spacingLarge),
+          SizedBox(
+            width: double.infinity,
+            height: ResponsiveHelper.buttonHeight(
+              context, 
+              mobile: ScreenSize.isSmallPhone ? 48 : 50,
+              tablet: 54,
+            ),
+            child: ElevatedButton(
+              onPressed: () async => await PaymentGate.navigateToFeature(Routes.UPLOAD_PHOTO),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.iconscolor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    ResponsiveHelper.borderRadius(
+                      context, 
+                      mobile: ScreenSize.isSmallPhone ? 12 : 16,
+                      tablet: 20,
+                    ),
+                  ),
+                ),
+                elevation: 4,
+                shadowColor: AppTheme.iconscolor.withOpacity(0.4),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.camera_alt_rounded,
+                    color: AppTheme.iconscolor,
+                    size: ResponsiveHelper.iconSize(
+                      context, 
+                      mobile: ScreenSize.isSmallPhone ? 20 : 22,
+                      tablet: 24,
+                    ),
+                  ),
+                  SizedBox(width: ScreenSize.spacingSmall),
+                  Flexible(
+                    child: Text(
+                      'Share A Moment',
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: ResponsiveHelper.fontSize(
+                          context,
+                          mobile: ScreenSize.isSmallPhone ? 15 : 16,
+                          tablet: 17,
+                        ),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -743,12 +569,38 @@ class _GalleryScreenState extends State<GalleryScreen> {
     final commentCount = int.tryParse((photo['comment_count'] ?? 0).toString()) ?? 0;
     final isLiked = photo['is_liked'] == true || photo['is_liked'] == 1;
     final fruitTag = photo['fruit_tag'] as String?;
+    final isPending = photo['status'] == 'Pending' || photo['status'] == 'pending';
     
     return GestureDetector(
-      onTap: () => Get.toNamed(
-        Routes.PHOTO_DETAILS,
-        arguments: photo['id'],
-      ),
+      onTap: () async {
+        // Show loading indicator
+        Get.dialog(
+          const Center(
+            child: CircularProgressIndicator(
+              color: Color(0xFF8B4513),
+            ),
+          ),
+          barrierDismissible: false,
+        );
+
+        try {
+          // Load details before navigating (to ensure data is ready)
+          await controller.loadPhotoDetails(photo['id']);
+        } catch (e) {
+          print('Error loading photo details: $e');
+        } finally {
+          // Close loading indicator
+          if (Get.isDialogOpen ?? false) {
+            Get.back();
+          }
+        }
+
+        // Navigate to details
+        PaymentGate.navigateToFeature(
+          Routes.PHOTO_DETAILS,
+          arguments: photo['id'],
+        );
+      },
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -859,6 +711,59 @@ class _GalleryScreenState extends State<GalleryScreen> {
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  // Pending Badge
+                  if (isPending)
+                    Positioned(
+                      top: ScreenSize.isSmallPhone ? 6 : 8,
+                      left: ScreenSize.isSmallPhone ? 6 : 8,
+                      child: Container(
+                        padding: ResponsiveHelper.padding(
+                          context, 
+                          horizontal: ScreenSize.isSmallPhone ? 8 : 10, 
+                          vertical: ScreenSize.isSmallPhone ? 5 : 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(
+                            ResponsiveHelper.borderRadius(
+                              context, 
+                              mobile: ScreenSize.isSmallPhone ? 16 : 20,
+                              tablet: 24,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.pending,
+                              size: ResponsiveHelper.iconSize(
+                                context, 
+                                mobile: ScreenSize.isSmallPhone ? 12 : 14,
+                                tablet: 16,
+                              ),
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: ScreenSize.isSmallPhone ? 4 : 6),
+                            Text(
+                              'Pending',
+                              style: ResponsiveHelper.textStyle(
+                                context,
+                                fontSize: ResponsiveHelper.fontSize(
+                                  context,
+                                  mobile: ScreenSize.isSmallPhone ? 10 : 11,
+                                  tablet: 12,
+                                ),
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -1062,7 +967,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 tablet: 22,
               ),
               fontWeight: FontWeight.bold,
-                                  color: AppTheme.iconscolor,
+              color: AppTheme.iconscolor,
             ),
           ),
           SizedBox(height: ScreenSize.spacingSmall),
@@ -1091,7 +996,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               tablet: 52,
             ),
             child: ElevatedButton(
-              onPressed: () => Get.toNamed(Routes.UPLOAD_PHOTO),
+              onPressed: () async => await PaymentGate.navigateToFeature(Routes.UPLOAD_PHOTO),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF9F9467),
                 shape: RoundedRectangleBorder(

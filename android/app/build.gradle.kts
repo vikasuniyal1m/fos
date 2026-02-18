@@ -29,10 +29,17 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
-            storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
-            storePassword = keystoreProperties["storePassword"] as String
+            val keyAliasStr = keystoreProperties["keyAlias"] as? String
+            val keyPasswordStr = keystoreProperties["keyPassword"] as? String
+            val storeFileStr = keystoreProperties["storeFile"] as? String
+            val storePasswordStr = keystoreProperties["storePassword"] as? String
+
+            if (keyAliasStr != null && keyPasswordStr != null && storeFileStr != null && storePasswordStr != null) {
+                keyAlias = keyAliasStr
+                keyPassword = keyPasswordStr
+                storeFile = rootProject.file(storeFileStr)
+                storePassword = storePasswordStr
+            }
         }
     }
 
@@ -80,6 +87,8 @@ flutter {
 }
 
 dependencies {
+    // Material Components theme required by flutter_stripe (Theme.MaterialComponents)
+    implementation("com.google.android.material:material:1.11.0")
     // Import the Firebase BoM
     implementation(platform("com.google.firebase:firebase-bom:34.3.0"))
 
@@ -87,6 +96,7 @@ dependencies {
     // When using the BoM, don't specify versions in Firebase dependencies
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth") // Add Firebase Auth dependency
+    implementation(kotlin("stdlib-jdk8"))
 
     // Add the dependencies for any other desired Firebase products
 }

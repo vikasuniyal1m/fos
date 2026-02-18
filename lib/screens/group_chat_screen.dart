@@ -23,6 +23,58 @@ class GroupChatScreen extends StatelessWidget {
     required this.groupId,
     this.useRealChat = true, // Default to real chat
   }) : super(key: key);
+  
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    final lower = message.toLowerCase();
+    final isModeration = lower.contains('community guidelines') ||
+        lower.contains('inappropriate content') ||
+        lower.contains('terms') ||
+        lower.contains('moderation');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (isModeration)
+                  const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 20),
+                if (isModeration)
+                  const SizedBox(width: 8),
+                Text(
+                  isModeration ? 'Community Guidelines' : title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? Colors.red : Colors.green),
+        duration: isModeration ? const Duration(seconds: 5) : const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -195,7 +247,10 @@ class GroupChatScreen extends StatelessWidget {
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => Get.back(),
+                          // Use Navigator pop to avoid GetX snackbar close crash on back
+                          onTap: () {
+                            Navigator.of(context).maybePop();
+                          },
                           borderRadius: BorderRadius.circular(30),
                           child: Container(
                             width: ResponsiveHelper.isMobile(context)
@@ -250,73 +305,77 @@ class GroupChatScreen extends StatelessWidget {
           ),
         ),
       ),
-      body: Obx(() {
-        if (postsController.isLoading.value && postsController.posts.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: const Color(0xFF8B4513),
-            ),
-          );
-        }
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Obx(() {
+          if (postsController.isLoading.value && postsController.posts.isEmpty) {
+            return Center(
+              child: CircularProgressIndicator(
+                color: const Color(0xFF8B4513),
+              ),
+            );
+          }
 
-        if (postsController.posts.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.chat_bubble_outline,
-                  size: ResponsiveHelper.iconSize(context, mobile: 64),
-                  color: Colors.grey,
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                Text(
-                  'No posts yet',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+          if (postsController.posts.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.chat_bubble_outline,
+                    size: ResponsiveHelper.iconSize(context, mobile: 64),
                     color: Colors.grey,
                   ),
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 8)),
-                Text(
-                  'Be the first to share something!',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        return RefreshIndicator(
-          onRefresh: () => postsController.refresh(),
-          color: const Color(0xFF8B4513),
-          child: ListView.builder(
-            padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
-            itemCount: postsController.posts.length + (postsController.hasMore.value ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index >= postsController.posts.length) {
-                // Load more
-                postsController.loadMore();
-                return Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-                    child: CircularProgressIndicator(
-                      color: const Color(0xFF8B4513),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                  Text(
+                    'No posts yet',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                      color: Colors.grey,
                     ),
                   ),
-                );
-              }
-              
-              return _buildPostCard(context, postsController, postsController.posts[index]);
-            },
-          ),
-        );
-      }),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                  Text(
+                    'Be the first to share something!',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return RefreshIndicator(
+            onRefresh: () => postsController.refresh(),
+            color: const Color(0xFF8B4513),
+            child: ListView.builder(
+              padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
+              itemCount: postsController.posts.length + (postsController.hasMore.value ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= postsController.posts.length) {
+                  // Load more
+                  postsController.loadMore();
+                  return Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+                      child: CircularProgressIndicator(
+                        color: const Color(0xFF8B4513),
+                      ),
+                    ),
+                  );
+                }
+                
+                return _buildPostCard(context, postsController, postsController.posts[index]);
+              },
+            ),
+          );
+        }),
+      ),
       floatingActionButton: Obx(() {
         final isBlogger = postsController.userRole.value == 'Blogger';
         final isActive = postsController.userStatus.value == 'Active';
@@ -336,13 +395,11 @@ class GroupChatScreen extends StatelessWidget {
         if (hasPendingRequest) {
           return FloatingActionButton(
             onPressed: () {
-              Get.snackbar(
+              _showCustomSnackbar(
+                context,
                 'Approval Pending',
                 'Waiting for approval from admin. You cannot create posts until your blogger request is approved.',
-                snackPosition: SnackPosition.BOTTOM,
-                backgroundColor: Colors.orange.withOpacity(0.9),
-                colorText: Colors.white,
-                duration: const Duration(seconds: 3),
+                isError: true,
               );
             },
             backgroundColor: Colors.grey,
@@ -353,13 +410,10 @@ class GroupChatScreen extends StatelessWidget {
         // For regular users, show button with message
         return FloatingActionButton(
           onPressed: () {
-            Get.snackbar(
+            _showCustomSnackbar(
+              context,
               'Become a Blogger',
               'Please request to become a blogger to create posts.',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: const Color(0xFF8B4513).withOpacity(0.9),
-              colorText: Colors.white,
-              duration: const Duration(seconds: 3),
             );
           },
           backgroundColor: const Color(0xFF8B4513),
@@ -948,6 +1002,58 @@ class GroupChatScreen extends StatelessWidget {
     String selectedType = 'text';
     File? selectedImage;
     final eventDateController = TextEditingController();
+    
+    // Helper function to show snackbar from dialog context
+    void showSnackbar(String title, String message, {bool isError = false}) {
+      if (!context.mounted) return;
+      
+      // Close any existing snackbars
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      
+      final lower = message.toLowerCase();
+      final isModeration = lower.contains('community guidelines') ||
+          lower.contains('inappropriate content') ||
+          lower.contains('terms') ||
+          lower.contains('moderation');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (isModeration)
+                    const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 20),
+                  if (isModeration)
+                    const SizedBox(width: 8),
+                  Text(
+                    isModeration ? 'Community Guidelines' : title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+          backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? Colors.red : Colors.green),
+          duration: isModeration ? const Duration(seconds: 5) : const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
 
     Get.dialog(
       Dialog(
@@ -1087,11 +1193,10 @@ class GroupChatScreen extends StatelessWidget {
                           ? null
                           : () async {
                               if (contentController.text.trim().isEmpty) {
-                                Get.snackbar(
+                                showSnackbar(
                                   'Error',
                                   'Please enter post content',
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
+                                  isError: true,
                                 );
                                 return;
                               }
@@ -1109,15 +1214,11 @@ class GroupChatScreen extends StatelessWidget {
                               if (success) {
                                 // Show success message FIRST (before navigation)
                                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  Get.snackbar(
+                                  showSnackbar(
                                     'Success',
                                     controller.message.value.isNotEmpty 
                                         ? controller.message.value 
                                         : 'Post created successfully!',
-                                    backgroundColor: Colors.green,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 2),
-                                    margin: const EdgeInsets.all(16),
                                   );
                                 });
                                 
@@ -1131,15 +1232,12 @@ class GroupChatScreen extends StatelessWidget {
                               } else {
                                 // Show error message
                                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  Get.snackbar(
+                                  showSnackbar(
                                     'Error',
                                     controller.message.value.isNotEmpty 
                                         ? controller.message.value 
                                         : 'Failed to create post. Please try again.',
-                                    backgroundColor: Colors.red,
-                                    colorText: Colors.white,
-                                    duration: const Duration(seconds: 3),
-                                    margin: const EdgeInsets.all(16),
+                                    isError: true,
                                   );
                                 });
                               }
@@ -1162,6 +1260,58 @@ class GroupChatScreen extends StatelessWidget {
   }
 
   void _showReactionPicker(BuildContext context, GroupPostsController controller, int postId) {
+    // Helper function to show snackbar from bottom sheet context
+    void showSnackbar(String title, String message, {bool isError = false}) {
+      if (!context.mounted) return;
+      
+      // Close any existing snackbars
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      
+      final lower = message.toLowerCase();
+      final isModeration = lower.contains('community guidelines') ||
+          lower.contains('inappropriate content') ||
+          lower.contains('terms') ||
+          lower.contains('moderation');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (isModeration)
+                    const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 20),
+                  if (isModeration)
+                    const SizedBox(width: 8),
+                  Text(
+                    isModeration ? 'Community Guidelines' : title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+          backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? Colors.red : Colors.green),
+          duration: isModeration ? const Duration(seconds: 5) : const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+    
     Get.bottomSheet(
       Container(
         padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
@@ -1202,27 +1352,20 @@ class GroupChatScreen extends StatelessWidget {
                       if (success) {
                         // Show success message (brief)
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          Get.snackbar(
+                          showSnackbar(
                             'Success',
                             'Reaction added',
-                            backgroundColor: Colors.green,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 1),
-                            margin: const EdgeInsets.all(16),
                           );
                         });
                       } else {
                         // Show error message
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          Get.snackbar(
+                          showSnackbar(
                             'Error',
                             controller.message.value.isNotEmpty 
                                 ? controller.message.value 
                                 : 'Failed to add reaction. Please try again.',
-                            backgroundColor: Colors.red,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 2),
-                            margin: const EdgeInsets.all(16),
+                            isError: true,
                           );
                         });
                       }
@@ -1263,11 +1406,22 @@ class GroupChatScreen extends StatelessWidget {
 
   /// Format time ago
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -1278,7 +1432,7 @@ class GroupChatScreen extends StatelessWidget {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -1286,7 +1440,7 @@ class GroupChatScreen extends StatelessWidget {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -1430,6 +1584,44 @@ class GroupChatScreen extends StatelessWidget {
   void _showCommentsDialog(BuildContext context, GroupPostsController controller, Map<String, dynamic> post) {
     final postId = post['id'] as int;
     final commentController = TextEditingController();
+    final ScrollController dialogScrollController = ScrollController();
+    
+    // Helper function to show snackbar from dialog context
+    void showSnackbar(String title, String message, {bool isError = false}) {
+      if (!context.mounted) return;
+      
+      // Close any existing snackbars
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+          backgroundColor: isError ? Colors.red : Colors.green,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
     
     // Load comments
     controller.loadPostComments(postId);
@@ -1483,6 +1675,7 @@ class GroupChatScreen extends StatelessWidget {
                   }
                   
                   return ListView.builder(
+                    controller: dialogScrollController,
                     itemCount: controller.postComments.length,
                     itemBuilder: (context, index) {
                       final comment = controller.postComments[index];
@@ -1513,6 +1706,9 @@ class GroupChatScreen extends StatelessWidget {
                     onPressed: () async {
                       if (commentController.text.trim().isEmpty) return;
                       
+                      // FIX: Dismiss keyboard immediately
+                      FocusScope.of(context).unfocus();
+
                       final success = await controller.addComment(
                         postId,
                         commentController.text.trim(),
@@ -1520,29 +1716,33 @@ class GroupChatScreen extends StatelessWidget {
                       
                       if (success) {
                         commentController.clear();
+                        
+                        // Scroll to bottom to show latest comment
+                        await Future.delayed(const Duration(milliseconds: 300));
+                        if (dialogScrollController.hasClients) {
+                          dialogScrollController.animateTo(
+                            dialogScrollController.position.maxScrollExtent,
+                            duration: const Duration(milliseconds: 500),
+                            curve: Curves.easeOut,
+                          );
+                        }
+
                         // Show success message
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          Get.snackbar(
+                          showSnackbar(
                             'Success',
                             'Comment added successfully',
-                            backgroundColor: Colors.green,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 2),
-                            margin: const EdgeInsets.all(16),
                           );
                         });
                       } else {
                         // Show error message
                         WidgetsBinding.instance.addPostFrameCallback((_) {
-                          Get.snackbar(
+                          showSnackbar(
                             'Error',
                             controller.message.value.isNotEmpty 
                                 ? controller.message.value 
                                 : 'Failed to add comment. Please try again.',
-                            backgroundColor: Colors.red,
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 3),
-                            margin: const EdgeInsets.all(16),
+                            isError: true,
                           );
                         });
                       }
@@ -1638,15 +1838,26 @@ class GroupChatScreen extends StatelessWidget {
   String _formatDate(String? dateStr) {
     if (dateStr == null) return '';
     try {
-      final date = DateTime.parse(dateStr);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateStr.endsWith('Z')) {
+        date = DateTime.parse('${dateStr}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateStr).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 7) {
         return '${date.day}/${date.month}/${date.year}';
       } else if (difference.inDays > 0) {
         return '${difference.inDays}d ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours}h ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes}m ago';
@@ -1658,4 +1869,3 @@ class GroupChatScreen extends StatelessWidget {
     }
   }
 }
-

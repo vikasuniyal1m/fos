@@ -10,6 +10,7 @@ import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Stories Screen
 /// Displays list of stories/testimonies
@@ -352,7 +353,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => Get.toNamed(Routes.CREATE_STORY),
+                          onTap: () async => await PaymentGate.navigateToFeature(Routes.CREATE_STORY),
                           borderRadius: BorderRadius.circular(30),
                           child: Container(
                             width: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,
@@ -625,11 +626,22 @@ class _StoriesScreenState extends State<StoriesScreen> {
   }
 
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -640,7 +652,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -648,7 +660,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -684,11 +696,10 @@ class _StoriesScreenState extends State<StoriesScreen> {
       ),
       child: InkWell(
         onTap: () {
-          // If it's a gallery-based story, navigate to photo details, otherwise story details
           if (story['is_gallery_story'] == true) {
-            Get.toNamed(Routes.PHOTO_DETAILS, arguments: story['id']);
+            PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: story['id']);
           } else {
-            Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+            PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: story['id']);
           }
         },
         borderRadius: BorderRadius.circular(
@@ -1037,9 +1048,9 @@ class _StoriesScreenState extends State<StoriesScreen> {
                     child: InkWell(
                       onTap: () {
                         if (story['is_gallery_story'] == true) {
-                          Get.toNamed(Routes.PHOTO_DETAILS, arguments: story['id']);
+                          PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: story['id']);
                         } else {
-                          Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+                          PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: story['id']);
                         }
                       },
                       borderRadius: BorderRadius.circular(

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+
 import 'package:flutter/scheduler.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
@@ -10,6 +13,9 @@ import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
 
 /// Photo Details Screen
 /// Shows single photo with full comment system (like blog/prayer details)
@@ -27,24 +33,89 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   final expandedReplies = <int>{}; // Track which replies are expanded
   final commentController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _commentFocusNode = FocusNode();
   int? currentUserId;
   double _photoHeight = 350.0; // Initial photo height
   double _minPhotoHeight = 100.0; // Minimum collapsed height
   double _maxPhotoHeight = 350.0; // Maximum expanded height
+  bool _isSendingComment = false; // Track comment sending state
+
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(this.context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(this.context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
 
   @override
   void initState() {
     super.initState();
     _loadCurrentUserId();
-    final photoId = Get.arguments as int? ?? 0;
-    if (photoId > 0 && (controller.selectedPhoto.isEmpty || controller.selectedPhoto['id'] != photoId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadPhotoDetails(photoId);
-        // Load emojis for reactions
-        controller.loadAvailableEmojis();
-        controller.loadQuickEmojis();
-      });
-    }
+
+    // Listen to comment focus changes - scroll to bottom when keyboard opens
+    _commentFocusNode.addListener(() {
+      if (_commentFocusNode.hasFocus) {
+        // Keyboard is opening, scroll to bottom after a short delay
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (_scrollController.hasClients && mounted) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      }
+    });
+
+    // Use native argument extraction
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final photoId = ModalRoute.of(context)?.settings.arguments as int? ?? 0;
+        if (photoId > 0) {
+          // Only load if not already loading and (empty or mismatch)
+          // This prevents double-loading since GalleryScreen triggers load before navigation
+          if (!controller.isLoading.value && (controller.selectedPhoto.isEmpty || controller.selectedPhoto['id'] != photoId)) {
+            controller.loadPhotoDetails(photoId);
+          }
+
+          // Always ensure emojis are loaded (these operations are cheap/safe to repeat)
+          controller.loadAvailableEmojis();
+          controller.loadQuickEmojis();
+        }
+      }
+    });
     
     // Initialize photo heights based on screen size
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -107,6 +178,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _commentFocusNode.dispose();
     commentController.dispose();
     for (var controller in replyControllers.values) {
       controller.dispose();
@@ -116,11 +188,27 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
 
   /// Format time ago
   String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return '';
+    if (dateString == null || dateString.isEmpty) return 'Just now';
     
     try {
-      final date = DateTime.parse(dateString);
+      // Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateString.endsWith('Z')) {
+        date = DateTime.parse('${dateString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateString).toLocal();
+      }
+      
       final now = DateTime.now();
+      // Only adjust if date is significantly in the future (more than 1 minute)
+      // to allow for small clock skews
+      if (date.isAfter(now.add(const Duration(minutes: 1)))) {
+        date = now;
+      } else if (date.isAfter(now)) {
+        // If slightly in future, just cap at now
+        date = now;
+      }
+
       final difference = now.difference(date);
       
       if (difference.inDays > 365) {
@@ -131,7 +219,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -139,7 +227,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -169,6 +257,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.themeColor,
+      resizeToAvoidBottomInset: true,
       appBar: const StandardAppBar(
         showBackButton: true,
       ),
@@ -202,7 +291,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                 ),
                 SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                 ElevatedButton(
-                  onPressed: () => Get.back(),
+                  onPressed: () => Navigator.of(context).pop(),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF8B4513),
                   ),
@@ -214,730 +303,1076 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         }
 
         final photo = controller.selectedPhoto;
+        final isPending = photo['status'] == 'Pending';
         final photoId = photo['id'] as int;
         final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
         final filePath = photo['file_path'] as String? ?? '';
         final imageUrl = filePath.isNotEmpty ? baseUrl + filePath : null;
         final testimony = photo['testimony'] as String? ?? '';
 
-        return Column(
-          children: [
-            // Photo Display - Animated based on scroll (Social Media Style)
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 100),
-              curve: Curves.easeOut,
-              height: _photoHeight.clamp(_minPhotoHeight, _maxPhotoHeight),
-              child: GestureDetector(
-                onTap: () {
-                  // Show full screen image preview when tapped
-                  if (imageUrl != null) {
-                    _showImagePreview(context, imageUrl, photo);
-                  }
-                },
-                child: Container(
-                  color: Colors.black,
-                  child: imageUrl != null
-                      ? Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Center(
-                              child: Icon(
-                                Icons.broken_image,
-                                size: ResponsiveHelper.iconSize(context, mobile: 64),
-                                color: Colors.white,
-                              ),
-                            );
-                          },
-                        )
-                      : Center(
-                          child: Icon(
-                            Icons.image_not_supported,
-                            size: ResponsiveHelper.iconSize(context, mobile: 64),
-                            color: Colors.white,
-                          ),
-                        ),
-                ),
-              ),
-            ),
-            
-            // Photo Info & Comments - Scrollable
-            Expanded(
-              child: Container(
-                color: const Color(0xFFF8F9FA), // Match home page background
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: () async {
-                          print('🔄 Pull-to-refresh triggered on photo details');
-                          await controller.loadPhotoDetails(photoId);
-                          await controller.loadPhotoComments(photoId);
-                          print('✅ Refresh completed');
+        // Get keyboard height to adjust photo height
+        final keyboardHeight = MediaQuery
+            .of(context)
+            .viewInsets
+            .bottom;
+        final screenHeight = MediaQuery
+            .of(context)
+            .size
+            .height;
+
+        return LayoutBuilder(
+            builder: (context, constraints) {
+              // Calculate available height considering keyboard
+              final availableHeight = constraints.maxHeight;
+              final commentInputHeight = 80.0; // Approximate height of comment input bar
+              final minContentHeight = 200.0; // Minimum height for scrollable content
+
+              // When keyboard is open, aggressively shrink photo to prevent overflow
+              final effectivePhotoHeight = keyboardHeight > 0
+                  ? (_minPhotoHeight).clamp(_minPhotoHeight,
+                  availableHeight - commentInputHeight - minContentHeight)
+                  : _photoHeight.clamp(_minPhotoHeight,
+                  (screenHeight * 0.5).clamp(_minPhotoHeight, _maxPhotoHeight));
+
+              return Column(
+                children: [
+                  // Photo Display - Animated based on scroll (Social Media Style)
+                  Flexible(
+                    flex: 0,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 100),
+                      curve: Curves.easeOut,
+                      height: effectivePhotoHeight,
+                      constraints: BoxConstraints(
+                        maxHeight: keyboardHeight > 0
+                            ? (availableHeight - commentInputHeight -
+                            minContentHeight).clamp(_minPhotoHeight,
+                            _maxPhotoHeight)
+                            : screenHeight * 0.5,
+                      ),
+                      child: GestureDetector(
+                        onTap: () {
+                          // Show full screen image preview when tapped
+                          if (imageUrl != null) {
+                            _showImagePreview(context, imageUrl, photo);
+                          }
                         },
-                        color: AppTheme.iconscolor,
-                        backgroundColor: Colors.white,
-                        child: SingleChildScrollView(
-                          controller: _scrollController,
-                          physics: const AlwaysScrollableScrollPhysics(), // Enable scroll for pull-to-refresh
-                          padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-                          child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // User Info
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: ResponsiveHelper.borderRadius(context, mobile: 20),
-                                  backgroundColor: const Color(0xFFFEECE2),
-                                  backgroundImage: _getImageProvider(photo['profile_photo'] as String?),
-                                  child: photo['profile_photo'] == null
-                                      ? Icon(
-                                          Icons.person,
-                                          size: ResponsiveHelper.iconSize(context, mobile: 24),
-                                          color: AppTheme.iconscolor,
-                                        )
-                                      : null,
+                        child: Container(
+                          color: Colors.black,
+                          child: imageUrl != null
+                              ? Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Icon(
+                                  Icons.broken_image,
+                                  size: ResponsiveHelper.iconSize(
+                                      context, mobile: 64),
+                                  color: Colors.white,
                                 ),
-                                SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                Text(
-                                  photo['user_name'] as String? ?? 'Anonymous',
-                                  style: ResponsiveHelper.textStyle(
-                                    context,
-                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.iconscolor,
-                                        ),
-                                      ),
-                                      if (photo['fruit_tag'] != null && (photo['fruit_tag'] as String).isNotEmpty) ...[
-                                        SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                                        Container(
-                                          padding: ResponsiveHelper.padding(context, horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF8B4513).withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                                          ),
-                                          child: Text(
-                                            photo['fruit_tag'] as String,
-                                            style: ResponsiveHelper.textStyle(
-                                              context,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                              color: AppTheme.iconscolor,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
+                              );
+                            },
+                          )
+                              : Center(
+                            child: Icon(
+                              Icons.image_not_supported,
+                              size: ResponsiveHelper.iconSize(
+                                  context, mobile: 64),
+                              color: Colors.white,
                             ),
-                            SizedBox(height: ResponsiveHelper.spacing(context, 12)),
-                            
-                            // Testimony/Description - Check both testimony field and first comment
-                            Builder(
-                              builder: (context) {
-                                // First check if testimony field exists in photo data
-                                String? testimonyText = photo['testimony'] as String?;
-                                
-                                // If not found, check first comment (testimony is saved as first comment)
-                                if ((testimonyText == null || testimonyText.isEmpty) && 
-                                    controller.photoComments.isNotEmpty) {
-                                  final firstComment = controller.photoComments.first;
-                                  // Check if it's the testimony comment (usually the first one by the same user)
-                                  if (firstComment['user_id'] == photo['user_id']) {
-                                    testimonyText = firstComment['content'] as String?;
-                                  }
-                                }
-                                
-                                if (testimonyText != null && testimonyText.isNotEmpty) {
-                                  return Container(
-                                    margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 16)),
-                                    padding: ResponsiveHelper.padding(context, all: 16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                                      border: Border.all(
-                                        color: const Color(0xFF8B4513).withOpacity(0.2),
-                                        width: 1,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.04),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.format_quote_rounded,
-                                              size: ResponsiveHelper.iconSize(context, mobile: 20),
-                                              color: AppTheme.iconscolor,
-                                            ),
-                                            SizedBox(width: ResponsiveHelper.spacing(context, 8)),
-                                            Text(
-                                              'Testimony',
-                                              style: ResponsiveHelper.textStyle(
-                                                context,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                                color: AppTheme.iconscolor,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        SizedBox(height: ResponsiveHelper.spacing(context, 12)),
-                                        Text(
-                                          testimonyText,
-                                          style: ResponsiveHelper.textStyle(
-                                            context,
-                                            fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                                            color: Colors.black87,
-                                            height: 1.6,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }
-                                return const SizedBox.shrink();
-                              },
-                            ),
-                            SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                            
-                            // Fruits Section - Prominent Display (Social Media Style)
-                            if (photo['fruit_tag'] != null && (photo['fruit_tag'] as String).isNotEmpty) ...[
-                              Container(
-                                margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 16)),
-                                padding: ResponsiveHelper.padding(context, all: 16),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      const Color(0xFF8B4513).withOpacity(0.1),
-                                      const Color(0xFF8B4513).withOpacity(0.05),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
-                                  border: Border.all(
-                                    color: const Color(0xFF8B4513).withOpacity(0.3),
-                                    width: 1.5,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF8B4513).withOpacity(0.1),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  children: [
-                                    // Fruit Icon/Emoji
-                                    Container(
-                                      width: ResponsiveHelper.iconSize(context, mobile: 48, tablet: 52, desktop: 56),
-                                      height: ResponsiveHelper.iconSize(context, mobile: 48, tablet: 52, desktop: 56),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF8B4513).withOpacity(0.15),
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: const Color(0xFF8B4513).withOpacity(0.3),
-                                          width: 2,
-                                        ),
-                                      ),
-                                      child: Icon(
-                                        Icons.local_florist_rounded,
-                                        size: ResponsiveHelper.iconSize(context, mobile: 28, tablet: 30, desktop: 32),
-                                        color: AppTheme.iconscolor,
-                                      ),
-                                    ),
-                                    SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                                    // Fruit Tag Text
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Fruit of the Spirit',
-                                            style: ResponsiveHelper.textStyle(
-                                              context,
-                                              fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                                              color: const Color(0xFF8B4513).withOpacity(0.7),
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                          SizedBox(height: ResponsiveHelper.spacing(context, 2)),
-                                          Text(
-                                            photo['fruit_tag'] as String,
-                                            style: ResponsiveHelper.textStyle(
-                                              context,
-                                              fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-                                              fontWeight: FontWeight.bold,
-                                              color: AppTheme.iconscolor,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    // Arrow Icon
-                                    Icon(
-                                      Icons.arrow_forward_ios_rounded,
-                                      size: ResponsiveHelper.iconSize(context, mobile: 16, tablet: 18, desktop: 20),
-                                      color: const Color(0xFF8B4513).withOpacity(0.6),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                            
-                            // Action Buttons Section (Like, Share, Comment) - Social Media Style
-                            SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                            Container(
-                              padding: ResponsiveHelper.padding(context, vertical: 12, horizontal: 16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                                border: Border.all(
-                                  color: Colors.grey.withOpacity(0.2),
-                                  width: 1,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                children: [
-                                  // Like Button
-                                  Obx(() {
-                                    final isLiked = controller.selectedPhoto['is_liked'] == true || controller.selectedPhoto['is_liked'] == 1;
-                                    final likeCount = controller.selectedPhoto['like_count'] as int? ?? 0;
-                                    return InkWell(
-                                      onTap: () async {
-                                        final success = await controller.toggleLike(photoId);
-                                        if (success) {
-                                          // Reload photo details to get updated like status
-                                          await controller.loadPhotoDetails(photoId);
-                                          // Show success message (brief)
-                                          if (mounted) {
-                                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                                              if (mounted) {
-                                                Get.snackbar(
-                                                  'Success',
-                                                  'Like updated',
-                                                  backgroundColor: Colors.green,
-                                                  colorText: Colors.white,
-                                                  duration: const Duration(seconds: 1),
-                                                  margin: const EdgeInsets.all(16),
-                                                );
-                                              }
-                                            });
-                                          }
-                                        } else {
-                                          // Show error message
-                                          if (mounted) {
-                                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                                              if (mounted) {
-                                                Get.snackbar(
-                                                  'Error',
-                                                  controller.message.value.isNotEmpty 
-                                                      ? controller.message.value 
-                                                      : 'Failed to update like. Please try again.',
-                                                  backgroundColor: Colors.red,
-                                                  colorText: Colors.white,
-                                                  duration: const Duration(seconds: 2),
-                                                  margin: const EdgeInsets.all(16),
-                                                );
-                                              }
-                                            });
-                                          }
-                                        }
-                                      },
-                                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                                      child: Padding(
-                                        padding: ResponsiveHelper.padding(context, all: 8),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              isLiked ? Icons.favorite : Icons.favorite_border,
-                                              color: isLiked ? Colors.red : Colors.grey[600],
-                                              size: ResponsiveHelper.iconSize(context, mobile: 24),
-                                            ),
-                                            SizedBox(width: ResponsiveHelper.spacing(context, 6)),
-                                            Text(
-                                              likeCount > 0 ? likeCount.toString() : 'Like',
-                                              style: ResponsiveHelper.textStyle(
-                                                context,
-                                                fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                                                fontWeight: FontWeight.w600,
-                                                color: isLiked ? Colors.red : Colors.grey[600],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  }),
-                                  
-                                  // Share Button
-                                  InkWell(
-                                    onTap: () {
-                                      // TODO: Implement share functionality
-                                      Get.snackbar(
-                                        'Share',
-                                        'Share functionality coming soon',
-                                        snackPosition: SnackPosition.BOTTOM,
-                                        backgroundColor: Colors.grey[800],
-                                        colorText: Colors.white,
-                                        duration: const Duration(seconds: 2),
-                                      );
-                                    },
-                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                                    child: Padding(
-                                      padding: ResponsiveHelper.padding(context, all: 8),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.share_outlined,
-                                            color: Colors.grey[600],
-                                            size: ResponsiveHelper.iconSize(context, mobile: 24),
-                                          ),
-                                          SizedBox(width: ResponsiveHelper.spacing(context, 6)),
-                                          Text(
-                                            'Share',
-                                            style: ResponsiveHelper.textStyle(
-                                              context,
-                                              fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.grey[600],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  
-                                  // Comment Button
-                                  InkWell(
-                                    onTap: () {
-                                      // Scroll to comment input
-                                      commentController.text = '';
-                                      _scrollController.animateTo(
-                                        _scrollController.position.maxScrollExtent,
-                                        duration: const Duration(milliseconds: 300),
-                                        curve: Curves.easeOut,
-                                      );
-                                      // Focus comment input after scroll
-                                      Future.delayed(const Duration(milliseconds: 350), () {
-                                        FocusScope.of(context).requestFocus(FocusNode());
-                                      });
-                                    },
-                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                                    child: Padding(
-                                      padding: ResponsiveHelper.padding(context, all: 8),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.comment_outlined,
-                                            color: Colors.grey[600],
-                                            size: ResponsiveHelper.iconSize(context, mobile: 24),
-                                          ),
-                                          SizedBox(width: ResponsiveHelper.spacing(context, 6)),
-                                          Obx(() => Text(
-                                            '${controller.photoComments.length}',
-                                            style: ResponsiveHelper.textStyle(
-                                              context,
-                                              fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.grey[600],
-                                            ),
-                                          )),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                            
-                            // Emoji Reactions Section (same as prayer_details_screen)
-                            _buildEmojiReactions(context, photoId, controller),
-                            
-                            SizedBox(height: ResponsiveHelper.spacing(context, 24)),
-                            
-                            // Comments Section Header
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 8)),
-                                      decoration: BoxDecoration(
-                                        gradient: const LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            Color(0xFFFFFFFF),
-                                            Color(0xFFFDFDFD),
-                                          ],
-                                        ),
-                                        borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 12 : 14),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(0xFFEDEDED).withOpacity(0.3),
-                                            blurRadius: 6,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Icon(
-                                        Icons.chat_bubble_outline_rounded,
-                                        color: AppTheme.iconscolor,
-                                        size: ResponsiveHelper.fontSize(context, mobile: 18),
-                                      ),
-                                    ),
-                                    SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                                    Text(
-                                      'Comments',
-                                      style: TextStyle(
-                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 20),
-                                        fontWeight: FontWeight.bold,
-                                        color: const Color(0xFF2C2C2C),
-                                        letterSpacing: 0.3,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Container(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: ResponsiveHelper.spacing(context, 12),
-                                    vertical: ResponsiveHelper.spacing(context, 6),
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        const Color(0xFF9F9467).withOpacity(0.15),
-                                        const Color(0xFF9F9467).withOpacity(0.1),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 12 : 14),
-                                    border: Border.all(
-                                      color: const Color(0xFF9F9467).withOpacity(0.3),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '${controller.photoComments.length}',
-                                    style: TextStyle(
-                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                                      fontWeight: FontWeight.bold,
-                                      color: const Color(0xFF9F9467),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                            
-                            // Comments List or Empty State - Use Obx for reactive updates
-                            Obx(() {
-                              // Filter out testimony comment if it exists (first comment by same user)
-                              final photoUserId = photo['user_id'] as int?;
-                              final filteredComments = controller.photoComments.where((comment) {
-                                // If this is the first comment and by the same user as photo owner, it might be testimony
-                                final isFirstComment = controller.photoComments.indexOf(comment) == 0;
-                                final isPhotoOwnerComment = comment['user_id'] == photoUserId;
-                                
-                                // Get testimony text
-                                String? testimonyText = photo['testimony'] as String?;
-                                if ((testimonyText == null || testimonyText.isEmpty) && 
-                                    controller.photoComments.isNotEmpty) {
-                                  final firstComment = controller.photoComments.first;
-                                  if (firstComment['user_id'] == photoUserId) {
-                                    testimonyText = firstComment['content'] as String?;
-                                  }
-                                }
-                                
-                                // If this comment matches the testimony text, exclude it
-                                if (isFirstComment && isPhotoOwnerComment && testimonyText != null) {
-                                  final commentContent = (comment['content'] as String? ?? '').trim();
-                                  if (commentContent == testimonyText.trim()) {
-                                    return false; // Exclude testimony comment
-                                  }
-                                }
-                                return true;
-                              }).toList();
-                              
-                              if (filteredComments.isEmpty) {
-                                  return Container(
-                                    padding: ResponsiveHelper.padding(context, vertical: 40 , horizontal: 100),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                                      border: Border.all(
-                                        color: Colors.grey.withOpacity(0.2),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        Icon(
-                                          Icons.comment_outlined,
-                                          size: ResponsiveHelper.iconSize(context, mobile: 48),
-                                          color: Colors.grey[400],
-                                        ),
-                                        SizedBox(height: ResponsiveHelper.spacing(context, 12)),
-                                        Text(
-                                          'No comments yet',
-                                          style: ResponsiveHelper.textStyle(
-                                            context,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600,
-                                            color: AppTheme.iconscolor,
-                                          ),
-                                        ),
-                                        SizedBox(height: ResponsiveHelper.spacing(context, 8)),
-                                        Text(
-                                          'Be the first to share your thoughts',
-                                          style: ResponsiveHelper.textStyle(
-                                            context,
-                                            fontSize: 13,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }
-                                
-                                return Column(
-                                  children: filteredComments.map((comment) => _buildCommentCard(context, comment, photoId)).toList(),
-                                );
-                              },
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                    
-                    // Comment Input Section
-                    Container(
-                      padding: ResponsiveHelper.padding(context, all: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 4,
-                            offset: const Offset(0, -2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
+
+                  // Photo Info & Comments - Scrollable
+                  Expanded(
+                    child: Container(
+                      color: const Color(0xFFF8F9FA),
+                      // Match home page background
+                      child: Column(
                         children: [
                           Expanded(
-                            child: TextField(
-                              controller: commentController,
-                              decoration: InputDecoration(
-                                hintText: 'Write a comment...',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    ResponsiveHelper.borderRadius(context, mobile: 24),
-                                  ),
-                                ),
-                                filled: true,
-                                fillColor: Colors.grey.shade100,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: ResponsiveHelper.spacing(context, 16),
-                                  vertical: ResponsiveHelper.spacing(context, 12),
+                            child: RefreshIndicator(
+                              onRefresh: () async {
+                                if (kDebugMode) debugPrint(
+                                    '🔄 Pull-to-refresh triggered on photo details');
+                                await controller.loadPhotoDetails(photoId);
+                                await controller.loadPhotoComments(photoId);
+                                if (kDebugMode) debugPrint(
+                                    '✅ Refresh completed');
+                              },
+                              color: AppTheme.iconscolor,
+                              backgroundColor: Colors.white,
+                              child: SingleChildScrollView(
+                                controller: _scrollController,
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                // Enable scroll for pull-to-refresh
+                                padding: EdgeInsets.all(
+                                    ResponsiveHelper.spacing(context, 16)),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // User Info
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: ResponsiveHelper.borderRadius(
+                                              context, mobile: 20),
+                                          backgroundColor: const Color(
+                                              0xFFFEECE2),
+                                          backgroundImage: _getImageProvider(
+                                              photo['profile_photo'] as String?),
+                                          child: photo['profile_photo'] == null
+                                              ? Icon(
+                                            Icons.person,
+                                            size: ResponsiveHelper.iconSize(
+                                                context, mobile: 24),
+                                            color: AppTheme.iconscolor,
+                                          )
+                                              : null,
+                                        ),
+                                        SizedBox(
+                                            width: ResponsiveHelper.spacing(
+                                                context, 12)),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment
+                                                .start,
+                                            children: [
+                                              Text(
+                                                photo['user_name'] as String? ??
+                                                    'Anonymous',
+                                                style: ResponsiveHelper
+                                                    .textStyle(
+                                                  context,
+                                                  fontSize: ResponsiveHelper
+                                                      .fontSize(
+                                                      context, mobile: 14),
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppTheme.iconscolor,
+                                                ),
+                                              ),
+                                              if (photo['fruit_tag'] != null &&
+                                                  (photo['fruit_tag'] as String)
+                                                      .isNotEmpty) ...[
+                                                SizedBox(
+                                                    height: ResponsiveHelper
+                                                        .spacing(context, 4)),
+                                                Container(
+                                                  padding: ResponsiveHelper
+                                                      .padding(
+                                                      context, horizontal: 8,
+                                                      vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(
+                                                        0xFF8B4513).withOpacity(
+                                                        0.1),
+                                                    borderRadius: BorderRadius
+                                                        .circular(
+                                                        ResponsiveHelper
+                                                            .borderRadius(
+                                                            context,
+                                                            mobile: 12)),
+                                                  ),
+                                                  child: Text(
+                                                    photo['fruit_tag'] as String,
+                                                    style: ResponsiveHelper
+                                                        .textStyle(
+                                                      context,
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight
+                                                          .w600,
+                                                      color: AppTheme
+                                                          .iconscolor,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                        Padding(
+                                          padding: ResponsiveHelper.padding(context, all: 8),
+                                          child: Container(
+                                            padding: EdgeInsets.all(4),
+                                            child: _buildPhotoOptions(context, photo),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SizedBox(height: ResponsiveHelper.spacing(
+                                        context, 12)),
+
+                                    // Testimony/Description - Check both testimony field and first comment
+                                    Builder(
+                                      builder: (context) {
+                                        // First check if testimony field exists in photo data
+                                        String? testimonyText = photo['testimony'] as String?;
+
+                                        // If not found, check first comment (testimony is saved as first comment)
+                                        if ((testimonyText == null ||
+                                            testimonyText.isEmpty) &&
+                                            controller.photoComments
+                                                .isNotEmpty) {
+                                          final firstComment = controller
+                                              .photoComments.first;
+                                          // Check if it's the testimony comment (usually the first one by the same user)
+                                          if (firstComment['user_id'] ==
+                                              photo['user_id']) {
+                                            testimonyText =
+                                            firstComment['content'] as String?;
+                                          }
+                                        }
+
+                                        if (testimonyText != null &&
+                                            testimonyText.isNotEmpty) {
+                                          return Container(
+                                            margin: EdgeInsets.only(
+                                                bottom: ResponsiveHelper
+                                                    .spacing(context, 16)),
+                                            padding: ResponsiveHelper.padding(
+                                                context, all: 16),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius
+                                                  .circular(
+                                                  ResponsiveHelper.borderRadius(
+                                                      context, mobile: 16)),
+                                              border: Border.all(
+                                                color: const Color(0xFF8B4513)
+                                                    .withOpacity(0.2),
+                                                width: 1,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black
+                                                      .withOpacity(0.04),
+                                                  blurRadius: 8,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment
+                                                  .start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Icon(
+                                                      Icons
+                                                          .format_quote_rounded,
+                                                      size: ResponsiveHelper
+                                                          .iconSize(context,
+                                                          mobile: 20),
+                                                      color: AppTheme
+                                                          .iconscolor,
+                                                    ),
+                                                    SizedBox(
+                                                        width: ResponsiveHelper
+                                                            .spacing(context,
+                                                            8)),
+                                                    Text(
+                                                      'Testimony',
+                                                      style: ResponsiveHelper
+                                                          .textStyle(
+                                                        context,
+                                                        fontSize: 16,
+                                                        fontWeight: FontWeight
+                                                            .bold,
+                                                        color: AppTheme
+                                                            .iconscolor,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                SizedBox(
+                                                    height: ResponsiveHelper
+                                                        .spacing(context, 12)),
+                                                Text(
+                                                  testimonyText,
+                                                  style: ResponsiveHelper
+                                                      .textStyle(
+                                                    context,
+                                                    fontSize: ResponsiveHelper
+                                                        .fontSize(
+                                                        context, mobile: 14),
+                                                    color: Colors.black87,
+                                                    height: 1.6,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }
+                                        return const SizedBox.shrink();
+                                      },
+                                    ),
+                                    SizedBox(height: ResponsiveHelper.spacing(
+                                        context, 16)),
+
+                                    // Fruits Section - Prominent Display (Social Media Style)
+                                    if (photo['fruit_tag'] != null &&
+                                        (photo['fruit_tag'] as String)
+                                            .isNotEmpty) ...[
+                                      Container(
+                                        margin: EdgeInsets.only(
+                                            bottom: ResponsiveHelper.spacing(
+                                                context, 16)),
+                                        padding: ResponsiveHelper.padding(
+                                            context, all: 16),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                            colors: [
+                                              const Color(0xFF8B4513)
+                                                  .withOpacity(0.1),
+                                              const Color(0xFF8B4513)
+                                                  .withOpacity(0.05),
+                                            ],
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                              ResponsiveHelper.borderRadius(
+                                                  context, mobile: 16,
+                                                  tablet: 18,
+                                                  desktop: 20)),
+                                          border: Border.all(
+                                            color: const Color(0xFF8B4513)
+                                                .withOpacity(0.3),
+                                            width: 1.5,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: const Color(0xFF8B4513)
+                                                  .withOpacity(0.1),
+                                              blurRadius: 8,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            // Fruit Icon/Emoji
+                                            Container(
+                                              width: ResponsiveHelper.iconSize(
+                                                  context, mobile: 48,
+                                                  tablet: 52,
+                                                  desktop: 56),
+                                              height: ResponsiveHelper.iconSize(
+                                                  context, mobile: 48,
+                                                  tablet: 52,
+                                                  desktop: 56),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF8B4513)
+                                                    .withOpacity(0.15),
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                  color: const Color(0xFF8B4513)
+                                                      .withOpacity(0.3),
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              child: Icon(
+                                                Icons.local_florist_rounded,
+                                                size: ResponsiveHelper.iconSize(
+                                                    context, mobile: 28,
+                                                    tablet: 30,
+                                                    desktop: 32),
+                                                color: AppTheme.iconscolor,
+                                              ),
+                                            ),
+                                            SizedBox(
+                                                width: ResponsiveHelper.spacing(
+                                                    context, 12)),
+                                            // Fruit Tag Text
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment
+                                                    .start,
+                                                children: [
+                                                  Text(
+                                                    'Fruit of the Spirit',
+                                                    style: ResponsiveHelper
+                                                        .textStyle(
+                                                      context,
+                                                      fontSize: ResponsiveHelper
+                                                          .fontSize(
+                                                          context, mobile: 11,
+                                                          tablet: 12,
+                                                          desktop: 13),
+                                                      color: const Color(
+                                                          0xFF8B4513)
+                                                          .withOpacity(0.7),
+                                                      fontWeight: FontWeight
+                                                          .w500,
+                                                    ),
+                                                  ),
+                                                  SizedBox(
+                                                      height: ResponsiveHelper
+                                                          .spacing(context, 2)),
+                                                  Text(
+                                                    photo['fruit_tag'] as String,
+                                                    style: ResponsiveHelper
+                                                        .textStyle(
+                                                      context,
+                                                      fontSize: ResponsiveHelper
+                                                          .fontSize(
+                                                          context, mobile: 18,
+                                                          tablet: 20,
+                                                          desktop: 22),
+                                                      fontWeight: FontWeight
+                                                          .bold,
+                                                      color: AppTheme
+                                                          .iconscolor,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            // Arrow Icon
+                                            Icon(
+                                              Icons.arrow_forward_ios_rounded,
+                                              size: ResponsiveHelper.iconSize(
+                                                  context, mobile: 16,
+                                                  tablet: 18,
+                                                  desktop: 20),
+                                              color: const Color(0xFF8B4513)
+                                                  .withOpacity(0.6),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+
+                                    // Action Buttons Section (Like, Share, Comment) - Social Media Style
+                                    SizedBox(height: ResponsiveHelper.spacing(
+                                        context, 16)),
+                                    Container(
+                                      padding: ResponsiveHelper.padding(
+                                          context, vertical: 12,
+                                          horizontal: 16),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(
+                                            ResponsiveHelper.borderRadius(
+                                                context, mobile: 16)),
+                                        border: Border.all(
+                                          color: Colors.grey.withOpacity(0.2),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment
+                                            .spaceAround,
+                                        children: [
+                                          // Like Button
+                                          Obx(() {
+                                            final isLiked = controller
+                                                .selectedPhoto['is_liked'] ==
+                                                true || controller
+                                                .selectedPhoto['is_liked'] == 1;
+                                            final likeCount = controller
+                                                .selectedPhoto['like_count'] as int? ??
+                                                0;
+                                            return InkWell(
+                                              onTap: () async {
+                                                final success = await controller
+                                                    .toggleLike(photoId);
+                                                if (success) {
+                                                  // Reload photo details to get updated like status
+                                                  await controller
+                                                      .loadPhotoDetails(
+                                                      photoId);
+                                                  // Show success message (brief)
+                                                  if (mounted) {
+                                                    WidgetsBinding.instance
+                                                        .addPostFrameCallback((
+                                                        _) {
+                                                      if (mounted) {
+                                                        _showCustomSnackbar(
+                                                          'Success',
+                                                          'Like updated',
+                                                        );
+                                                      }
+                                                    });
+                                                  }
+                                                } else {
+                                                  // Show error message
+                                                  if (mounted) {
+                                                    WidgetsBinding.instance
+                                                        .addPostFrameCallback((
+                                                        _) {
+                                                      if (mounted) {
+                                                        _showCustomSnackbar(
+                                                          'Error',
+                                                          controller.message
+                                                              .value.isNotEmpty
+                                                              ? controller
+                                                              .message.value
+                                                              : 'Failed to update like. Please try again.',
+                                                          isError: true,
+                                                        );
+                                                      }
+                                                    });
+                                                  }
+                                                }
+                                              },
+                                              borderRadius: BorderRadius
+                                                  .circular(
+                                                  ResponsiveHelper.borderRadius(
+                                                      context, mobile: 12)),
+                                              child: Padding(
+                                                padding: ResponsiveHelper
+                                                    .padding(context, all: 8),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize
+                                                      .min,
+                                                  children: [
+                                                    Icon(
+                                                      isLiked
+                                                          ? Icons.favorite
+                                                          : Icons
+                                                          .favorite_border,
+                                                      color: isLiked ? Colors
+                                                          .red : Colors
+                                                          .grey[600],
+                                                      size: ResponsiveHelper
+                                                          .iconSize(
+                                                          context, mobile: 24),
+                                                    ),
+                                                    SizedBox(
+                                                        width: ResponsiveHelper
+                                                            .spacing(
+                                                            context, 6)),
+                                                    Text(
+                                                      likeCount > 0 ? likeCount
+                                                          .toString() : 'Like',
+                                                      style: ResponsiveHelper
+                                                          .textStyle(
+                                                        context,
+                                                        fontSize: ResponsiveHelper
+                                                            .fontSize(context,
+                                                            mobile: 14),
+                                                        fontWeight: FontWeight
+                                                            .w600,
+                                                        color: isLiked ? Colors
+                                                            .red : Colors
+                                                            .grey[600],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          }),
+
+                                          // Share Button
+                                          InkWell(
+                                            onTap: () {
+                                              final photo = controller
+                                                  .selectedPhoto;
+                                              final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                                              final filePath = photo['file_path'] as String? ??
+                                                  '';
+                                              final photoUrl = filePath
+                                                  .isNotEmpty ? baseUrl +
+                                                  filePath : null;
+
+                                              ShareHelper.shareContent(
+                                                context: context,
+                                                contentType: 'photo',
+                                                contentId: photoId,
+                                                title: 'Photo from ${photo['user_name'] ??
+                                                    'Anonymous'}',
+                                                content: photo['testimony'],
+                                                mediaUrl: photoUrl,
+                                              );
+                                            },
+
+                                            borderRadius: BorderRadius.circular(
+                                                ResponsiveHelper.borderRadius(
+                                                    context, mobile: 12)),
+                                            child: Padding(
+                                              padding: ResponsiveHelper.padding(
+                                                  context, all: 8),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.share_outlined,
+                                                    color: Colors.grey[600],
+                                                    size: ResponsiveHelper
+                                                        .iconSize(
+                                                        context, mobile: 24),
+                                                  ),
+                                                  SizedBox(
+                                                      width: ResponsiveHelper
+                                                          .spacing(context, 6)),
+                                                  Text(
+                                                    'Share',
+                                                    style: ResponsiveHelper
+                                                        .textStyle(
+                                                      context,
+                                                      fontSize: ResponsiveHelper
+                                                          .fontSize(context,
+                                                          mobile: 14),
+                                                      fontWeight: FontWeight
+                                                          .w600,
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+
+                                          // Comment Button
+                                          InkWell(
+                                            onTap: () {
+                                              // Scroll to comment input
+                                              commentController.text = '';
+                                              _scrollController.animateTo(
+                                                _scrollController.position
+                                                    .maxScrollExtent,
+                                                duration: const Duration(
+                                                    milliseconds: 300),
+                                                curve: Curves.easeOut,
+                                              );
+                                              // Focus comment input after scroll
+                                              Future.delayed(const Duration(
+                                                  milliseconds: 350), () {
+                                                FocusScope
+                                                    .of(context)
+                                                    .requestFocus(FocusNode());
+                                              });
+                                            },
+                                            borderRadius: BorderRadius.circular(
+                                                ResponsiveHelper.borderRadius(
+                                                    context, mobile: 12)),
+                                            child: Padding(
+                                              padding: ResponsiveHelper.padding(
+                                                  context, all: 8),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.comment_outlined,
+                                                    color: Colors.grey[600],
+                                                    size: ResponsiveHelper
+                                                        .iconSize(
+                                                        context, mobile: 24),
+                                                  ),
+                                                  SizedBox(
+                                                      width: ResponsiveHelper
+                                                          .spacing(context, 6)),
+                                                  Obx(() =>
+                                                      Text(
+                                                        '${controller
+                                                            .photoComments
+                                                            .length}',
+                                                        style: ResponsiveHelper
+                                                            .textStyle(
+                                                          context,
+                                                          fontSize: ResponsiveHelper
+                                                              .fontSize(context,
+                                                              mobile: 14),
+                                                          fontWeight: FontWeight
+                                                              .w600,
+                                                          color: Colors
+                                                              .grey[600],
+                                                        ),
+                                                      )),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    SizedBox(height: ResponsiveHelper.spacing(
+                                        context, 16)),
+
+                                    // Emoji Reactions Section (same as prayer_details_screen)
+                                    _buildEmojiReactions(
+                                        context, photoId, controller),
+
+                                    SizedBox(height: ResponsiveHelper.spacing(
+                                        context, 24)),
+
+                                    // Comments Section Header
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment
+                                          .spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: EdgeInsets.all(
+                                                  ResponsiveHelper.spacing(
+                                                      context, 8)),
+                                              decoration: BoxDecoration(
+                                                gradient: const LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    Color(0xFFFFFFFF),
+                                                    Color(0xFFFDFDFD),
+                                                  ],
+                                                ),
+                                                borderRadius: BorderRadius
+                                                    .circular(
+                                                    ResponsiveHelper.isMobile(
+                                                        context) ? 12 : 14),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: const Color(
+                                                        0xFFEDEDED).withOpacity(
+                                                        0.3),
+                                                    blurRadius: 6,
+                                                    offset: const Offset(0, 2),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Icon(
+                                                Icons
+                                                    .chat_bubble_outline_rounded,
+                                                color: AppTheme.iconscolor,
+                                                size: ResponsiveHelper.fontSize(
+                                                    context, mobile: 18),
+                                              ),
+                                            ),
+                                            SizedBox(
+                                                width: ResponsiveHelper.spacing(
+                                                    context, 12)),
+                                            Text(
+                                              'Comments',
+                                              style: TextStyle(
+                                                fontSize: ResponsiveHelper
+                                                    .fontSize(
+                                                    context, mobile: 20),
+                                                fontWeight: FontWeight.bold,
+                                                color: const Color(0xFF2C2C2C),
+                                                letterSpacing: 0.3,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: ResponsiveHelper
+                                                .spacing(context, 12),
+                                            vertical: ResponsiveHelper.spacing(
+                                                context, 6),
+                                          ),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                const Color(0xFF9F9467)
+                                                    .withOpacity(0.15),
+                                                const Color(0xFF9F9467)
+                                                    .withOpacity(0.1),
+                                              ],
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                                ResponsiveHelper.isMobile(
+                                                    context) ? 12 : 14),
+                                            border: Border.all(
+                                              color: const Color(0xFF9F9467)
+                                                  .withOpacity(0.3),
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            '${controller.photoComments
+                                                .length}',
+                                            style: TextStyle(
+                                              fontSize: ResponsiveHelper
+                                                  .fontSize(
+                                                  context, mobile: 14),
+                                              fontWeight: FontWeight.bold,
+                                              color: const Color(0xFF9F9467),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SizedBox(height: ResponsiveHelper.spacing(
+                                        context, 16)),
+
+                                    // Comments List or Empty State - Use Obx for reactive updates
+                                    Obx(() {
+                                      // Filter out testimony comment if it exists (first comment by same user)
+                                      final photoUserId = photo['user_id'] as int?;
+                                      final filteredComments = controller
+                                          .photoComments.where((comment) {
+                                        // If this is the first comment and by the same user as photo owner, it might be testimony
+                                        final isFirstComment = controller
+                                            .photoComments.indexOf(comment) ==
+                                            0;
+                                        final isPhotoOwnerComment = comment['user_id'] ==
+                                            photoUserId;
+
+                                        // Get testimony text
+                                        String? testimonyText = photo['testimony'] as String?;
+                                        if ((testimonyText == null ||
+                                            testimonyText.isEmpty) &&
+                                            controller.photoComments
+                                                .isNotEmpty) {
+                                          final firstComment = controller
+                                              .photoComments.first;
+                                          if (firstComment['user_id'] ==
+                                              photoUserId) {
+                                            testimonyText =
+                                            firstComment['content'] as String?;
+                                          }
+                                        }
+
+                                        // If this comment matches the testimony text, exclude it
+                                        if (isFirstComment &&
+                                            isPhotoOwnerComment &&
+                                            testimonyText != null) {
+                                          final commentContent = (comment['content'] as String? ??
+                                              '').trim();
+                                          if (commentContent ==
+                                              testimonyText.trim()) {
+                                            return false; // Exclude testimony comment
+                                          }
+                                        }
+                                        return true;
+                                      }).toList();
+
+                                      if (filteredComments.isEmpty) {
+                                        return Container(
+                                          padding: ResponsiveHelper.padding(
+                                              context, vertical: 40,
+                                              horizontal: 100),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                                ResponsiveHelper.borderRadius(
+                                                    context, mobile: 16)),
+                                            border: Border.all(
+                                              color: Colors.grey.withOpacity(
+                                                  0.2),
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              Icon(
+                                                Icons.comment_outlined,
+                                                size: ResponsiveHelper.iconSize(
+                                                    context, mobile: 48),
+                                                color: Colors.grey[400],
+                                              ),
+                                              SizedBox(height: ResponsiveHelper
+                                                  .spacing(context, 12)),
+                                              Text(
+                                                'No comments yet',
+                                                style: ResponsiveHelper
+                                                    .textStyle(
+                                                  context,
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.iconscolor,
+                                                ),
+                                              ),
+                                              SizedBox(height: ResponsiveHelper
+                                                  .spacing(context, 8)),
+                                              Text(
+                                                'Be the first to share your thoughts',
+                                                style: ResponsiveHelper
+                                                    .textStyle(
+                                                  context,
+                                                  fontSize: 13,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }
+
+                                      return Column(
+                                        children: filteredComments
+                                            .map((
+                                            comment) =>
+                                            _buildCommentCard(
+                                                context, comment, photoId))
+                                            .toList(),
+                                      );
+                                    },
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
                           ),
-                          SizedBox(width: ResponsiveHelper.spacing(context, 8)),
+
+                          // Comment Input Section
                           Container(
+                            padding: ResponsiveHelper.padding(context, all: 16),
                             decoration: BoxDecoration(
-                              color: AppTheme.iconscolor,
-                              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 24)),
+                              color: Colors.white,
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF8B4513).withOpacity(0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
+                                  color: Colors.black.withOpacity(0.1),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, -2),
                                 ),
                               ],
                             ),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () async {
-                              if (commentController.text.trim().isEmpty) return;
-                              
-                              final success = await controller.addComment(
-                                photoId,
-                                commentController.text.trim(),
-                              );
-                              
-                              if (success) {
-                                commentController.clear();
-                                Get.snackbar(
-                                  'Success',
-                                  'Comment added successfully',
-                                  backgroundColor: Colors.green,
-                                  colorText: Colors.white,
-                                      duration: const Duration(seconds: 2),
-                                      icon: const Icon(Icons.check_circle, color: Colors.white),
-                                );
-                              } else {
-                                Get.snackbar(
-                                  'Error',
-                                  controller.message.value,
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
-                                      duration: const Duration(seconds: 2),
-                                );
-                              }
-                            },
-                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 24)),
-                                child: Container(
-                                  padding: ResponsiveHelper.padding(context, all: 12),
-                                  child: Icon(
-                                    Icons.send,
-                                    color: Colors.white,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 24),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: commentController,
+                                    decoration: InputDecoration(
+                                      prefixIcon: IconButton(
+                                        icon: const Icon(
+                                          Icons.emoji_emotions_outlined,
+                                          color: Color(0xFF8B4513),
+                                        ),
+                                        onPressed: () =>
+                                            _showEmojiPicker(
+                                                context, photoId, controller),
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.grey.shade100,
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: ResponsiveHelper.spacing(
+                                            context, 16),
+                                        vertical: ResponsiveHelper.spacing(
+                                            context, 12),
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
+                                SizedBox(width: ResponsiveHelper.spacing(
+                                    context, 8)),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.iconscolor,
+                                    borderRadius: BorderRadius.circular(
+                                        ResponsiveHelper.borderRadius(
+                                            context, mobile: 24)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF8B4513)
+                                            .withOpacity(0.3),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      onTap: _isSendingComment
+                                          ? null
+                                          : () async {
+                                        if (commentController.text
+                                            .trim()
+                                            .isEmpty) return;
+
+                                        // FIX: Dismiss keyboard immediately
+                                        FocusScope.of(context).unfocus();
+
+                                        setState(() {
+                                          _isSendingComment = true;
+                                        });
+
+                                        final success = await controller
+                                            .addComment(
+                                          photoId,
+                                          commentController.text.trim(),
+                                        );
+
+                                        if (mounted) {
+                                          setState(() {
+                                            _isSendingComment = false;
+                                          });
+                                        }
+
+                                        if (success) {
+                                          commentController.clear();
+
+                                          // Scroll to bottom to show latest comment
+                                          await Future.delayed(const Duration(
+                                              milliseconds: 300));
+                                          if (_scrollController.hasClients) {
+                                            _scrollController.animateTo(
+                                              _scrollController.position
+                                                  .maxScrollExtent,
+                                              duration: const Duration(
+                                                  milliseconds: 500),
+                                              curve: Curves.easeOut,
+                                            );
+                                          }
+                                          if (mounted) {
+                                            _showCustomSnackbar(
+                                              'Success',
+                                              'Comment added successfully',
+                                            );
+                                          }
+                                        } else {
+                                          if (mounted) {
+                                            _showCustomSnackbar(
+                                              'Error',
+                                              controller.message.value,
+                                              isError: true,
+                                            );
+                                          }
+                                        }
+                                      },
+                                      borderRadius: BorderRadius.circular(
+                                          ResponsiveHelper.borderRadius(
+                                              context, mobile: 24)),
+                                      child: Container(
+                                        padding: ResponsiveHelper.padding(
+                                            context, all: 12),
+                                        child: _isSendingComment
+                                            ? SizedBox(
+                                          width: ResponsiveHelper.iconSize(
+                                              context, mobile: 24),
+                                          height: ResponsiveHelper.iconSize(
+                                              context, mobile: 24),
+                                          child: const CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<
+                                                Color>(Colors.white),
+                                          ),
+                                        )
+                                            : Icon(
+                                          Icons.send,
+                                          color: Colors.white,
+                                          size: ResponsiveHelper.iconSize(
+                                              context, mobile: 24),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
+
                         ],
                       ),
                     ),
-
-                  ],
-                ),
-              ),
-            ),
-          ],
+                  ),
+                ],
+              );
+            }
         );
-      }),
+      }
+      )
     );
   }
 
@@ -1031,7 +1466,8 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 6)),
                     // Comment Content
-                    Text(
+                    FruitEmojiHelper.buildCommentText(
+                      context,
                       AutoTranslateHelper.getTranslatedTextSync(
                         text: content,
                         sourceLanguage: comment['language'] as String?,
@@ -1126,28 +1562,29 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           ),
                         ),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
-                        // Report Button
-                        InkWell(
-                          onTap: () => _showReportDialog(context, comment),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.flag_outlined,
-                                size: ResponsiveHelper.iconSize(context, mobile: 18),
-                                color: Colors.grey[600],
-                              ),
-                              SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                              Text(
-                                'Report',
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: 13,
+                        // Report Button - Only show for other users' comments
+                        if (currentUserId != null && (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()))
+                          InkWell(
+                            onTap: () => _showReportDialog(context, comment),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.flag_outlined,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 18),
                                   color: Colors.grey[600],
                                 ),
-                              ),
-                            ],
+                                SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                                Text(
+                                  'Report',
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: 13,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ],
@@ -1257,6 +1694,9 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
               onTap: () async {
                 if (replyController.text.trim().isEmpty) return;
                 
+                // FIX: Dismiss keyboard immediately
+                FocusScope.of(context).unfocus();
+
                 final success = await controller.addComment(
                   photoId,
                   replyController.text.trim(),
@@ -1274,22 +1714,20 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                   await controller.loadPhotoComments(photoId);
                   setState(() {}); // Refresh UI
                   
-                  Get.snackbar(
-                    'Success',
-                    'Reply added successfully',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 1),
-                    icon: const Icon(Icons.check_circle, color: Colors.white),
-                  );
+                  if (mounted) {
+                    _showCustomSnackbar(
+                      'Success',
+                      'Reply added successfully',
+                    );
+                  }
                 } else {
-                  Get.snackbar(
-                    'Error',
-                    controller.message.value,
-                    backgroundColor: Colors.red,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
-                  );
+                  if (mounted) {
+                    _showCustomSnackbar(
+                      'Error',
+                      controller.message.value,
+                      isError: true,
+                    );
+                  }
                 }
               },
               borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
@@ -1502,6 +1940,29 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                   ],
                                 ),
                               ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                              if (currentUserId != null && (reply['user_id'] != null && reply['user_id'].toString() != currentUserId.toString()))
+                                InkWell(
+                                  onTap: () => _showReportDialog(context, reply),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.flag_outlined,
+                                        size: ResponsiveHelper.iconSize(context, mobile: 14),
+                                        color: Colors.grey[600],
+                                      ),
+                                      SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                                      Text(
+                                        'Report',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                             ],
                           ),
                         ],
@@ -1550,32 +2011,101 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: reasons.map((reason) {
-            return ListTile(
-              title: Text(reason),
-              onTap: () async {
-                Navigator.pop(context);
-                final success = await controller.reportComment(comment['id'] as int, reason);
-                if (success) {
-                  Get.snackbar(
-                    'Success',
-                    'Comment reported successfully',
-                    backgroundColor: Colors.green,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
-                  );
-                } else {
-                  Get.snackbar(
-                    'Error',
-                    controller.message.value,
-                    backgroundColor: Colors.red,
-                    colorText: Colors.white,
-                    duration: const Duration(seconds: 2),
-                  );
-                }
-              },
-            );
-          }).toList(),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()) ...[
+              ...reasons.map((reason) {
+                return ListTile(
+                  title: Text(reason),
+                  dense: true,
+                  onTap: () async {
+                    Navigator.pop(context);
+                    final success = await controller.reportComment(comment['id'] as int, reason);
+                    if (success) {
+                      if (mounted) {
+                      _showCustomSnackbar(
+                        'Success',
+                        'Comment reported successfully',
+                      );
+                    }
+                    } else {
+                      if (mounted) {
+                        _showCustomSnackbar(
+                          'Error',
+                          controller.message.value,
+                          isError: true,
+                        );
+                      }
+                    }
+                  },
+                );
+              }).toList(),
+              const Divider(),
+              TextButton.icon(
+                onPressed: () async {
+                  final userIdRaw = comment['user_id'];
+                  if (userIdRaw != null) {
+                    final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+                    if (userId == null) return;
+                    
+                    if (currentUserId == userId) {
+                      if (mounted) {
+                        _showCustomSnackbar(
+                          'Info',
+                          'You cannot block yourself',
+                        );
+                      }
+                      return;
+                    }
+
+                    final userName = comment['user_name'] ?? 'this user';
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: Text('Block $userName?'),
+                        content: const Text('You will no longer see content from this user.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+                          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Block', style: TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true) {
+                      try {
+                        if (currentUserId != null) {
+                          await UserBlockingService.blockUser(userId);
+                          if (mounted) {
+                            Navigator.of(context).pop();
+                            _showCustomSnackbar(
+                              'Success',
+                              'User blocked',
+                            );
+                            final currentPhotoId = controller.selectedPhoto['id'] is int ? controller.selectedPhoto['id'] : int.parse(controller.selectedPhoto['id'].toString());
+                            controller.loadPhotoComments(currentPhotoId);
+                          }
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          _showCustomSnackbar(
+                            'Error',
+                            'Failed to block user',
+                            isError: true,
+                          );
+                        }
+                      }
+                    }
+                  }
+                },
+                icon: const Icon(Icons.block, color: Colors.red, size: 20),
+                label: const Text('Block User', style: TextStyle(color: Colors.red)),
+              ),
+            ] else 
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('This is your own comment.', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+              ),
+          ],
         ),
         actions: [
           TextButton(
@@ -1594,6 +2124,119 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     );
   }
 
+  Widget _buildPhotoOptions(BuildContext context, Map<String, dynamic> photo) {
+    final userIdRaw = photo['user_id'];
+    final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
+    
+    // Check if we have any options to show
+    final hasOptions = posterId != null && posterId != currentUserId;
+    
+    // Only show the PopupMenuButton if there are options
+    if (!hasOptions) {
+      return SizedBox(width: ResponsiveHelper.iconSize(context, mobile: 40)); // Empty placeholder for alignment
+    }
+    
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+      onSelected: (value) async {
+        if (value == 'report') {
+          await ReportUtils.handleReportButtonTap(
+            context: context,
+            contentType: 'gallery',
+            contentId: photo['id'] is int ? photo['id'] : int.parse(photo['id'].toString()),
+          );
+        } else if (value == 'block') {
+          final userIdRaw = photo['user_id'];
+          if (userIdRaw != null) {
+            final userId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw.toString());
+            if (userId == null) return;
+
+            if (currentUserId == userId) {
+              if (mounted) {
+              _showCustomSnackbar(
+                'Info',
+                'You cannot block yourself',
+              );
+            }
+              return;
+            }
+
+            final userName = photo['user_name'] ?? 'this user';
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: Text('Block $userName?'),
+                content: const Text('You will no longer see content from this user.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+                  TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('Block', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            );
+
+            if (confirmed == true) {
+              try {
+                if (currentUserId != null) {
+                  await UserBlockingService.blockUser(userId);
+                  if (mounted) {
+                    _showCustomSnackbar(
+                      'Success',
+                      'User blocked',
+                    );
+                    Navigator.of(context).pop(); // Back to gallery
+                  }
+                }
+              } catch (e) {
+                if (mounted) {
+                  _showCustomSnackbar(
+                    'Error',
+                    'Failed to block user',
+                    isError: true,
+                  );
+                }
+              }
+            }
+          }
+        }
+      },
+      itemBuilder: (context) {
+        final List<PopupMenuEntry<String>> items = [];
+        
+        // Only show options if it's NOT the current user's photo
+        if (posterId != null && posterId != currentUserId) {
+          items.add(
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.report_outlined, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Text('Report Content'),
+                ],
+              ),
+            ),
+          );
+          items.add(
+            const PopupMenuItem(
+              value: 'block',
+              child: Row(
+                children: [
+                  Icon(Icons.block, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Text('Block User'),
+                ],
+              ),
+            ),
+          );
+        }
+        
+        return items;
+      },
+    );
+  }
+
   /// Build Emoji Reactions Section (same as prayer_details_screen)
   Widget _buildEmojiReactions(BuildContext context, int photoId, GalleryController controller) {
     // Use Obx exactly like prayers - it automatically rebuilds when photoEmojiReactions changes
@@ -1603,22 +2246,22 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         final quickEmojisList = controller.quickEmojis;
         
         // Debug logging with GALLERY EMOJI prefix
-        print('🍎 GALLERY EMOJI: 🔍 _buildEmojiReactions called (Obx rebuild)');
-        print('🍎 GALLERY EMOJI:   - hasReactions: $hasReactions');
-        print('🍎 GALLERY EMOJI:   - reactions count: ${reactions.length}');
-        print('🍎 GALLERY EMOJI:   - quickEmojisList count: ${quickEmojisList.length}');
+        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 🔍 _buildEmojiReactions called (Obx rebuild)');
+        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - hasReactions: $hasReactions');
+        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - reactions count: ${reactions.length}');
+        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - quickEmojisList count: ${quickEmojisList.length}');
         if (hasReactions) {
-          print('🍎 GALLERY EMOJI: 📋 ALL REACTIONS IN MAP:');
+          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📋 ALL REACTIONS IN MAP:');
           reactions.forEach((key, users) {
-            print('🍎 GALLERY EMOJI:   - Emoji key: "$key" (${users.length} users)');
+            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - Emoji key: "$key" (${users.length} users)');
             if (users.isNotEmpty) {
-              print('🍎 GALLERY EMOJI:     - Users: ${users.map((u) => u['user_name']).join(", ")}');
+              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:     - Users: ${users.map((u) => u['user_name']).join(", ")}');
             }
           });
-          print('🍎 GALLERY EMOJI: 📊 Total unique emoji types: ${reactions.length}');
-          print('🍎 GALLERY EMOJI: 📊 Will display ${reactions.length} different emoji reactions');
+          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📊 Total unique emoji types: ${reactions.length}');
+          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📊 Will display ${reactions.length} different emoji reactions');
         } else {
-          print('🍎 GALLERY EMOJI: ⚠️ No reactions found - reactions map is empty');
+          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ⚠️ No reactions found - reactions map is empty');
         }
       
       return Container(
@@ -1734,12 +2377,13 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: isValidEmoji ? () async {
-                          print('🍎 GALLERY EMOJI: ========== EMOJI SELECTION START ==========');
-                          print('🍎 GALLERY EMOJI: User tapped quick emoji: $emoji');
-                          print('🍎 GALLERY EMOJI:   - emojiData: name=${emojiData['name']}, id=${emojiData['id']}');
-                          print('🍎 GALLERY EMOJI:   - emojiData code: ${emojiData['code']}');
-                          print('🍎 GALLERY EMOJI:   - emojiData image_url: ${emojiData['image_url']}');
-                          print('🍎 GALLERY EMOJI:   - emojiData emoji_char: ${emojiData['emoji_char']}');
+                          FocusScope.of(context).unfocus(); // Dismiss keyboard when emoji is tapped
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ========== EMOJI SELECTION START ==========');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: User tapped quick emoji: $emoji');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData: name=${emojiData['name']}, id=${emojiData['id']}');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData code: ${emojiData['code']}');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData image_url: ${emojiData['image_url']}');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData emoji_char: ${emojiData['emoji_char']}');
                           
                           // Determine the best emoji value to send to API
                           // Priority: code > image_url > emoji_char > name
@@ -1749,67 +2393,66 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           final emojiCode = emojiData['code'] as String?;
                           if (emojiCode != null && emojiCode.toString().trim().isNotEmpty) {
                             emojiValueToSend = emojiCode.toString().trim();
-                            print('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji code: $emojiValueToSend');
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji code: $emojiValueToSend');
                           }
                           // Priority 2: Use image_url if code is not available
                           else {
                             final emojiImageUrl = emojiData['image_url'] as String?;
                             if (emojiImageUrl != null && emojiImageUrl.toString().trim().isNotEmpty) {
                               emojiValueToSend = emojiImageUrl.toString().trim();
-                              print('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji image_url: $emojiValueToSend');
+                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji image_url: $emojiValueToSend');
                             }
                             // Priority 3: Use emoji_char
                             else if (emoji != null && emoji.trim().isNotEmpty) {
                               emojiValueToSend = emoji.trim();
-                              print('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji_char: $emojiValueToSend');
+                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji_char: $emojiValueToSend');
                             }
                             // Priority 4: Fallback to name
                             else {
                               final emojiName = emojiData['name'] as String?;
                               if (emojiName != null && emojiName.toString().trim().isNotEmpty) {
                                 emojiValueToSend = emojiName.toString().trim();
-                                print('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji name: $emojiValueToSend');
+                                if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji name: $emojiValueToSend');
                               }
                             }
                           }
                           
                           if (emojiValueToSend == null || emojiValueToSend.isEmpty) {
-                            print('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
-                            Get.snackbar(
-                              'Error',
-                              'Invalid emoji data. Please try again.',
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                'Error',
+                                'Invalid emoji data. Please try again.',
+                                isError: true,
+                              );
+                            }
                             return;
                           }
                           
-                          print('🍎 GALLERY EMOJI: 📤 Sending emoji to API: $emojiValueToSend');
-                          print('🍎 GALLERY EMOJI:   - This value will be saved in emoji_usage table');
-                          print('🍎 GALLERY EMOJI:   - This value will be used as KEY in photoEmojiReactions map');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📤 Sending emoji to API: $emojiValueToSend');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - This value will be saved in emoji_usage table');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - This value will be used as KEY in photoEmojiReactions map');
                           final success = await controller.addEmojiReaction(photoId, emojiValueToSend);
-                          print('🍎 GALLERY EMOJI: 📥 API response: success=$success');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📥 API response: success=$success');
                           
                           if (success) {
-                            print('🍎 GALLERY EMOJI: ✅ Emoji reaction added successfully');
-                            print('🍎 GALLERY EMOJI: ⏳ Waiting for UI to update...');
-                            Get.snackbar(
-                              'Success',
-                              'Reaction added',
-                              backgroundColor: Colors.green,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 1),
-                            );
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Emoji reaction added successfully');
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ⏳ Waiting for UI to update...');
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                'Success',
+                                'Reaction added',
+                              );
+                            }
                           } else {
-                            print('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
-                            Get.snackbar(
-                              'Error',
-                              controller.message.value,
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                'Error',
+                                controller.message.value,
+                                isError: true,
+                              );
+                            }
                           }
                           print('🍎 GALLERY EMOJI: ========== EMOJI SELECTION END ==========');
                         } : null,
@@ -1961,10 +2604,10 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                 Builder(
                   builder: (context) {
                     final entriesList = reactions.entries.toList();
-                    print('🍎 GALLERY EMOJI: 🎨 Building reactions display widget');
-                    print('🍎 GALLERY EMOJI:   - Total reactions entries: ${entriesList.length}');
+                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 🎨 Building reactions display widget');
+                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - Total reactions entries: ${entriesList.length}');
                     for (var i = 0; i < entriesList.length; i++) {
-                      print('🍎 GALLERY EMOJI:     Entry $i: key="${entriesList[i].key}", users=${entriesList[i].value.length}');
+                      if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:     Entry $i: key="${entriesList[i].key}", users=${entriesList[i].value.length}');
                     }
                     return Wrap(
                       spacing: ResponsiveHelper.spacing(context, 6),
@@ -1975,7 +2618,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                         final usersWhoReacted = entry.value as List<Map<String, dynamic>>;
                         Map<String, dynamic>? fruitEmoji;
                         
-                        print('🍎 GALLERY EMOJI: 🔍 Finding emoji for key: "$emojiKey" (${usersWhoReacted.length} users)');
+                        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 🔍 Finding emoji for key: "$emojiKey" (${usersWhoReacted.length} users)');
                   
                   // Try multiple matching strategies (same as prayer screen)
                   for (var emoji in controller.availableEmojis) {
@@ -1988,14 +2631,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                     if (emojiCharFromList.isNotEmpty && 
                         (emojiCharFromList.trim() == emojiKey.trim() || emojiCharFromList == emojiKey)) {
                       fruitEmoji = emoji;
-                      print('🍎 GALLERY EMOJI: ✅ Matched by emoji_char: "$emojiKey" -> ${emoji['name']}');
+                      if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by emoji_char: "$emojiKey" -> ${emoji['name']}');
                       break;
                     }
                     // Strategy 2: Match by code (exact match)
                     if (emojiCodeFromList.isNotEmpty && 
                         (emojiCodeFromList.trim() == emojiKey.trim() || emojiCodeFromList == emojiKey)) {
                       fruitEmoji = emoji;
-                      print('🍎 GALLERY EMOJI: ✅ Matched by code: "$emojiKey" -> ${emoji['name']}');
+                      if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by code: "$emojiKey" -> ${emoji['name']}');
                       break;
                     }
                     // Strategy 3: Match by image_url (improved matching for full URLs and relative paths)
@@ -2029,9 +2672,9 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           emojiImageUrlFromList.contains(emojiKey) || 
                           emojiKey.contains(emojiImageUrlFromList)) {
                         fruitEmoji = emoji;
-                        print('🍎 GALLERY EMOJI: ✅ Matched by image_url: "$emojiKey" -> ${emoji['name']}');
-                        print('🍎 GALLERY EMOJI:   - normalizedKey: $normalizedKey');
-                        print('🍎 GALLERY EMOJI:   - normalizedListUrl: $normalizedListUrl');
+                        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by image_url: "$emojiKey" -> ${emoji['name']}');
+                        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - normalizedKey: $normalizedKey');
+                        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - normalizedListUrl: $normalizedListUrl');
                         break;
                       }
                       
@@ -2040,14 +2683,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       final listFilename = emojiImageUrlFromList.split('/').last.replaceAll('%20', ' ').toLowerCase();
                       if (keyFilename == listFilename) {
                         fruitEmoji = emoji;
-                        print('🍎 GALLERY EMOJI: ✅ Matched by filename: "$keyFilename" -> ${emoji['name']}');
+                        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by filename: "$keyFilename" -> ${emoji['name']}');
                         break;
                       }
                     }
                     // Strategy 4: Match by ID
                     if (emojiIdFromList.isNotEmpty && emojiIdFromList == emojiKey) {
                       fruitEmoji = emoji;
-                      print('🍎 GALLERY EMOJI: ✅ Matched by ID: "$emojiKey" -> ${emoji['name']}');
+                      if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by ID: "$emojiKey" -> ${emoji['name']}');
                       break;
                     }
                     // Strategy 5: Match by name (extract base name and compare)
@@ -2066,7 +2709,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       final normalizedKey = emojiKey.trim().toLowerCase();
                       if (baseName == normalizedKey || baseName.contains(normalizedKey) || normalizedKey.contains(baseName)) {
                         fruitEmoji = emoji;
-                        print('🍎 GALLERY EMOJI: ✅ Matched by name: "$emojiKey" -> ${emoji['name']}');
+                        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by name: "$emojiKey" -> ${emoji['name']}');
                         break;
                       }
                     }
@@ -2074,7 +2717,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                   
                   // If still not found, try partial match (fallback)
                   if (fruitEmoji == null) {
-                    print('🍎 GALLERY EMOJI: ⚠️ Exact match failed, trying partial match...');
+                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ⚠️ Exact match failed, trying partial match...');
                     final normalizedKey = emojiKey.trim().toLowerCase();
                     for (var emoji in controller.availableEmojis) {
                       final emojiCodeFromList = (emoji['code'] as String? ?? '').toLowerCase();
@@ -2086,7 +2729,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           (emojiNameFromList.isNotEmpty && (emojiNameFromList.contains(normalizedKey) || normalizedKey.contains(emojiNameFromList))) ||
                           (emojiImageUrlFromList.isNotEmpty && (emojiImageUrlFromList.contains(normalizedKey) || normalizedKey.contains(emojiImageUrlFromList)))) {
                         fruitEmoji = emoji;
-                        print('🍎 GALLERY EMOJI: ✅ Found emoji by partial match: "$emojiKey" -> ${emoji['name']}');
+                        if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Found emoji by partial match: "$emojiKey" -> ${emoji['name']}');
                         break;
                       }
                     }
@@ -2094,13 +2737,13 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                   
                   // Debug logging if emoji not found
                   if (fruitEmoji == null) {
-                    print('🍎 GALLERY EMOJI: ❌ Emoji not found in availableEmojis: emojiKey="$emojiKey"');
-                    print('🍎 GALLERY EMOJI:   Available emojis count: ${controller.availableEmojis.length}');
+                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ Emoji not found in availableEmojis: emojiKey="$emojiKey"');
+                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   Available emojis count: ${controller.availableEmojis.length}');
                     if (controller.availableEmojis.isNotEmpty) {
-                      print('🍎 GALLERY EMOJI:   Sample emoji: code=${controller.availableEmojis[0]['code']}, emoji_char=${controller.availableEmojis[0]['emoji_char']}, name=${controller.availableEmojis[0]['name']}, image_url=${controller.availableEmojis[0]['image_url']}');
+                      if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   Sample emoji: code=${controller.availableEmojis[0]['code']}, emoji_char=${controller.availableEmojis[0]['emoji_char']}, name=${controller.availableEmojis[0]['name']}, image_url=${controller.availableEmojis[0]['image_url']}');
                     }
                   } else {
-                    print('🍎 GALLERY EMOJI: ✅ Emoji found and will be displayed: ${fruitEmoji['name']}');
+                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Emoji found and will be displayed: ${fruitEmoji['name']}');
                   }
                   
                   return GestureDetector(
@@ -2126,7 +2769,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           // Fallback: show placeholder with emoji key
                           Builder(
                             builder: (context) {
-                              print('🍎 GALLERY EMOJI: ⚠️ Using fallback display for emojiKey: "$emojiKey"');
+                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ⚠️ Using fallback display for emojiKey: "$emojiKey"');
                               // Try to create a minimal emoji data structure from emojiKey
                               // If emojiKey is an image URL, try to extract info
                               final fallbackEmojiData = <String, dynamic>{
@@ -2280,7 +2923,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                               // Find fruit emoji for this reaction (can be character, code, image_url, or ID)
                               // Use improved matching like in the reactions display above
                               Map<String, dynamic>? fruitEmoji;
-                              print('🍎 GALLERY EMOJI: 🔍 Finding emoji for "Who Reacted" section: "$emojiChar"');
+                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 🔍 Finding emoji for "Who Reacted" section: "$emojiChar"');
                               
                               for (var emoji in controller.availableEmojis) {
                                 final emojiCharFromList = emoji['emoji_char'] as String? ?? '';
@@ -2292,14 +2935,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                 if (emojiCharFromList.isNotEmpty && 
                                     (emojiCharFromList.trim() == emojiChar.trim() || emojiCharFromList == emojiChar)) {
                                   fruitEmoji = emoji;
-                                  print('🍎 GALLERY EMOJI: ✅ Matched by emoji_char in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
+                                  if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by emoji_char in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
                                   break;
                                 }
                                 // Strategy 2: Match by code
                                 if (emojiCodeFromList.isNotEmpty && 
                                     (emojiCodeFromList.trim() == emojiChar.trim() || emojiCodeFromList == emojiChar)) {
                                   fruitEmoji = emoji;
-                                  print('🍎 GALLERY EMOJI: ✅ Matched by code in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
+                                  if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by code in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
                                   break;
                                 }
                                 // Strategy 3: Match by image_url (improved matching)
@@ -2329,7 +2972,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                       emojiImageUrlFromList.contains(emojiChar) || 
                                       emojiChar.contains(emojiImageUrlFromList)) {
                                     fruitEmoji = emoji;
-                                    print('🍎 GALLERY EMOJI: ✅ Matched by image_url in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
+                                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by image_url in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
                                     break;
                                   }
                                   
@@ -2338,14 +2981,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                   final listFilename = emojiImageUrlFromList.split('/').last.replaceAll('%20', ' ').toLowerCase();
                                   if (keyFilename == listFilename) {
                                     fruitEmoji = emoji;
-                                    print('🍎 GALLERY EMOJI: ✅ Matched by filename in "Who Reacted": "$keyFilename" -> ${emoji['name']}');
+                                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by filename in "Who Reacted": "$keyFilename" -> ${emoji['name']}');
                                     break;
                                   }
                                 }
                                 // Strategy 4: Match by ID
                                 if (emojiIdFromList.isNotEmpty && emojiIdFromList == emojiChar) {
                                   fruitEmoji = emoji;
-                                  print('🍎 GALLERY EMOJI: ✅ Matched by ID in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
+                                  if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Matched by ID in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
                                   break;
                                 }
                               }
@@ -2362,14 +3005,14 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                       (emojiNameFromList.isNotEmpty && (emojiNameFromList.contains(normalizedKey) || normalizedKey.contains(emojiNameFromList))) ||
                                       (emojiImageUrlFromList.isNotEmpty && (emojiImageUrlFromList.contains(normalizedKey) || normalizedKey.contains(emojiImageUrlFromList)))) {
                                     fruitEmoji = emoji;
-                                    print('🍎 GALLERY EMOJI: ✅ Found by partial match in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
+                                    if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Found by partial match in "Who Reacted": "$emojiChar" -> ${emoji['name']}');
                                     break;
                                   }
                                 }
                               }
                               
                               if (fruitEmoji == null) {
-                                print('🍎 GALLERY EMOJI: ❌ Emoji not found in "Who Reacted" section: "$emojiChar"');
+                                if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ Emoji not found in "Who Reacted" section: "$emojiChar"');
                               }
                               
                               return Padding(
@@ -2541,7 +3184,11 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: () => Get.back(),
+                  onPressed: () {
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  },
                 ),
               ],
             ),
@@ -2593,11 +3240,11 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: isValidEmoji ? () async {
-                          print('🍎 GALLERY EMOJI: User tapped emoji in gallery photo details');
-                          print('🍎 GALLERY EMOJI:   - photoId: $photoId');
-                          print('🍎 GALLERY EMOJI:   - emoji value: $emoji');
-                          print('🍎 GALLERY EMOJI:   - emojiData: name=${emojiData['name']}, id=${emojiData['id']}, code=${emojiData['code']}');
-                          print('🍎 GALLERY EMOJI:   - emojiData image_url: ${emojiData['image_url']}');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: User tapped emoji in gallery photo details');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - photoId: $photoId');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emoji value: $emoji');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData: name=${emojiData['name']}, id=${emojiData['id']}, code=${emojiData['code']}');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData image_url: ${emojiData['image_url']}');
                           
                           // Determine the best emoji value to send to API
                           // Priority: code > image_url > emoji_char > name
@@ -2607,60 +3254,62 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           final emojiCode = emojiData['code'] as String?;
                           if (emojiCode != null && emojiCode.toString().trim().isNotEmpty) {
                             emojiValueToSend = emojiCode.toString().trim();
-                            print('🍎 GALLERY EMOJI: ✅ Using emoji code: $emojiValueToSend');
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Using emoji code: $emojiValueToSend');
                           }
                           // Priority 2: Use image_url if code is not available
                           else {
                             final emojiImageUrl = emojiData['image_url'] as String?;
                             if (emojiImageUrl != null && emojiImageUrl.toString().trim().isNotEmpty) {
                               emojiValueToSend = emojiImageUrl.toString().trim();
-                              print('🍎 GALLERY EMOJI: ✅ Using emoji image_url: $emojiValueToSend');
+                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Using emoji image_url: $emojiValueToSend');
                             }
                             // Priority 3: Use emoji_char
                             else if (emoji != null && emoji.trim().isNotEmpty) {
                               emojiValueToSend = emoji.trim();
-                              print('🍎 GALLERY EMOJI: ✅ Using emoji_char: $emojiValueToSend');
+                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Using emoji_char: $emojiValueToSend');
                             }
                             // Priority 4: Fallback to name
                             else {
                               final emojiName = emojiData['name'] as String?;
                               if (emojiName != null && emojiName.toString().trim().isNotEmpty) {
                                 emojiValueToSend = emojiName.toString().trim();
-                                print('🍎 GALLERY EMOJI: ✅ Using emoji name: $emojiValueToSend');
+                                if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Using emoji name: $emojiValueToSend');
                               }
                             }
                           }
                           
                           if (emojiValueToSend == null || emojiValueToSend.isEmpty) {
-                            print('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
-                            Get.snackbar(
-                              'Error',
-                              'Invalid emoji data. Please try again.',
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                'Error',
+                                'Invalid emoji data. Please try again.',
+                                isError: true,
+                              );
+                            }
                             return;
                           }
                           
-                          print('🍎 GALLERY EMOJI: 📤 Sending emoji to API: $emojiValueToSend');
-                          Get.back();
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📤 Sending emoji to API: $emojiValueToSend');
+                          if (mounted) {
+                            Navigator.of(context).pop();
+                          }
                           
                           final success = await controller.addEmojiReaction(photoId, emojiValueToSend);
-                          print('🍎 GALLERY EMOJI: 📥 API response: success=$success');
+                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📥 API response: success=$success');
                           
                           if (!success) {
-                            print('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
-                            Get.snackbar(
-                              'Error',
-                              controller.message.value,
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: const Duration(seconds: 2),
-                            );
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
+                            if (mounted) {
+                              _showCustomSnackbar(
+                                'Error',
+                                controller.message.value,
+                                isError: true,
+                              );
+                            }
                           } else {
-                            print('🍎 GALLERY EMOJI: ✅ Emoji reaction added successfully');
-                            print('🍎 GALLERY EMOJI: 🔄 UI should update automatically via Obx');
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Emoji reaction added successfully');
+                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 🔄 UI should update automatically via Obx');
                           }
                         } : null,
                         borderRadius: BorderRadius.circular(12),

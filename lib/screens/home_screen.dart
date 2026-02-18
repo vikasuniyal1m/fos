@@ -23,548 +23,691 @@ import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
+import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 import '../utils/app_theme.dart';
+import '../widgets/video_frame_thumbnail.dart';
+import 'IntroVideoScreen.dart';
 
 class HomeScreen extends GetView<HomeController> {
   const HomeScreen({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: Navigator.of(context).canPop(), // Allow pop if navigation history exists
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        
-        // If we can't pop, we're at root - show exit confirmation
-        if (!Navigator.of(context).canPop()) {
-          final shouldExit = await Get.dialog<bool>(
-            AlertDialog(
-              title: Text(
-                'Exit App?',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-              ),
-              content: Text(
-                'Do you want to exit the app?',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                  color: Colors.black,
-                ),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Get.back(result: false),
-                  child: Text(
-                    'Cancel',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => Get.back(result: true),
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF8B4513),
-                  ),
-                  child: Text(
-                    'Exit',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-              ],
+    return _buildBody(context);
+  }
+
+  // Helper method for blogger zone navigation with loading
+  static Future<void> navigateToBloggerZone(BuildContext context) async {
+    final hasPaid = await PaymentGate.hasPaid();
+    if (!hasPaid) {
+      Get.toNamed(Routes.PAYMENT);
+      return;
+    }
+    // Show loading dialog using standard showDialog for better control
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
             ),
-            barrierDismissible: false,
-          );
-          
-          // If user confirmed exit, exit the app
-          if (shouldExit == true) {
-            SystemNavigator.pop();
-          }
-        } else {
-          // We can pop, so just go back normally
-          Get.back();
-        }
-      },
-      child: Scaffold(
-        // backgroundColor: const Color(0xFFF8F9FA),
-        backgroundColor: AppTheme.themeColor,
-        appBar: const StandardAppBar(),
-      body: Obx(() {
-        // Show loading indicator ONLY if no cached data exists
-        // If cache exists, data shows instantly, no loading indicator
-        final hasCachedData = controller.fruits.isNotEmpty || 
-                              controller.prayers.isNotEmpty || 
-                              controller.blogs.isNotEmpty;
-        
-        if (controller.isInitialLoading.value && !hasCachedData) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Professional loading indicator
-                Container(
-                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 20)),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: CircularProgressIndicator(
-                  color: const Color(0xFF8B4513),
-                    strokeWidth: 3,
-                ),
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 20)),
-                Text(
-                  controller.message.value.isNotEmpty
-                      ? controller.message.value
-                      : 'Loading...',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                    color: Colors.black,
-                    fontWeight: FontWeight.w500,
+            child: CircularProgressIndicator(
+              color: AppTheme.iconscolor,
+              strokeWidth: 3,
             ),
           ),
-        ],
-      ),
-          );
-        }
+        );
+      },
+    );
 
-        // Show actual content once data is loaded
-        // Professional responsive design for tablets/iPads
-        final isTabletDevice = ResponsiveHelper.isTablet(context);
-        final maxContentWidth = isTabletDevice 
-            ? (ResponsiveHelper.isLargeTablet(context) ? 1200.0 : 840.0)
-            : null;
-        
-        return SafeArea(
-        top: false,
-        bottom: true,
-        child: RefreshIndicator(
-          onRefresh: () => controller.refreshData(),
-          color: const Color(0xFF8B4513),
-          child: ResponsiveHelper.constrainedContent(
-            context: context,
-            maxWidth: maxContentWidth,
-            child: SingleChildScrollView(
-                controller: controller.scrollController,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-            // Subtle Top Actions - Social Media Style with Expandable Feel Section
-            Padding(
-              padding: ResponsiveHelper.safePadding(
-                context, 
-                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-                vertical: ResponsiveHelper.isMobile(context) ? 10 : 12,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _ExpandableFeelSection(controller: controller),
-                              ),
-                  SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-                  Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () async {
-                          try {
-                            // Get e-commerce URL from backend
-                            final ecommerceData = await EcommerceService.getEcommerceUrl();
-                            final ecommerceUrl = ecommerceData['url'] as String? ?? 'https://your-ecommerce-app-url.com';
-                            
-                            final uri = Uri.parse(ecommerceUrl);
-                            if (await canLaunchUrl(uri)) {
-                              await launchUrl(uri, mode: LaunchMode.externalApplication);
-                            } else {
-                              Get.snackbar(
-                                'E-Commerce',
-                                'E-commerce URL is not configured. Please contact admin.',
-                                backgroundColor: Colors.orange,
-                                colorText: Colors.white,
-                              );
-                            }
-                          } catch (e) {
-                            Get.snackbar(
-                              'Error',
-                              'Failed to open e-commerce: $e',
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                            );
-                          }
-                        },
-                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
-                        child: Container(
-                        padding: ResponsiveHelper.padding(
-                          context,
-                          horizontal: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 16 : 20,
-                          vertical: ResponsiveHelper.isMobile(context) ? 10 : ResponsiveHelper.isTablet(context) ? 12 : 14,
-                        ),
-                          decoration: BoxDecoration(
-                          color: Colors.white,
-                                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.grey.withOpacity(0.2),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 3),
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Image.asset(
-                                      'assets/fosshoppinglogo.png',
-                                      width: ResponsiveHelper.isMobile(context)
-                                          ? 50.0
-                                          : ResponsiveHelper.isTablet(context)
-                                              ? 70.0
-                                              : 90.0,
-                                      height: ResponsiveHelper.isMobile(context)
-                                          ? 50.0
-                                          : ResponsiveHelper.isTablet(context)
-                                              ? 70.0
-                                              : 90.0,
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return Icon(
-                                  Icons.shopping_bag_rounded,
-                                          color: AppTheme.iconscolor,
-                                          size: ResponsiveHelper.isMobile(context)
-                                              ? 50.0
-                                              : ResponsiveHelper.isTablet(context)
-                                                  ? 70.0
-                                                  : 90.0,
-                                        );
-                                      },
-                                    ),
-                                    SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 4 : 6)),
-                                    Text(
-                                      'Shop Now',
-                                      style: ResponsiveHelper.textStyle(
-                                        context,
-                                        fontSize: ResponsiveHelper.fontSize(
-                                          context,
-                                          mobile: 12,
-                                          tablet: 14,
-                                          desktop: 16,
-                                        ),
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black,
-                                      ),
-                                    ),
-                                  ],
-                        ),
-                      ),
-                        ),
-                      ),
-                    ],
-                  ),
+    try {
+      BlogsController blogsController;
+      if (Get.isRegistered<BlogsController>()) {
+        blogsController = Get.find<BlogsController>();
+      } else {
+        blogsController = Get.put(BlogsController());
+      }
+
+      blogsController.filterUserId.value = 0;
+      await blogsController.loadAvailableEmojis();
+      await blogsController.loadQuickEmojis();
+      await blogsController.loadBlogs(refresh: true);
+
+      // Close loading dialog safely using Navigator.pop
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      // Small delay to ensure dialog is closed before navigation
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // Navigate to Blogger Zone
+      Get.toNamed(Routes.BLOGGER_ZONE);
+    } catch (e) {
+      // Close loading dialog if open
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      print('Error loading blogs: $e');
+      
+      // Use ScaffoldMessenger for error snackbar
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to load Blogger Zone. Please try again.'),
+            backgroundColor: Colors.red.withOpacity(0.8),
+          ),
+        );
+      }
+    }
+  }
+
+  // Helper method for gallery navigation with loading
+  static Future<void> navigateToGallery(BuildContext context) async {
+    final hasPaid = await PaymentGate.hasPaid();
+    if (!hasPaid) {
+      Get.toNamed(Routes.PAYMENT);
+      return;
+    }
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
             ),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
-            // Stories Section - Instagram Style (No Header, Just Stories)
-            // Show only stories from stories table
-            Obx(() {
-              final stories = controller.stories;
-              
-              if (stories.isEmpty) {
-                return const SizedBox.shrink();
-              }
-              
-              // Take first 8 stories (already sorted by created_at DESC from API)
-              final storiesToShow = stories.take(8).toList();
-              return _buildStoriesCarousel(context, storiesToShow);
-            }),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 16)),
-            // Quick Actions - NEW Compact Design with Labels in Colored Box
-            Padding(
-              padding: ResponsiveHelper.padding(
-                context, 
-                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-              ),
-              child: _buildQuickActionsBox(context),
+            child: CircularProgressIndicator(
+              color: AppTheme.iconscolor,
+              strokeWidth: 3,
             ),
-            // OLD Quick Actions - COMMENTED OUT
-            // Padding(
-            //   padding: ResponsiveHelper.padding(context, horizontal: 16),
-            //   child: _buildQuickActionsGrid(context),
-            // ),
-            // Unified Feed - Mixed Content (Social Media Style)
-            // Prayer Requests Feed - Carousel with Header
-            Obx(() {
-              final prayers = controller.prayers.take(50).toList(); // Show more prayers in carousel
-              if (prayers.isEmpty) {
-                return const SizedBox.shrink();
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+          ),
+        );
+      },
+    );
+
+    try {
+      GalleryController galleryController;
+      if (Get.isRegistered<GalleryController>()) {
+        galleryController = Get.find<GalleryController>();
+      } else {
+        galleryController = Get.put(GalleryController(), permanent: true);
+      }
+
+      await galleryController.loadPhotos(refresh: true);
+
+      // Close loading dialog safely
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      // Small delay
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // Navigate to Gallery
+      Get.toNamed(Routes.GALLERY);
+    } catch (e) {
+      // Close loading dialog if open
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      print('Error loading gallery: $e');
+      Get.toNamed(Routes.GALLERY); // Still navigate as fallback
+    }
+  }
+
+  // Helper method for story details navigation with loading
+  static Future<void> navigateToStoryDetails(BuildContext context, int storyId) async {
+    final hasPaid = await PaymentGate.hasPaid();
+    if (!hasPaid) {
+      Get.toNamed(Routes.PAYMENT);
+      return;
+    }
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Center(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: CircularProgressIndicator(
+              color: AppTheme.iconscolor,
+              strokeWidth: 3,
+            ),
+          ),
+        );
+      },
+    );
+
+    try {
+      GalleryController galleryController;
+      if (Get.isRegistered<GalleryController>()) {
+        galleryController = Get.find<GalleryController>();
+      } else {
+        galleryController = Get.put(GalleryController(), permanent: true);
+      }
+
+      await galleryController.loadPhotoDetails(storyId);
+
+      // Close loading dialog safely
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      // Small delay
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // Navigate to Story Details
+      Get.toNamed(Routes.STORY_DETAILS, arguments: storyId);
+    } catch (e) {
+      // Close loading dialog if open
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      print('Error loading story details: $e');
+      Get.toNamed(Routes.STORY_DETAILS, arguments: storyId);
+    }
+  }
+
+  Widget _buildBody(BuildContext context) {
+    return Stack(
+      children: [
+        Scaffold(
+          // backgroundColor: const Color(0xFFF8F9FA),
+          backgroundColor: AppTheme.themeColor,
+          appBar: const StandardAppBar(),
+        body: Obx(() {
+          // Show loading indicator ONLY if no cached data exists
+          // If cache exists, data shows instantly, no loading indicator
+          final hasCachedData = controller.fruits.isNotEmpty ||
+              controller.prayers.isNotEmpty ||
+              controller.blogs.isNotEmpty;
+
+          if (controller.isInitialLoading.value && !hasCachedData) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Header with View All
-                  Padding(
-                    padding: ResponsiveHelper.padding(
-                      context, 
-                      horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                  // Professional loading indicator
+                  Container(
+                    padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 20)),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
+                    child: CircularProgressIndicator(
+                      color: const Color(0xFF8B4513),
+                      strokeWidth: 3,
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 20)),
+                  Text(
+                    controller.message.value.isNotEmpty
+                        ? controller.message.value
+                        : 'Loading...',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                      color: Colors.black,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Show actual content once data is loaded
+          // Professional responsive design for tablets/iPads
+          final isTabletDevice = ResponsiveHelper.isTablet(context);
+          final maxContentWidth = isTabletDevice
+              ? (ResponsiveHelper.isLargeTablet(context) ? 1200.0 : 840.0)
+              : null;
+
+          return SafeArea(
+            top: false,
+            bottom: true,
+            child: RefreshIndicator(
+              onRefresh: () => controller.refreshData(),
+              color: const Color(0xFF8B4513),
+              child: ResponsiveHelper.constrainedContent(
+                context: context,
+                maxWidth: maxContentWidth,
+                child: SingleChildScrollView(
+                  controller: controller.scrollController,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Subtle Top Actions - Social Media Style with Expandable Feel Section
+                      Padding(
+                        padding: ResponsiveHelper.safePadding(
+                          context,
+                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                          vertical: ResponsiveHelper.isMobile(context) ? 10 : 12,
+                        ),
+                        child: Row(
                           children: [
-                            Container(
-                              padding: ResponsiveHelper.padding(context, all: 6),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.red[400]!,
-                                    Colors.red[600]!,
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                              ),
-                              child: Icon(
-                                Icons.favorite_rounded,
-                                color: Colors.white,
-                                size: ResponsiveHelper.iconSize(context, mobile: 18),
-                              ),
+                            Expanded(
+                              child: _ExpandableFeelSection(controller: controller),
                             ),
                             SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-                            Text(
-                              'Prayer Requests',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                  onTap: () async {
+                                    try {
+                                      // Platform specific redirection for Play Store/App Store
+                                      String url = '';
+                                      if (GetPlatform.isAndroid) {
+                                        url = 'https://play.google.com/store/apps/details?id=com.fosproduction.ecommerceapp&hl=en_IN'; // Android Play Store URL
+                                      } else if (GetPlatform.isIOS) {
+                                        url = 'https://apps.apple.com/us/app/fos-production/id6758010663'; // iOS App Store URL
+                                      }
+
+                                      if (url.isNotEmpty) {
+                                        final uri = Uri.parse(url);
+                                        if (await canLaunchUrl(uri)) {
+                                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                          return;
+                                        }
+                                      }
+
+                                      // Fallback to backend logic if platform specific URL fails
+                                      final ecommerceData = await EcommerceService.getEcommerceUrl();
+                                      final ecommerceUrl = ecommerceData['url'] as String? ?? 'https://your-ecommerce-app-url.com';
+
+                                      final uri = Uri.parse(ecommerceUrl);
+                                      if (await canLaunchUrl(uri)) {
+                                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                      } else {
+                                        Get.snackbar(
+                                          'E-Commerce',
+                                          'E-commerce URL is not configured. Please contact admin.',
+                                          backgroundColor: Colors.orange,
+                                          colorText: Colors.white,
+                                        );
+                                      }
+                                    } catch (e) {
+                                      Get.snackbar(
+                                        'Error',
+                                        'Failed to open e-commerce: $e',
+                                        backgroundColor: Colors.red,
+                                        colorText: Colors.white,
+                                      );
+                                    }
+                                  },
+                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
+                                child: Container(
+                                  padding: ResponsiveHelper.padding(
+                                    context,
+                                    horizontal: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 16 : 20,
+                                    vertical: ResponsiveHelper.isMobile(context) ? 10 : ResponsiveHelper.isTablet(context) ? 12 : 14,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.withOpacity(0.2),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 3),
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Image.asset(
+                                        'assets/fosshoppinglogo.png',
+                                        width: ResponsiveHelper.isMobile(context)
+                                            ? 50.0
+                                            : ResponsiveHelper.isTablet(context)
+                                            ? 70.0
+                                            : 90.0,
+                                        height: ResponsiveHelper.isMobile(context)
+                                            ? 50.0
+                                            : ResponsiveHelper.isTablet(context)
+                                            ? 70.0
+                                            : 90.0,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return Icon(
+                                            Icons.shopping_bag_rounded,
+                                            color: AppTheme.iconscolor,
+                                            size: ResponsiveHelper.isMobile(context)
+                                                ? 50.0
+                                                : ResponsiveHelper.isTablet(context)
+                                                ? 70.0
+                                                : 90.0,
+                                          );
+                                        },
+                                      ),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 4 : 6)),
+                                      Text(
+                                        'Shop Now',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: ResponsiveHelper.fontSize(
+                                            context,
+                                            mobile: 12,
+                                            tablet: 14,
+                                            desktop: 16,
+                                          ),
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ],
                         ),
-                        TextButton(
-                          onPressed: () {
-                            try {
-                              final prayersController = Get.find<PrayersController>();
-                              prayersController.filterUserId.value = 0;
-                              // Performance: Only refresh if needed
-                              if (prayersController.prayers.isEmpty) {
-                                prayersController.loadPrayers(refresh: true);
-                              }
-                            } catch (e) {
-                              Get.put(PrayersController());
-                            }
-                            Get.toNamed(Routes.PRAYER_REQUESTS);
-                          },
-                          child: Text(
-                            'View All',
-                            style: ResponsiveHelper.textStyle(
-                              context,
-                              fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                              color: Colors.black,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                      ),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
+                      // Stories Section - Instagram Style (No Header, Just Stories)
+                      // Show only stories from stories table
+                      Obx(() {
+                        final stories = controller.stories;
+
+                        if (stories.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+
+                        // Take first 8 stories (already sorted by created_at DESC from API)
+                        final storiesToShow = stories.take(8).toList();
+                        return _buildStoriesCarousel(context, storiesToShow);
+                      }),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 16)),
+                      // Quick Actions - NEW Compact Design with Labels in Colored Box
+                      Padding(
+                        padding: ResponsiveHelper.padding(
+                          context,
+                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
                         ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: ResponsiveHelper.spacing(context, 8)),
-                  // Prayer Requests Carousel
-                  _buildPrayerRequestsCarousel(context, prayers),
-                ],
-              );
-            }),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
-            // Connect. Pray. Share. Grow Spiritually. Section with Go Live button (Priority: Inspiration)
-            Padding(
-              padding: ResponsiveHelper.padding(
-                context, 
-                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-              ),
-              child: Container(
-                padding: ResponsiveHelper.padding(
-                  context, 
-                  all: ResponsiveHelper.isMobile(context) ? 16 : 20,
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white,
-                      const Color(0xFFFAF6EC).withOpacity(0.3),
-                      Colors.white,
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      spreadRadius: 0,
-                      blurRadius: 15,
-                      offset: const Offset(0, 5),
-                  ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Connect. Pray. Share. Grow Spiritually.',
-                            style: ResponsiveHelper.textStyle(
-                              context,
-                              fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black,
-                              letterSpacing: 0.3,
-                              height: 1.3,
-                            ),
-                          ),
-                          SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                              onTap: () {
-                                // Go Live functionality - show dialog to create live stream
-                                _showGoLiveDialog(context);
-                              },
-                              child: Container(
-                                padding: ResponsiveHelper.padding(
-                                  context, 
-                                  horizontal: ResponsiveHelper.isMobile(context) ? 20 : 24,
-                                  vertical: ResponsiveHelper.isMobile(context) ? 12 : 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Color(0xFF4CAF50),
-                                      Color(0xFF45A049),
+                        child: _buildQuickActionsBox(context),
+                      ),
+                      // OLD Quick Actions - COMMENTED OUT
+                      // Padding(
+                      //   padding: ResponsiveHelper.padding(context, horizontal: 16),
+                      //   child: _buildQuickActionsGrid(context),
+                      // ),
+                      // Unified Feed - Mixed Content (Social Media Style)
+                      // Prayer Requests Feed - Carousel with Header
+                      Obx(() {
+                        final prayers = controller.prayers.take(50).toList(); // Show more prayers in carousel
+                        if (prayers.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Header with View All
+                            Padding(
+                              padding: ResponsiveHelper.padding(
+                                context,
+                                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: ResponsiveHelper.padding(context, all: 6),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              Colors.red[400]!,
+                                              Colors.red[600]!,
+                                            ],
+                                          ),
+                                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
+                                        ),
+                                        child: Icon(
+                                          Icons.favorite_rounded,
+                                          color: Colors.white,
+                                          size: ResponsiveHelper.iconSize(context, mobile: 18),
+                                        ),
+                                      ),
+                                      SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+                                      Text(
+                                        'Prayer Requests',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black,
+                                        ),
+                                      ),
                                     ],
                                   ),
-                                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Color(0xFF4CAF50).withOpacity(0.3),
-                                      spreadRadius: 0,
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 4),
+                                  TextButton(
+                                    onPressed: () {
+                                      try {
+                                        final prayersController = Get.find<PrayersController>();
+                                        prayersController.filterUserId.value = 0;
+                                        // Performance: Only refresh if needed
+                                        if (prayersController.prayers.isEmpty) {
+                                          prayersController.loadPrayers(refresh: true);
+                                        }
+                                      } catch (e) {
+                                        Get.put(PrayersController());
+                                      }
+                                      PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
+                                    },
+                                    child: Text(
+                                      'View All',
+                                      style: ResponsiveHelper.textStyle(
+                                        context,
+                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ],
-                                ),
-                                child: Row(
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                            // Prayer Requests Carousel
+                            _buildPrayerRequestsCarousel(context, prayers),
+                          ],
+                        );
+                      }),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
+                      // Connect. Pray. Share. Grow Spiritually. Section with Go Live button (Priority: Inspiration)
+                      Padding(
+                        padding: ResponsiveHelper.padding(
+                          context,
+                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                        ),
+                        child: Container(
+                          padding: ResponsiveHelper.padding(
+                            context,
+                            all: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                          ),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.white,
+                                const Color(0xFFFAF6EC).withOpacity(0.3),
+                                Colors.white,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                spreadRadius: 0,
+                                blurRadius: 15,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(
-                                      Icons.videocam_rounded,
-                                      color: Colors.white,
-                                      size: ResponsiveHelper.iconSize(context, mobile: 20),
-                                ),
-                                    SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                                     Text(
-                              'Go Live',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                                color: Colors.white,
+                                      'Connect. Pray. Share. Grow Spiritually.',
+                                      style: ResponsiveHelper.textStyle(
+                                        context,
+                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
                                         fontWeight: FontWeight.bold,
-                                        letterSpacing: 0.5,
+                                        color: Colors.black,
+                                        letterSpacing: 0.3,
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                    SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                                    Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                                        onTap: () {
+                                          Get.toNamed(Routes.LIVE);
+                                        },
+                                        child: Container(
+                                          padding: ResponsiveHelper.padding(
+                                            context,
+                                            horizontal: ResponsiveHelper.isMobile(context) ? 20 : 24,
+                                            vertical: ResponsiveHelper.isMobile(context) ? 12 : 14,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            gradient: const LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                Color(0xFF4CAF50),
+                                                Color(0xFF45A049),
+                                              ],
+                                            ),
+                                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Color(0xFF4CAF50).withOpacity(0.3),
+                                                spreadRadius: 0,
+                                                blurRadius: 8,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.videocam_rounded,
+                                                color: Colors.white,
+                                                size: ResponsiveHelper.iconSize(context, mobile: 20),
+                                              ),
+                                              SizedBox(width: ResponsiveHelper.spacing(context, 8)),
+                                              Text(
+                                                'Go Live',
+                                                style: ResponsiveHelper.textStyle(
+                                                  context,
+                                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 0.5,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 16)),
+                              // Dove Image
+                              CachedImage(
+                                imageUrl: 'https://fruitofthespirit.templateforwebsites.com/uploads/images/dove.png',
+                                height: ResponsiveHelper.imageHeight(context, mobile: 110, tablet: 130, desktop: 150),
+                                width: ResponsiveHelper.imageWidth(context, mobile: 110, tablet: 130, desktop: 150),
+                                fit: BoxFit.contain,
+                                errorWidget: Icon(
+                                  Icons.air,
+                                  size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
+                                  color: const Color(0xFF8B4513),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                    SizedBox(width: ResponsiveHelper.spacing(context, 16)),
-                    // Dove Image
-                    CachedImage(
-                      imageUrl: 'https://fruitofthespirit.templateforwebsites.com/uploads/images/dove.png',
-                      height: ResponsiveHelper.imageHeight(context, mobile: 110, tablet: 130, desktop: 150),
-                      width: ResponsiveHelper.imageWidth(context, mobile: 110, tablet: 130, desktop: 150),
-                      fit: BoxFit.contain,
-                      errorWidget: Icon(
-                        Icons.air,
-                        size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                        color: const Color(0xFF8B4513),
-                      ),
-                    ),
-                  ],
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
+                      // Videos Feed - Combined Live and Regular Videos
+                      Obx(() {
+                        // Combine live videos and regular videos
+                        final liveVideos = controller.liveVideos.toList();
+                        final regularVideos = controller.videos.toList();
+
+                        // Combine: Live videos first, then regular videos
+                        final allVideos = <Map<String, dynamic>>[];
+                        allVideos.addAll(liveVideos);
+                        allVideos.addAll(regularVideos);
+
+                        if (allVideos.isEmpty) return const SizedBox.shrink();
+
+                        // Take first 15 videos (live + regular)
+                        final videosToShow = allVideos.take(15).toList();
+                        return _buildVideosReelsCarousel(context, videosToShow);
+                      }),
+                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
+                      // Blogs Carousel Section (Last)
+                      Obx(() {
+                        final blogs = controller.blogs.take(5).toList();
+                        if (blogs.isEmpty) return const SizedBox.shrink();
+                        return _buildBlogsCarousel(context, blogs);
+                      }),
+                    ],
+                  ),
                 ),
               ),
             ),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
-            // Videos Feed - Combined Live and Regular Videos
-            Obx(() {
-              // Combine live videos and regular videos
-              final liveVideos = controller.liveVideos.toList();
-              final regularVideos = controller.videos.toList();
-              
-              // Combine: Live videos first, then regular videos
-              final allVideos = <Map<String, dynamic>>[];
-              allVideos.addAll(liveVideos);
-              allVideos.addAll(regularVideos);
-              
-              if (allVideos.isEmpty) return const SizedBox.shrink();
-              
-              // Take first 15 videos (live + regular)
-              final videosToShow = allVideos.take(15).toList();
-              return _buildVideosReelsCarousel(context, videosToShow);
-            }),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
-            // Blogs Carousel Section (Last)
-            Obx(() {
-              final blogs = controller.blogs.take(5).toList();
-              if (blogs.isEmpty) return const SizedBox.shrink();
-              return _buildBlogsCarousel(context, blogs);
-            }),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
+          );
 
       }),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
-      ),
-    );
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 0),
+    )]);
+
+
   }
 
 
@@ -599,7 +742,7 @@ class HomeScreen extends GetView<HomeController> {
 
   /// Build emoji display widget - ONLY shows fruit images from uploads/images/128-128 or 256-256
   /// NO emoji characters/smiley faces - only fruit images
-  static Widget buildEmojiDisplay(BuildContext context, Map<String, dynamic> emoji, {double? size}) {
+  static Widget buildEmojiDisplay(BuildContext context, Map<String, dynamic> emoji, {double? size, Future<dynamic> Function()? onTap}) {
     final emojiChar = emoji['emoji_char'] as String? ?? '';
     final emojiName = (emoji['name'] as String? ?? '').toLowerCase();
     
@@ -620,7 +763,10 @@ class HomeScreen extends GetView<HomeController> {
       } else if (!fullImageUrl.startsWith('http://') && !fullImageUrl.startsWith('https://')) {
         fullImageUrl = 'https://fruitofthespirit.templateforwebsites.com/uploads/$fullImageUrl';
       }
-      print('✅ buildEmojiDisplay: Using database image_url (Priority 1): $fullImageUrl');
+
+      // Ensure spaces are encoded early
+      fullImageUrl = fullImageUrl.replaceAll(' ', '%20');
+      print('✅ buildEmojiDisplay: Using Priority 1 URL: $fullImageUrl');
     }
     
     // Priority 2: Try to get fruit image from emoji character using new fruit reaction images
@@ -673,22 +819,29 @@ class HomeScreen extends GetView<HomeController> {
       }
     }
     
+    Widget imageWidget;
     // If we have an image URL, show it (NO emoji character fallback)
     if (fullImageUrl != null && fullImageUrl.isNotEmpty) {
-      // Replace spaces with %20 for URL encoding
-      fullImageUrl = fullImageUrl.replaceAll(' ', '%20');
-      
-      return CachedImage(
+      imageWidget = CachedImage(
         imageUrl: fullImageUrl,
-        height: imageSize,
-        width: imageSize,
+        height: size == null ? null : imageSize,
+        width: size == null ? null : imageSize,
         fit: BoxFit.contain,
         errorWidget: _buildPlaceholderIcon(context, imageSize),
       );
+    } else {
+      // Last resort: Show placeholder icon (NO emoji characters)
+      imageWidget = _buildPlaceholderIcon(context, imageSize);
     }
-    
-    // Last resort: Show placeholder icon (NO emoji characters)
-    return _buildPlaceholderIcon(context, imageSize);
+
+    if (onTap != null) {
+      return _EmojiLoadingWrapper(
+        size: imageSize,
+        onTap: onTap,
+        child: imageWidget,
+      );
+    }
+    return imageWidget;
   }
   
   /// Build placeholder icon (replaces emoji character fallback)
@@ -730,6 +883,7 @@ class HomeScreen extends GetView<HomeController> {
       if (!thumbnail.startsWith('http')) {
         return 'https://fruitofthespirit.templateforwebsites.com/$thumbnail';
       }
+
       return thumbnail;
     }
     
@@ -745,6 +899,7 @@ class HomeScreen extends GetView<HomeController> {
         if (!filePath.startsWith('http')) {
           return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
         }
+
         return filePath;
       }
     }
@@ -768,6 +923,7 @@ class HomeScreen extends GetView<HomeController> {
           if (filePath.startsWith('http')) {
             return filePath;
           }
+
           return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
         }
       }
@@ -799,11 +955,8 @@ class HomeScreen extends GetView<HomeController> {
 
     return GestureDetector(
       onTap: () {
-        // Reload user feeling when coming back from fruits screen
-        Get.toNamed(Routes.FRUITS)?.then((_) {
-          // Refresh user feeling when returning from fruits screen
-          controller.loadUserFeeling();
-        });
+        PaymentGate.navigateToFeature(Routes.FRUITS);
+        controller.loadUserFeeling();
       },
       child: Container(
         decoration: BoxDecoration(
@@ -827,11 +980,8 @@ class HomeScreen extends GetView<HomeController> {
           child: InkWell(
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
             onTap: () {
-              // Reload user feeling when coming back from fruits screen
-              Get.toNamed(Routes.FRUITS)?.then((_) {
-                // Refresh user feeling when returning from fruits screen
-                controller.loadUserFeeling();
-              });
+              PaymentGate.navigateToFeature(Routes.FRUITS);
+              controller.loadUserFeeling();
             },
             child: Padding(
               padding: ResponsiveHelper.padding(
@@ -925,7 +1075,7 @@ class HomeScreen extends GetView<HomeController> {
     final subtitle = category;
 
     return InkWell(
-      onTap: () => Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: ResponsiveHelper.safeMargin(
@@ -961,31 +1111,31 @@ class HomeScreen extends GetView<HomeController> {
                   // Profile Picture - Responsive size with CachedImage
                   profilePhotoUrl != null && !isAnonymous
                       ? ClipOval(
-                          child: CachedImage(
-                            imageUrl: profilePhotoUrl,
-                            width: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
-                            height: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
-                            fit: BoxFit.cover,
-                            errorWidget: CircleAvatar(
-                              radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                              backgroundColor: Colors.grey[300]!,
-                              child: Icon(
-                                Icons.person_rounded,
-                                size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ),
-                        )
-                      : CircleAvatar(
-                          radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                          backgroundColor: Colors.grey[300]!,
-                          child: Icon(
-                            Icons.person_rounded,
-                            size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                            color: isAnonymous ? Colors.grey[600] :  Colors.white,
-                          ),
+                    child: CachedImage(
+                      imageUrl: profilePhotoUrl,
+                      width: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
+                      height: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
+                      fit: BoxFit.cover,
+                      errorWidget: CircleAvatar(
+                        radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
+                        backgroundColor: Colors.grey[300]!,
+                        child: Icon(
+                          Icons.person_rounded,
+                          size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
+                          color: Colors.grey[600],
                         ),
+                      ),
+                    ),
+                  )
+                      : CircleAvatar(
+                    radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
+                    backgroundColor: Colors.grey[300]!,
+                    child: Icon(
+                      Icons.person_rounded,
+                      size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
+                      color: isAnonymous ? Colors.grey[600] :  Colors.white,
+                    ),
+                  ),
                   SizedBox(width: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
                   // Name and Subtitle - Responsive
                   Expanded(
@@ -1019,7 +1169,7 @@ class HomeScreen extends GetView<HomeController> {
                       ],
                     ),
                   ),
-                  // Three-dot menu - Responsive
+                  // Three-dot menu - Responsive with Report option
                   PopupMenuButton<String>(
                     icon: Icon(
                       Icons.more_vert,
@@ -1030,16 +1180,17 @@ class HomeScreen extends GetView<HomeController> {
                     constraints: const BoxConstraints(),
                     onSelected: (value) {
                       if (value == 'view') {
-                        Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']);
+                        PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']);
                       } else if (value == 'share') {
-                        // Share functionality can be added here
-                        Get.snackbar(
-                          'Info',
-                          'Share feature coming soon',
-                          backgroundColor: Colors.blue,
-                          colorText: Colors.white,
+                        ShareHelper.shareContent(
+                          context: context,
+                          contentType: 'prayer',
+                          contentId: prayer['id'] is int ? prayer['id'] : int.tryParse(prayer['id'].toString()) ?? 0,
+                          title: 'Prayer Request from ${userName == 'Anonymous' ? 'a friend' : userName}',
+                          content: prayerContent,
                         );
                       }
+
                     },
                     itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                       PopupMenuItem<String>(
@@ -1177,7 +1328,7 @@ class HomeScreen extends GetView<HomeController> {
         controller.scrollToTop();
         // Small delay to allow scroll animation to start
         Future.delayed(const Duration(milliseconds: 100), () {
-          Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']);
+          PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
         });
       },
       borderRadius: BorderRadius.zero,
@@ -1455,7 +1606,7 @@ class HomeScreen extends GetView<HomeController> {
         children: [
           // Video Thumbnail
           GestureDetector(
-            onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+            onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
             child: Stack(
               children: [
                 imageUrl != null
@@ -1465,7 +1616,7 @@ class HomeScreen extends GetView<HomeController> {
                         width: double.infinity,
                         fit: BoxFit.cover,
                         errorWidget: videoUrl != null
-                            ? _VideoFrameThumbnail(
+                            ? VideoFrameThumbnail(
                                 videoUrl: videoUrl,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
@@ -1491,7 +1642,7 @@ class HomeScreen extends GetView<HomeController> {
                               ),
                       )
                     : videoUrl != null
-                        ? _VideoFrameThumbnail(
+                        ? CustomVideoThumbnail(
                             videoUrl: videoUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
@@ -1587,7 +1738,7 @@ class HomeScreen extends GetView<HomeController> {
               children: [
                 Expanded(
                   child: InkWell(
-                    onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+                    onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                     child: Container(
                       padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8),
@@ -1616,7 +1767,7 @@ class HomeScreen extends GetView<HomeController> {
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 Expanded(
                   child: InkWell(
-                    onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+                    onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                     child: Container(
                       padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8),
@@ -1644,7 +1795,13 @@ class HomeScreen extends GetView<HomeController> {
                 ),
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 InkWell(
-                  onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+                  onTap: () => ShareHelper.shareContent(
+                    context: context,
+                    contentType: 'video',
+                    contentId: video['id'] is int ? video['id'] : int.tryParse(video['id'].toString()) ?? 0,
+                    title: title,
+                    mediaUrl: imageUrl,
+                  ),
                   borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                   child: Container(
                     padding: ResponsiveHelper.padding(context, all: 10),
@@ -1655,6 +1812,7 @@ class HomeScreen extends GetView<HomeController> {
                     child: Icon(Icons.share_rounded, size: ResponsiveHelper.iconSize(context, mobile: 22), color: AppTheme.iconscolor),
                   ),
                 ),
+
               ],
             ),
           ),
@@ -1704,9 +1862,9 @@ class HomeScreen extends GetView<HomeController> {
             GestureDetector(
               onTap: () {
                 if (story['id'] != null) {
-                  Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+                  navigateToStoryDetails(context, story['id']);
                 } else {
-                  Get.toNamed(Routes.GALLERY);
+                  navigateToGallery(context);
                 }
               },
               child: CachedImage(
@@ -1760,9 +1918,9 @@ class HomeScreen extends GetView<HomeController> {
                   child: InkWell(
                     onTap: () {
                       if (story['id'] != null) {
-                        Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+                        navigateToStoryDetails(context, story['id']);
                       } else {
-                        Get.toNamed(Routes.GALLERY);
+                        navigateToGallery(context);
                       }
                     },
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
@@ -1791,9 +1949,9 @@ class HomeScreen extends GetView<HomeController> {
                   child: InkWell(
                     onTap: () {
                       if (story['id'] != null) {
-                        Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
+                        navigateToStoryDetails(context, story['id']);
                       } else {
-                        Get.toNamed(Routes.GALLERY);
+                        navigateToGallery(context);
                       }
                     },
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
@@ -1819,13 +1977,13 @@ class HomeScreen extends GetView<HomeController> {
                 ),
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 InkWell(
-                  onTap: () {
-                    if (story['id'] != null) {
-                      Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']);
-                    } else {
-                      Get.toNamed(Routes.GALLERY);
-                    }
-                  },
+                  onTap: () => ShareHelper.shareContent(
+                    context: context,
+                    contentType: 'story',
+                    contentId: story['id'] is int ? story['id'] : int.tryParse(story['id'].toString()) ?? 0,
+                    title: title,
+                    mediaUrl: imageUrl,
+                  ),
                   borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                   child: Container(
                     padding: ResponsiveHelper.padding(context, all: 10),
@@ -1836,6 +1994,7 @@ class HomeScreen extends GetView<HomeController> {
                     child: Icon(Icons.share_rounded, size: ResponsiveHelper.iconSize(context, mobile: 22), color: AppTheme.iconscolor),
                   ),
                 ),
+
               ],
             ),
           ),
@@ -1929,49 +2088,57 @@ class HomeScreen extends GetView<HomeController> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: ResponsiveHelper.padding(context, all: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 3),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: ResponsiveHelper.padding(context, all: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.video_library_rounded,
+                          color: AppTheme.iconscolor,
+                          size: ResponsiveHelper.iconSize(context, mobile: 22),
+                        ),
+                      ),
+                      SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+                      Expanded(
+                        child: Text(
+                          'Recommended Videos',
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22, desktop: 24),
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                            letterSpacing: 0.3,
                           ),
-                        ],
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      child: Icon(
-                        Icons.video_library_rounded,
-                        color: AppTheme.iconscolor,
-                        size: ResponsiveHelper.iconSize(context, mobile: 22),
-                      ),
-                    ),
-                    SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                    Text(
-                      'Recommended Videos',
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: ResponsiveHelper.padding(context, left: 8),
+                  child: TextButton(
+                    onPressed: () => PaymentGate.navigateToFeature(Routes.VIDEOS),
+                    child: Text(
+                      'View All',
                       style: ResponsiveHelper.textStyle(
                         context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22, desktop: 24),
-                        fontWeight: FontWeight.bold,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
+                        fontWeight: FontWeight.w600,
                         color: Colors.black,
-                        letterSpacing: 0.3,
                       ),
-                    ),
-                  ],
-                ),
-                TextButton(
-                  onPressed: () => Get.toNamed(Routes.VIDEOS),
-                  child: Text(
-                    'View All',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
                     ),
                   ),
                 ),
@@ -2037,7 +2204,7 @@ class HomeScreen extends GetView<HomeController> {
     final isLive = video['status'] == 'Live' || video['stream_key'] != null || video['stream_url'] != null;
 
     return InkWell(
-      onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
       borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
       child: Container(
         width: width,
@@ -2068,7 +2235,7 @@ class HomeScreen extends GetView<HomeController> {
                       imageUrl: imageUrl!,
                       fit: BoxFit.cover,
                       errorWidget: videoUrl != null
-                          ? _VideoFrameThumbnail(
+                          ? CustomVideoThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: width,
@@ -2093,7 +2260,7 @@ class HomeScreen extends GetView<HomeController> {
                             ),
                     )
                   : videoUrl != null
-                      ? _VideoFrameThumbnail(
+                      ? CustomVideoThumbnail(
                           videoUrl: videoUrl,
                           fit: BoxFit.cover,
                           width: width,
@@ -2212,7 +2379,7 @@ class HomeScreen extends GetView<HomeController> {
     final videoHeight = ResponsiveHelper.imageHeight(context, mobile: 280, tablet: 310, desktop: 350);
 
     return InkWell(
-      onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
       borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 18, tablet: 20, desktop: 22)),
       child: Container(
         width: videoWidth,
@@ -2253,7 +2420,7 @@ class HomeScreen extends GetView<HomeController> {
                           height: videoHeight,
                           fit: BoxFit.cover,
                           errorWidget: videoUrl != null
-                              ? _VideoFrameThumbnail(
+                              ? CustomVideoThumbnail(
                                   videoUrl: videoUrl,
                                   fit: BoxFit.cover,
                                   width: videoWidth,
@@ -2280,7 +2447,7 @@ class HomeScreen extends GetView<HomeController> {
                                 ),
                         )
                       : videoUrl != null
-                          ? _VideoFrameThumbnail(
+                          ? CustomVideoThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: videoWidth,
@@ -2694,23 +2861,19 @@ class HomeScreen extends GetView<HomeController> {
         }
         Get.toNamed(action.route);
       };
+    } else if (action.route == Routes.FRUITS) {
+      // When opening Fruits from Quick Actions, show back button on the target screen
+      onTap = () => Get.toNamed(
+            action.route,
+            arguments: const {
+              'showBackButton': true,
+              'fromQuickAction': true,
+            },
+          );
     } else if (action.route == Routes.BLOGGER_ZONE) {
-      onTap = () {
-        try {
-          final blogsController = Get.find<BlogsController>();
-          blogsController.filterUserId.value = 0;
-          // Performance: Only refresh if filter changed
-          if (blogsController.filterUserId.value != 0) {
-            // Performance: Only refresh if needed
-          if (blogsController.blogs.isEmpty) {
-            blogsController.loadBlogs(refresh: true);
-          }
-          }
-        } catch (e) {
-          Get.put(BlogsController());
-        }
-        Get.toNamed(action.route);
-      };
+      onTap = () => HomeScreen.navigateToBloggerZone(context);
+    } else if (action.route == Routes.CREATE_PRAYER) {
+      onTap = () async => await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER);
     } else {
       onTap = () => Get.toNamed(action.route);
     }
@@ -2726,7 +2889,7 @@ class HomeScreen extends GetView<HomeController> {
           padding: ResponsiveHelper.padding(
             context,
             horizontal: 14,
-            vertical: ResponsiveHelper.isMobile(context) ? 16 : 18,
+            vertical: ResponsiveHelper.isMobile(context) ? MediaQuery.of(context).size.height*0.01 : 18,
           ),
           decoration: BoxDecoration(
             color: Colors.white, // White background
@@ -2934,30 +3097,11 @@ class HomeScreen extends GetView<HomeController> {
         Get.toNamed(route);
       };
     } else if (label.contains('Prayer') || label.contains('prayer')) {
-      onTap = () => Get.toNamed(Routes.CREATE_PRAYER);
+      onTap = () async => await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER);
     } else if (label.contains('Blogger') || label.contains('blogger')) {
-      onTap = () {
-        try {
-          final blogsController = Get.find<BlogsController>();
-          blogsController.filterUserId.value = 0;
-          // Performance: Only refresh if needed
-          if (blogsController.blogs.isEmpty) {
-            blogsController.loadBlogs(refresh: true);
-          }
-        } catch (e) {
-          Get.put(BlogsController());
-        }
-        Get.toNamed(Routes.BLOGGER_ZONE);
-      };
+      onTap = () => HomeScreen.navigateToBloggerZone(context);
     } else if (label.contains('Fruit') || label.contains('fruit')) {
-      onTap = () {
-        // Reload user feeling when coming back from fruits screen
-        Get.toNamed(Routes.FRUITS)?.then((_) {
-          // Refresh user feeling when returning from fruits screen
-          final homeCtrl = Get.find<HomeController>();
-          homeCtrl.loadUserFeeling();
-        });
-      };
+      onTap = () => PaymentGate.navigateToFeature(Routes.FRUITS);
     } else if (label.contains('Group') || label.contains('group')) {
       onTap = () {
         if (!Get.isRegistered<GroupsController>()) {
@@ -3249,13 +3393,11 @@ class HomeScreen extends GetView<HomeController> {
                                 throw Exception('User not logged in');
                               }
 
-                              final streamData = await LiveStreamingService.createLiveStream(
-                                userId: userId,
+                              final streamData = await LiveStreamingService.createStream(
                                 title: titleController.text.trim(),
                                 description: descriptionController.text.trim().isEmpty
                                     ? null
                                     : descriptionController.text.trim(),
-                                fruitTag: selectedFruitTag,
                               );
 
                               titleController.dispose();
@@ -3437,10 +3579,21 @@ class HomeScreen extends GetView<HomeController> {
   }
 
   String _getTimeAgo(String? dateTimeString) {
-    if (dateTimeString == null || dateTimeString.isEmpty) return '';
+    if (dateTimeString == null || dateTimeString.isEmpty) return 'Just now';
     try {
-      final date = DateTime.parse(dateTimeString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateTimeString.endsWith('Z')) {
+        date = DateTime.parse('${dateTimeString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateTimeString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       if (difference.inDays > 365) {
         final years = (difference.inDays / 365).floor();
@@ -3450,7 +3603,7 @@ class HomeScreen extends GetView<HomeController> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -3458,7 +3611,7 @@ class HomeScreen extends GetView<HomeController> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 
@@ -3592,7 +3745,7 @@ class HomeScreen extends GetView<HomeController> {
               } catch (e) {
                 // Controller not found, will be created fresh
               }
-              Get.toNamed(Routes.PRAYER_REQUESTS);
+              PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4CAF50), // Green button
@@ -3642,7 +3795,7 @@ class HomeScreen extends GetView<HomeController> {
       child: GestureDetector(
         onTap: () {
           if (prayer['id'] != null) {
-            Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']);
+            PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']);
           } else {
             // Reset filter to show all users' prayers
             try {
@@ -3652,7 +3805,7 @@ class HomeScreen extends GetView<HomeController> {
             } catch (e) {
               // Controller not found, will be created fresh
             }
-            Get.toNamed(Routes.PRAYER_REQUESTS);
+            PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
           }
         },
         child: Container(
@@ -3947,9 +4100,9 @@ class HomeScreen extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         if (video['id'] != null) {
-          Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']);
+          PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
         } else {
-          Get.toNamed(Routes.VIDEOS);
+          PaymentGate.navigateToFeature(Routes.VIDEOS);
         }
       },
       child: Container(
@@ -3970,7 +4123,7 @@ class HomeScreen extends GetView<HomeController> {
                     width: cardWidth,
                     fit: BoxFit.cover,
                     errorWidget: videoUrl != null
-                        ? _VideoFrameThumbnail(
+                        ? CustomVideoThumbnail(
                             videoUrl: videoUrl,
                             fit: BoxFit.cover,
                             width: cardWidth,
@@ -3997,7 +4150,7 @@ class HomeScreen extends GetView<HomeController> {
                           ),
                   )
                 : videoUrl != null
-                    ? _VideoFrameThumbnail(
+                    ? CustomVideoThumbnail(
                         videoUrl: videoUrl,
                         fit: BoxFit.cover,
                         width: cardWidth,
@@ -4221,7 +4374,7 @@ class HomeScreen extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         if (blog['id'] != null) {
-          Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']);
+          PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
         } else {
           // Reset filter to show all users' blogs
           try {
@@ -4234,7 +4387,7 @@ class HomeScreen extends GetView<HomeController> {
           } catch (e) {
             // Controller not found, will be created fresh
           }
-          Get.toNamed(Routes.BLOGS);
+          PaymentGate.navigateToFeature(Routes.BLOGS);
         }
       },
       child: Container(
@@ -4444,12 +4597,12 @@ class HomeScreen extends GetView<HomeController> {
         // Check if this is a story or gallery photo
         if (photo['id'] != null) {
           if (photo['title'] != null || photo['content'] != null) {
-            Get.toNamed(Routes.STORY_DETAILS, arguments: photo['id']);
+            PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: photo['id']);
           } else {
-            Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']);
+            PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']);
           }
         } else {
-          Get.toNamed(Routes.STORIES);
+          PaymentGate.navigateToFeature(Routes.STORIES);
         }
       },
         child: Column(
@@ -4611,9 +4764,9 @@ class HomeScreen extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         if (video['id'] != null) {
-          Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']);
+          PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
         } else {
-          Get.toNamed(Routes.VIDEOS);
+          PaymentGate.navigateToFeature(Routes.VIDEOS);
         }
       },
       child: Container(
@@ -4739,9 +4892,9 @@ class HomeScreen extends GetView<HomeController> {
         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
         onTap: () {
           if (video['id'] != null) {
-            Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']);
+            PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
           } else {
-            Get.toNamed(Routes.VIDEOS);
+            PaymentGate.navigateToFeature(Routes.VIDEOS);
           }
         },
         child: Container(
@@ -5868,116 +6021,7 @@ class _VideoPlayerThumbnail extends StatefulWidget {
   _VideoPlayerThumbnailState createState() => _VideoPlayerThumbnailState();
 }
 
-/// Widget to extract and display first frame from video as thumbnail
-class _VideoFrameThumbnail extends StatefulWidget {
-  final String videoUrl;
-  final BoxFit fit;
-  final double? width;
-  final double? height;
 
-  const _VideoFrameThumbnail({
-    Key? key,
-    required this.videoUrl,
-    this.fit = BoxFit.cover,
-    this.width,
-    this.height,
-  }) : super(key: key);
-
-  @override
-  _VideoFrameThumbnailState createState() => _VideoFrameThumbnailState();
-}
-
-class _VideoFrameThumbnailState extends State<_VideoFrameThumbnail> {
-  VideoPlayerController? _controller;
-  bool _isInitialized = false;
-  bool _hasError = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeVideo();
-  }
-
-  Future<void> _initializeVideo() async {
-    try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
-      await _controller!.initialize();
-      
-      // Seek to first frame (0 seconds) and pause
-      await _controller!.seekTo(Duration.zero);
-      await _controller!.pause();
-      
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-          _hasError = false;
-        });
-      }
-    } catch (e) {
-      print('Error initializing video thumbnail: $e');
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _isInitialized = false;
-        });
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_hasError) {
-      return Container(
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppTheme.themeColor,
-              AppTheme.primaryColor.withOpacity(0.3),
-            ],
-          ),
-        ),
-        child: Icon(
-          Icons.video_library_rounded,
-          size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
-          color: AppTheme.primaryColor,
-        ),
-      );
-    }
-
-    if (!_isInitialized || _controller == null || !_controller!.value.isInitialized) {
-      return Container(
-        width: widget.width,
-        height: widget.height,
-        color: Colors.grey[300],
-        child: Center(
-          child: CircularProgressIndicator(
-            color: AppTheme.iconscolor,
-            strokeWidth: 2,
-          ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: widget.width,
-      height: widget.height,
-      child: AspectRatio(
-        aspectRatio: _controller!.value.aspectRatio,
-        child: VideoPlayer(_controller!),
-      ),
-    );
-  }
-}
 
 class _VideoPlayerThumbnailState extends State<_VideoPlayerThumbnail> with WidgetsBindingObserver {
   late VideoPlayerController _controller;
@@ -6300,7 +6344,7 @@ class _FeedCarouselWidgetState extends State<_FeedCarouselWidget> {
                           } catch (e) {
                             Get.put(PrayersController());
                           }
-                          Get.toNamed(Routes.PRAYER_REQUESTS);
+                          PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
                         },
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 25)),
                         child: Container(
@@ -6448,7 +6492,7 @@ class _PrayersCarouselWidgetState extends State<_PrayersCarouselWidget> {
                   } catch (e) {
                     Get.put(PrayersController());
                   }
-                  Get.toNamed(Routes.PRAYER_REQUESTS);
+                  PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
                 },
                 child: Text(
                   'View All',
@@ -6615,19 +6659,7 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
                   ],
                 ),
                 TextButton(
-                  onPressed: () {
-                    try {
-                      final blogsController = Get.find<BlogsController>();
-                      blogsController.filterUserId.value = 0;
-                      // Performance: Only refresh if needed
-          if (blogsController.blogs.isEmpty) {
-            blogsController.loadBlogs(refresh: true);
-          }
-                    } catch (e) {
-                      Get.put(BlogsController());
-                    }
-                    Get.toNamed(Routes.BLOGGER_ZONE);
-                  },
+                  onPressed: () => HomeScreen.navigateToBloggerZone(context),
                   child: Text(
                     'View All',
                     style: ResponsiveHelper.textStyle(
@@ -6778,7 +6810,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
         : null;
 
     return GestureDetector(
-      onTap: () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
       child: Container(
         height: double.infinity,
         decoration: BoxDecoration(
@@ -6805,7 +6837,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                       height: double.infinity,
                       fit: BoxFit.cover,
                       errorWidget: videoUrl != null
-                          ? _VideoFrameThumbnail(
+                          ? CustomVideoThumbnail(
                               videoUrl: videoUrl,
                               fit: BoxFit.cover,
                               width: double.infinity,
@@ -6832,7 +6864,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                             ),
                     )
                   : videoUrl != null
-                      ? _VideoFrameThumbnail(
+                      ? CustomVideoThumbnail(
                           videoUrl: videoUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,
@@ -6997,7 +7029,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                 ],
               ),
               TextButton(
-                onPressed: () => Get.toNamed(Routes.VIDEOS),
+                onPressed: () => PaymentGate.navigateToFeature(Routes.VIDEOS),
                 child: Text(
                   'View All',
                   style: ResponsiveHelper.textStyle(
@@ -7179,7 +7211,9 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
           child: InkWell(
             onTap: () {
               // Navigate to fruits screen instead of showing dialog
-              Get.toNamed(Routes.FRUITS);
+              Get.toNamed(
+                Routes.FRUITS
+              );
             },
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12, tablet: 14, desktop: 16)),
             child: Container(
@@ -7589,8 +7623,8 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
     
     return GestureDetector(
       onTap: () {
-        // Open Stories screen (all stories)
-        Get.toNamed(Routes.STORIES);
+        // Open Gallery screen (all moments)
+        HomeScreen.navigateToGallery(context);
       },
       child: Container(
         margin: ResponsiveHelper.padding(context, horizontal: 6),
@@ -7690,10 +7724,10 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
       onTap: () {
         // Open the specific story/post details when tapped
         if (photo['id'] != null) {
-          Get.toNamed(Routes.STORY_DETAILS, arguments: photo['id']);
+          HomeScreen.navigateToStoryDetails(context, photo['id']);
         } else {
-          // Fallback to Stories screen if no id
-          Get.toNamed(Routes.STORIES);
+          // Fallback to Gallery screen if no id
+          HomeScreen.navigateToGallery(context);
         }
       },
       child: Container(
@@ -7921,23 +7955,13 @@ class _QuickActionsCarouselWidgetState extends State<_QuickActionsCarouselWidget
         color: Colors.transparent,
         child: InkWell(
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-          onTap: () {
+          onTap: () async {
             if (label.contains('Prayer') || label.contains('prayer')) {
-              Get.toNamed(Routes.CREATE_PRAYER);
+              await PaymentGate.navigateToFeature(Routes.CREATE_PRAYER);
             } else if (label.contains('Blogger') || label.contains('blogger')) {
-              try {
-                final blogsController = Get.find<BlogsController>();
-                blogsController.filterUserId.value = 0;
-                // Performance: Only refresh if needed
-          if (blogsController.blogs.isEmpty) {
-            blogsController.loadBlogs(refresh: true);
-          }
-              } catch (e) {
-                Get.put(BlogsController());
-              }
-              Get.toNamed(Routes.BLOGGER_ZONE);
+              HomeScreen.navigateToBloggerZone(context);
             } else if (label.contains('Fruit') || label.contains('fruit')) {
-              Get.toNamed(Routes.FRUITS);
+              PaymentGate.navigateToFeature(Routes.FRUITS);
               } else if (label.contains('Group') || label.contains('group')) {
                 if (!Get.isRegistered<GroupsController>()) {
                   Get.put(GroupsController());
@@ -7972,6 +7996,61 @@ class _QuickActionsCarouselWidgetState extends State<_QuickActionsCarouselWidget
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _EmojiLoadingWrapper extends StatefulWidget {
+  final Widget child;
+  final Future<dynamic> Function()? onTap;
+  final double size;
+
+  const _EmojiLoadingWrapper({
+    Key? key,
+    required this.child,
+    this.onTap,
+    required this.size,
+  }) : super(key: key);
+
+  @override
+  State<_EmojiLoadingWrapper> createState() => _EmojiLoadingWrapperState();
+}
+
+class _EmojiLoadingWrapperState extends State<_EmojiLoadingWrapper> {
+  bool _isLoading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap == null || _isLoading ? null : () async {
+        FocusScope.of(context).unfocus();
+        if (mounted) setState(() => _isLoading = true);
+        try {
+          await widget.onTap!();
+        } catch (e) {
+          debugPrint('Error in emoji tap: $e');
+        } finally {
+          if (mounted) setState(() => _isLoading = false);
+        }
+      },
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Opacity(
+            opacity: _isLoading ? 0.5 : 1.0,
+            child: widget.child,
+          ),
+          if (_isLoading)
+            SizedBox(
+              width: widget.size * 0.6,
+              height: widget.size * 0.6,
+              child: const CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+              ),
+            ),
+        ],
       ),
     );
   }

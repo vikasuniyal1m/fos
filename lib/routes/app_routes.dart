@@ -7,13 +7,16 @@ abstract class Routes {
   Routes._();
   // Auth Routes
   static const SPLASH = _Paths.SPLASH;
+  static const DASHBOARD = _Paths.DASHBOARD;
   static const HOME = _Paths.HOME;
   static const ONBOARDING = _Paths.ONBOARDING;
   static const LOGIN = _Paths.LOGIN;
   static const CREATE_ACCOUNT = _Paths.CREATE_ACCOUNT;
   static const PHONE_AUTH = _Paths.PHONE_AUTH;
   static const FORGOT_PASSWORD = _Paths.FORGOT_PASSWORD;
-  
+  static const RESET_PASSWORD = _Paths.RESET_PASSWORD;
+
+
   // Feature Routes
   static const FRUITS = _Paths.FRUITS;
   static const PRAYER_REQUESTS = _Paths.PRAYER_REQUESTS;
@@ -45,19 +48,26 @@ abstract class Routes {
   static const FRUIT_DETAILS = _Paths.FRUIT_DETAILS;
   static const FRUITS_VARIANT_01 = _Paths.FRUITS_VARIANT_01;
   static const PRAYER_REMINDERS = _Paths.PRAYER_REMINDERS;
+  static const LIVE = _Paths.LIVE;
+  static const LIVE_STREAM_VIEWER = _Paths.LIVE_STREAM_VIEWER;
+  static const LIVE_AGORA = _Paths.LIVE_AGORA;
+  static const PAYMENT = _Paths.PAYMENT;
 }
 
 abstract class _Paths {
   _Paths._();
   // Auth Paths
   static const SPLASH = '/splash';
+  static const DASHBOARD = '/dashboard';
   static const HOME = '/home';
   static const ONBOARDING = '/onboarding';
   static const LOGIN = '/login';
   static const CREATE_ACCOUNT = '/create-account';
   static const PHONE_AUTH = '/phone-auth';
   static const FORGOT_PASSWORD = '/forgot-password';
-  
+  static const RESET_PASSWORD = '/reset-password';
+
+
   // Feature Paths
   static const FRUITS = '/fruits';
   static const PRAYER_REQUESTS = '/prayer-requests';
@@ -72,7 +82,7 @@ abstract class _Paths {
   static const CREATE_BLOG = '/create-blog';
   static const GALLERY = '/gallery';
   static const PHOTO_DETAILS = '/photo-details';
-  static const UPLOAD_PHOTO = '/upload-photo';
+  static const UPLOAD_PHOTO = '/upload_photo';
   static const GROUPS = '/groups';
   static const GROUP_DETAILS = '/group-details';
   static const GROUP_CHAT = '/group-chat';
@@ -89,4 +99,8 @@ abstract class _Paths {
   static const FRUIT_DETAILS = '/fruit-details';
   static const FRUITS_VARIANT_01 = '/fruits-variant-01';
   static const PRAYER_REMINDERS = '/prayer-reminders';
+  static const LIVE = '/live';
+  static const LIVE_STREAM_VIEWER = '/live-stream-viewer';
+  static const LIVE_AGORA = '/live-agora';
+  static const PAYMENT = '/payment';
 }

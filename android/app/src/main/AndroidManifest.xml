@@ -18,10 +18,14 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
     <application
-        android:label="Fruit of the Spirit"
+        android:label="FOS Messenger"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:enableOnBackInvokedCallback="true">
+        android:theme="@style/NormalTheme"
+        android:enableOnBackInvokedCallback="true"
+        android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true"
+        android:hardwareAccelerated="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -45,13 +49,51 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- Deep Linking Intent Filter -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="fruitofthespirit.templateforwebsites.com" />
+                <data android:pathPrefix="/share" />
+                <data android:pathPrefix="/api/share" />
+                <data android:pathPrefix="/api/share_redirect.php" />
+            </intent-filter>
+
+            <!-- Also support the legacy query param format if needed -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                
+                <data android:scheme="https" />
+                <data android:host="fruitofthespirit.templateforwebsites.com" />
+                <data android:path="/prayer" />
+                <data android:path="/blog" />
+                <data android:path="/video" />
+                <data android:host="fruitofthespirit.templateforwebsites.com" />
+            </intent-filter>
+
+            <!-- Custom Scheme Intent Filter (Failsafe) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                
+                <data android:scheme="fos" />
+                <data android:host="share" />
+            </intent-filter>
         </activity>
         
         <!-- Image Cropper Activity (required for image_cropper package) -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
+            android:theme="@style/AppTheme.NoActionBar"/>
         
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

@@ -8,6 +8,8 @@ import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
+import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Videos Screen
 /// Displays list of videos with filters
@@ -41,7 +43,7 @@ class _VideosScreenState extends State<VideosScreen> {
             context,
             icon: Icons.add_rounded,
             onTap: () async {
-              await Get.toNamed(Routes.UPLOAD_VIDEO);
+              await PaymentGate.navigateToFeature(Routes.UPLOAD_VIDEO);
               controller.loadVideos(refresh: true, includePending: true);
             },
           ),
@@ -86,7 +88,7 @@ class _VideosScreenState extends State<VideosScreen> {
                 SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                 ElevatedButton(
                   onPressed: () async {
-                    await Get.toNamed(Routes.UPLOAD_VIDEO);
+                    await PaymentGate.navigateToFeature(Routes.UPLOAD_VIDEO);
                     // Refresh videos when returning from upload screen
                     controller.loadVideos(refresh: true, includePending: true);
                   },
@@ -130,7 +132,7 @@ class _VideosScreenState extends State<VideosScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          await Get.toNamed(Routes.UPLOAD_VIDEO);
+          await PaymentGate.navigateToFeature(Routes.UPLOAD_VIDEO);
           // Refresh videos when returning from upload screen
           controller.loadVideos(refresh: true, includePending: true);
         },
@@ -146,7 +148,7 @@ class _VideosScreenState extends State<VideosScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 3),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 3),
     );
   }
 
@@ -154,10 +156,10 @@ class _VideosScreenState extends State<VideosScreen> {
     final isPending = video['status'] == 'Pending' || video['status'] == 'pending';
     final filePath = video['file_path'] as String? ?? '';
     final thumbnailPath = video['thumbnail_path'] as String?;
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+
     
     return GestureDetector(
-      onTap: () => Get.toNamed(
+      onTap: () => PaymentGate.navigateToFeature(
         Routes.VIDEO_DETAILS,
         arguments: video['id'],
       ),
@@ -189,21 +191,35 @@ class _VideosScreenState extends State<VideosScreen> {
                   children: [
                     // Background Image
                     Positioned.fill(
-                      child: thumbnailPath != null
-                          ? Image.network(
-                              baseUrl + thumbnailPath,
+                      child: _getThumbnailUrl(video) != ImageConfig.videoThumbnail
+                          ? CachedImage(
+                              imageUrl: _getThumbnailUrl(video),
                               fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Image.network(
+                              errorWidget: _getVideoUrl(video) != null
+                                  ? CustomVideoThumbnail(
+                                      videoUrl: _getVideoUrl(video)!,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Image.network(
+                                      ImageConfig.videoThumbnail,
+                                      fit: BoxFit.cover,
+                                    ),
+                              placeholder: Container(
+                                color: Colors.grey[200],
+                                child: const Center(
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                            )
+                          : _getVideoUrl(video) != null
+                              ? CustomVideoThumbnail(
+                                  videoUrl: _getVideoUrl(video)!,
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.network(
                                   ImageConfig.videoThumbnail,
                                   fit: BoxFit.cover,
-                                );
-                              },
-                            )
-                          : Image.network(
-                              ImageConfig.videoThumbnail,
-                              fit: BoxFit.cover,
-                            ),
+                                ),
                     ),
                     // Pending Badge
                     if (isPending)
@@ -313,6 +329,72 @@ class _VideosScreenState extends State<VideosScreen> {
         ),
       ),
     );
+  }
+
+  String _getThumbnailUrl(Map<String, dynamic> video) {
+    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+
+    // Priority 1: Check thumbnail_path (from database - generated during upload)
+    if (video['thumbnail_path'] != null && (video['thumbnail_path'] as String).isNotEmpty) {
+      final thumbnailPath = video['thumbnail_path'] as String;
+      if (!thumbnailPath.startsWith('http')) {
+        final cleanPath = thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath;
+        return baseUrl + cleanPath;
+      }
+      return thumbnailPath;
+    }
+    
+    // Priority 2: Check thumbnail (legacy field)
+    if (video['thumbnail'] != null && (video['thumbnail'] as String).isNotEmpty) {
+      final thumbnail = video['thumbnail'] as String;
+      if (!thumbnail.startsWith('http')) {
+        final cleanPath = thumbnail.startsWith('/') ? thumbnail.substring(1) : thumbnail;
+        return baseUrl + cleanPath;
+      }
+      return thumbnail;
+    }
+
+    // Priority 3: Check if file_path is an image (not a video)
+    if (video['file_path'] != null) {
+      final filePath = video['file_path'].toString();
+      final lowerPath = filePath.toLowerCase();
+      if (!lowerPath.endsWith('.mp4') &&
+          !lowerPath.endsWith('.mov') &&
+          !lowerPath.endsWith('.avi') &&
+          !lowerPath.endsWith('.webm') &&
+          !lowerPath.endsWith('.mkv')) {
+        if (!filePath.startsWith('http')) {
+          final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+          return baseUrl + cleanPath;
+        }
+        return filePath;
+      }
+    }
+    
+    // Fallback
+    return ImageConfig.videoThumbnail;
+  }
+
+  String? _getVideoUrl(Map<String, dynamic> video) {
+    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    if (video['file_path'] != null) {
+      final filePath = video['file_path'].toString();
+      if (filePath.isNotEmpty) {
+        final lowerPath = filePath.toLowerCase();
+        if (lowerPath.endsWith('.mp4') ||
+            lowerPath.endsWith('.mov') ||
+            lowerPath.endsWith('.avi') ||
+            lowerPath.endsWith('.webm') ||
+            lowerPath.endsWith('.mkv')) {
+          if (filePath.startsWith('http')) {
+            return filePath;
+          }
+          final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+          return baseUrl + cleanPath;
+        }
+      }
+    }
+    return null;
   }
 }
 

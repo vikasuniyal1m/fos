@@ -25,6 +25,7 @@ class BlogsService {
     int? userId,
     int? isFeatured,
     int? isTrending,
+    int? currentUserId,
     int limit = 20,
     int offset = 0,
   }) async {
@@ -39,6 +40,7 @@ class BlogsService {
     if (userId != null) queryParams['user_id'] = userId.toString();
     if (isFeatured != null) queryParams['is_featured'] = isFeatured.toString();
     if (isTrending != null) queryParams['is_trending'] = isTrending.toString();
+    if (currentUserId != null) queryParams['current_user_id'] = currentUserId.toString();
 
     final response = await ApiService.get(
       ApiConfig.blogs,
@@ -58,10 +60,15 @@ class BlogsService {
   /// - blogId: Blog ID
   /// 
   /// Returns: Blog with comments and likes
-  static Future<Map<String, dynamic>> getBlogDetails(int blogId) async {
+  static Future<Map<String, dynamic>> getBlogDetails(int blogId, {int? currentUserId}) async {
+    final queryParams = {'id': blogId.toString()};
+    if (currentUserId != null) {
+      queryParams['current_user_id'] = currentUserId.toString();
+    }
+    
     final response = await ApiService.get(
       ApiConfig.blogs,
-      queryParameters: {'id': blogId.toString()},
+      queryParameters: queryParams,
     );
 
     if (response['success'] == true && response['data'] != null) {

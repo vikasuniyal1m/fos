@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/groups_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/services/jingle_service.dart';
 
 /// Groups Controller
 /// Manages groups data and operations
@@ -82,14 +83,23 @@ class GroupsController extends GetxController {
   @override
   void onReady() {
     super.onReady();
-    // Performance: Only load if data is not already loaded
-    if (!_isDataLoaded && !_isLoading && groups.isEmpty && _allGroups.isEmpty) {
-      loadGroups();
-    } else if (_allGroups.isNotEmpty) {
-      // Apply filter from cached data if available
-      _applyClientSideFilter();
+    // Always load fresh groups data when navigating to groups screen
+    // This ensures users see updated group content when accessing from quick actions
+    if (!_isLoading) {
+      loadGroups(refresh: true);
     }
+    // Always load user groups to ensure membership status is up-to-date
     loadUserGroups();
+    print('DEBUG: GroupsController.onReady - selectedCategory.value before jingle check: "${selectedCategory.value}"');
+    // New code to start jingle
+    if (selectedCategory.value.isNotEmpty) {
+      print('DEBUG: GroupsController.onReady - Calling startJingle with selectedCategory: "${selectedCategory.value}"');
+      Get.find<JingleService>().startJingle(selectedCategory.value);
+    } else {
+      print('DEBUG: GroupsController.onReady - selectedCategory is empty, calling startJingle with default "Prayer"');
+      Get.find<JingleService>().startJingle('Prayer');
+    }
+    print('DEBUG: GroupsController.onReady - Jingle start logic completed.');
   }
 
   /// Load user ID from storage
@@ -357,7 +367,7 @@ class GroupsController extends GetxController {
         return true; // Return true to show success (UI will update)
       }
       
-      message.value = 'Error: $errorMessage';
+      message.value = errorMessage;
       print('Error joining group: $e');
       return false;
     } finally {
@@ -398,7 +408,15 @@ class GroupsController extends GetxController {
       
       return true;
     } catch (e) {
-      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      String errorMessage = e.toString().replaceAll('Exception: ', '');
+      
+      // Use custom frontend message for "only admin" error
+      if (errorMessage.contains('Cannot leave group') && errorMessage.contains('only admin')) {
+        message.value = 'You cannot leave this group as you are the only admin. Please assign another admin first.';
+      } else {
+        message.value = errorMessage;
+      }
+      
       print('Error leaving group: $e');
       return false;
     } finally {
@@ -426,6 +444,15 @@ class GroupsController extends GetxController {
     }
     
     return isMemberResult;
+  }
+
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allGroups = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
+    }
   }
 
   /// Apply client-side filter instantly (no API call)

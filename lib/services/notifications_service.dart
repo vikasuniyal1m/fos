@@ -20,6 +20,7 @@ class NotificationsService {
     int offset = 0,
   }) async {
     final queryParams = <String, String>{
+      'action': 'get_notifications',
       'user_id': userId.toString(),
       'limit': limit.toString(),
       'offset': offset.toString(),

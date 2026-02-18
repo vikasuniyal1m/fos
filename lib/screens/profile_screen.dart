@@ -8,7 +8,13 @@ import 'package:fruitsofspirit/controllers/profile_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/notifications_controller.dart';
+import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
@@ -17,6 +23,7 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/permission_manager.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:fruitsofspirit/screens/blocked_users_screen.dart';
 
 /// Profile Screen
 /// Displays user profile information with professional UI
@@ -59,7 +66,7 @@ class ProfileScreen extends GetView<ProfileController> {
     return Scaffold(
       backgroundColor: AppTheme.themeColor,
       appBar: StandardAppBar(
-        showBackButton: false,
+        showBackButton: true,
       ),
       body: Obx(() {
         if (controller.isLoading.value && controller.profile.isEmpty) {
@@ -247,7 +254,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                 onTap: () {
                                   final currentUserId = controller.userId.value;
                                   if (currentUserId > 0) {
-                                    Get.toNamed(
+                                    PaymentGate.navigateToFeature(
                                       Routes.PRAYER_REQUESTS,
                                       arguments: {
                                         'fromProfile': true,
@@ -256,8 +263,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                     );
                                     return;
                                   }
-
-                                  Get.toNamed(Routes.PRAYER_REQUESTS);
+                                  PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
                                 },
                               ),
                             ),
@@ -272,7 +278,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                 onTap: () {
                                   final currentUserId = controller.userId.value;
                                   if (currentUserId > 0) {
-                                    Get.toNamed(
+                                    PaymentGate.navigateToFeature(
                                       Routes.BLOGS,
                                       arguments: {
                                         'fromProfile': true,
@@ -281,8 +287,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                     );
                                     return;
                                   }
-
-                                  Get.toNamed(Routes.BLOGS);
+                                  PaymentGate.navigateToFeature(Routes.BLOGS);
                                 },
                               ),
                             ),
@@ -297,7 +302,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                 onTap: () {
                                   final currentUserId = controller.userId.value;
                                   if (currentUserId > 0) {
-                                    Get.toNamed(
+                                    PaymentGate.navigateToFeature(
                                       Routes.GALLERY,
                                       arguments: {
                                         'fromProfile': true,
@@ -306,8 +311,7 @@ class ProfileScreen extends GetView<ProfileController> {
                                     );
                                     return;
                                   }
-
-                                  Get.toNamed(Routes.GALLERY);
+                                  PaymentGate.navigateToFeature(Routes.GALLERY);
                                 },
                               ),
                             ),
@@ -653,6 +657,15 @@ class ProfileScreen extends GetView<ProfileController> {
           Divider(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
           _buildSettingTile(
             context,
+            Icons.block,
+            'Blocked Users',
+            'Manage users you\'ve blocked',
+            null,
+            () => Get.to(() => const BlockedUsersScreen()),
+          ),
+          Divider(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
+          _buildSettingTile(
+            context,
             Icons.logout,
             'Logout',
             'Sign out from your account',
@@ -852,6 +865,21 @@ class ProfileScreen extends GetView<ProfileController> {
       // Clear cache
       await CacheService.clearAllCache();
 
+      // Delete permanent controllers to prevent data leak between users
+      try {
+        Get.delete<HomeController>(force: true);
+        Get.delete<PrayersController>(force: true);
+        Get.delete<GroupsController>(force: true);
+        Get.delete<NotificationsController>(force: true);
+        Get.delete<ProfileController>(force: true);
+        Get.delete<FruitsController>(force: true);
+        Get.delete<BlogsController>(force: true);
+        Get.delete<VideosController>(force: true);
+        Get.delete<GalleryController>(force: true);
+      } catch (e) {
+        print('Error deleting controllers: $e');
+      }
+
       // Close dialog
       Get.back();
 
@@ -863,8 +891,8 @@ class ProfileScreen extends GetView<ProfileController> {
         'Logged Out',
         'You have been successfully logged out',
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green.withOpacity(0.8),
-        colorText: Colors.white,
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
         duration: const Duration(seconds: 2),
         icon: const Icon(Icons.check_circle, color: Colors.white),
       );
@@ -1236,36 +1264,6 @@ class ProfileScreen extends GetView<ProfileController> {
   /// Pick photo and update profile
   Future<void> _pickAndUpdatePhoto(BuildContext context, ProfileController controller, ImageSource source) async {
     try {
-      // Request permissions first
-      bool hasPermission = false;
-      if (source == ImageSource.camera) {
-        hasPermission = await PermissionManager.requestCameraPermission();
-        if (!hasPermission) {
-          Get.snackbar(
-            'Permission Required',
-            'Camera permission is required to take photos. Please enable it in settings.',
-            backgroundColor: Colors.orange,
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-            duration: const Duration(seconds: 3),
-          );
-          return;
-        }
-      } else {
-        hasPermission = await PermissionManager.requestStoragePermission();
-        if (!hasPermission) {
-          Get.snackbar(
-            'Permission Required',
-            'Storage permission is required to select photos. Please enable it in settings.',
-            backgroundColor: Colors.orange,
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-            duration: const Duration(seconds: 3),
-          );
-          return;
-        }
-      }
-
       final picker = ImagePicker();
       final image = await picker.pickImage(
         source: source,
@@ -1333,13 +1331,30 @@ class ProfileScreen extends GetView<ProfileController> {
         if (fileToUpload != null && await fileToUpload.exists()) {
           await _uploadProfilePhoto(context, controller, fileToUpload);
         } else {
-          Get.snackbar(
-            'Error',
-            'Failed to process image. Please try again.',
-            backgroundColor: Colors.red,
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-            duration: const Duration(seconds: 3),
+          ScaffoldMessenger.of(Get.context!).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Failed to process image. Please try again.',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+              margin: EdgeInsets.only(
+                bottom: ResponsiveHelper.spacing(Get.context!, 20),
+                left: ResponsiveHelper.spacing(Get.context!, 20),
+                right: ResponsiveHelper.spacing(Get.context!, 20),
+              ),
+            ),
           );
         }
       }
@@ -1352,13 +1367,30 @@ class ProfileScreen extends GetView<ProfileController> {
         Get.back();
       }
       
-      Get.snackbar(
-        'Error',
-        'Failed to pick image: ${e.toString().replaceAll('Exception: ', '')}',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 3),
+      ScaffoldMessenger.of(Get.context!).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Text(
+                'Failed to pick image: ${e.toString().replaceAll('Exception: ', '')}',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          margin: EdgeInsets.only(
+            bottom: ResponsiveHelper.spacing(Get.context!, 20),
+            left: ResponsiveHelper.spacing(Get.context!, 20),
+            right: ResponsiveHelper.spacing(Get.context!, 20),
+          ),
+        ),
       );
     }
   }
@@ -1410,26 +1442,58 @@ class ProfileScreen extends GetView<ProfileController> {
     }
 
     if (success) {
-      Get.snackbar(
-        'Success',
-        'Profile photo updated successfully',
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 2),
-        icon: const Icon(Icons.check_circle, color: Colors.white),
+      ScaffoldMessenger.of(Get.context!).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Text(
+                'Profile photo updated successfully',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+          margin: EdgeInsets.only(
+            bottom: ResponsiveHelper.spacing(Get.context!, 20),
+            left: ResponsiveHelper.spacing(Get.context!, 20),
+            right: ResponsiveHelper.spacing(Get.context!, 20),
+          ),
+        ),
       );
     } else {
-      Get.snackbar(
-        'Error',
-        controller.message.value.isNotEmpty 
-            ? controller.message.value 
-            : 'Failed to update profile photo',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 3),
-        icon: const Icon(Icons.error, color: Colors.white),
+      ScaffoldMessenger.of(Get.context!).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Text(
+                controller.message.value.isNotEmpty 
+                    ? controller.message.value 
+                    : 'Failed to update profile photo',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: ResponsiveHelper.fontSize(Get.context!, mobile: 14, tablet: 15, desktop: 16),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          margin: EdgeInsets.only(
+            bottom: ResponsiveHelper.spacing(Get.context!, 20),
+            left: ResponsiveHelper.spacing(Get.context!, 20),
+            right: ResponsiveHelper.spacing(Get.context!, 20),
+          ),
+        ),
       );
     }
   }

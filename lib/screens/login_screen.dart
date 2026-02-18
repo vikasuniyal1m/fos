@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/bindings/InitialBinding.dart';
 import 'package:get/get.dart';
 import 'dart:io' show Platform;
-import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:bootstrap_icons/bootstrap_icons.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -9,6 +11,16 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:fruitsofspirit/services/auth_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart' show ApprovalPendingException, ApiException, NetworkException, RoleMismatchException;
+import 'package:fruitsofspirit/services/intro_service.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/prayers_controller.dart';
+import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/notifications_controller.dart';
+import 'package:fruitsofspirit/controllers/profile_controller.dart';
+import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/blogs_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
+import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -25,6 +37,12 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   String? _loginError; // Store login error message
+
+  void _reinitializeControllers() {
+    // Re-initialize core controllers to load new user data
+    // These were deleted during logout to prevent data leak
+    InitialBinding().dependencies();
+  }
 
   @override
   void dispose() {
@@ -71,8 +89,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user data in SharedPreferences
       await UserStorage.saveUser(user);
 
+      // Re-initialize controllers to load new user data
+      _reinitializeControllers();
+
       if (mounted) {
-        Get.offAllNamed(Routes.HOME);
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {
       if (mounted) {
@@ -167,8 +188,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         // Save user data
                         await UserStorage.saveUser(user);
                         
+                        // Re-initialize controllers
+                        _reinitializeControllers();
+
                         if (mounted) {
-                          Get.offAllNamed(Routes.HOME);
+                          Get.offAllNamed(Routes.DASHBOARD);
                         }
                       } catch (loginError) {
                         if (mounted) {
@@ -218,19 +242,24 @@ class _LoginScreenState extends State<LoginScreen> {
         });
         
         // Show message that role was auto-selected
-        Get.snackbar(
-          'Role Updated',
-          'Your role has been automatically set to ${e.correctRole}. Please try logging in again.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.blue.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.info_outline,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
+        Get.showSnackbar(
+          GetSnackBar(
+            title: 'Role Updated',
+            message: 'Your role has been automatically set to ${e.correctRole}. Please try logging in again.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: AppTheme.iconscolor,
+            duration: const Duration(seconds: 3),
+            margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+            borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
+            icon: Icon(
+              Icons.info_outline,
+              color: Colors.white,
+              size: ResponsiveHelper.iconSize(context, mobile: 24),
+            ),
+            mainButton: TextButton(
+              onPressed: () => Get.back(),
+              child: const Text('OK', style: TextStyle(color: Colors.black)),
+            ),
           ),
         );
       }
@@ -271,23 +300,28 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on NetworkException catch (e) {
       if (mounted) {
-        Get.snackbar(
-          'Connection Error',
-          'No internet connection. Please check your network settings and try again.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-          icon: Icon(
-            Icons.wifi_off,
-            color: Colors.white,
-            size: ResponsiveHelper.iconSize(context, mobile: 24),
+        Get.showSnackbar(
+          GetSnackBar(
+            title: 'Connection Error',
+            message: 'No internet connection. Please check your network settings and try again.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: AppTheme.iconscolor,
+            duration: const Duration(seconds: 4),
+            margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+            borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
+            icon: Icon(
+              Icons.wifi_off,
+              color: Colors.white,
+              size: ResponsiveHelper.iconSize(context, mobile: 24),
+            ),
+            shouldIconPulse: true,
+            isDismissible: true,
+            dismissDirection: DismissDirection.horizontal,
+            mainButton: TextButton(
+              onPressed: () => Get.back(),
+              child: const Text('OK', style: TextStyle(color: Colors.black)),
+            ),
           ),
-          shouldIconPulse: true,
-          isDismissible: true,
-          dismissDirection: DismissDirection.horizontal,
         );
       }
     } finally {
@@ -302,12 +336,20 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signInWithApple() async {
     // Check if Sign in with Apple is available (iOS 13+)
     if (!Platform.isIOS) {
-      Get.snackbar(
-        'Not Available',
-        'Sign in with Apple is only available on iOS devices.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withOpacity(0.9),
-        colorText: Colors.white,
+      Get.showSnackbar(
+        GetSnackBar(
+          title: 'Not Available',
+          message: 'Sign in with Apple is only available on iOS devices.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.iconscolor,
+          duration: const Duration(seconds: 3),
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
+          mainButton: TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('OK', style: TextStyle(color: Colors.black)),
+          ),
+        ),
       );
       return;
     }
@@ -353,8 +395,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user data
       await UserStorage.saveUser(user);
 
+      // Re-initialize controllers
+      _reinitializeControllers();
+
       if (mounted) {
-        Get.offAllNamed(Routes.HOME);
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on SignInWithAppleAuthorizationException catch (e) {
       // Handle Apple Sign In specific errors
@@ -378,8 +423,8 @@ class _LoginScreenState extends State<LoginScreen> {
               'Sign in with Apple',
               errorMessage,
               snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.orange.withOpacity(0.9),
-              colorText: Colors.white,
+              backgroundColor: AppTheme.iconscolor,
+              colorText: Colors.black,
               duration: const Duration(seconds: 3),
             );
           }
@@ -570,8 +615,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user data
       await UserStorage.saveUser(user);
 
+      // Re-initialize controllers
+      _reinitializeControllers();
+
       if (mounted) {
-        Get.offAllNamed(Routes.HOME);
+        Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {
       if (mounted) {
@@ -872,7 +920,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       hintText: "Email or Phone Number",
                       prefixIcon: Icon(
                         Icons.person, 
-                        color: const Color(0xFFC79211),
+                        color: AppTheme.iconscolor,
                         size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 26),
                       ),
                       filled: true,
@@ -884,15 +932,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
@@ -929,7 +977,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     decoration: InputDecoration(
                       prefixIcon: Icon(
                         Icons.person_outline, 
-                        color: const Color(0xFFC79211),
+                        color: AppTheme.iconscolor,
                         size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 26),
                       ),
                       labelText: "Select Role",
@@ -943,15 +991,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.5),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
@@ -1022,7 +1070,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       hintText: "Password",
                       prefixIcon: Icon(
                         Icons.lock, 
-                        color: const Color(0xFFC79211),
+                        color: AppTheme.iconscolor,
                         size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 26),
                       ),
                       filled: true,
@@ -1035,7 +1083,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          color: const Color(0xFFC79211),
+                          color: AppTheme.iconscolor,
                           size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 26),
                         ),
                         onPressed: () {
@@ -1046,15 +1094,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.2),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211).withOpacity(0.3), width: 1.5),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: 1.2),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
-                        borderSide: BorderSide(color: const Color(0xFFC79211), width: ResponsiveHelper.spacing(context, 2.5)),
+                        borderSide: BorderSide(color: AppTheme.iconscolor.withOpacity(0.3), width: ResponsiveHelper.spacing(context, 2.5)),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
@@ -1160,7 +1208,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       }, // Navigate to PhoneAuthScreen
                       style: ResponsiveHelper.adaptiveButtonStyle(
                         context,
-                        backgroundColor: const Color(0xFF9F9467),
+                        backgroundColor: const Color(0xFF9F9467).withOpacity(0.8),
                         foregroundColor: Colors.white,
                       ).copyWith(
                         padding: MaterialStateProperty.all(

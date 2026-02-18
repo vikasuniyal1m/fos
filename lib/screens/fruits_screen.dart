@@ -16,12 +16,17 @@ import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 
+import '../controllers/main_dashboard_controller.dart';
 import '../utils/app_theme.dart';
 
 /// Fruits of the Spirit Screen
 /// Displays all 9 fruits with selection functionality
 class FruitsScreen extends StatefulWidget {
-  const FruitsScreen({Key? key}) : super(key: key);
+  /// If this screen is used as a root tab inside an `IndexedStack`,
+  /// we should NOT show the back button.
+  final bool isRootTab;
+
+  const FruitsScreen({Key? key, this.isRootTab = false}) : super(key: key);
 
   @override
   State<FruitsScreen> createState() => _FruitsScreenState();
@@ -38,6 +43,43 @@ class _FruitsScreenState extends State<FruitsScreen> {
   static var _isEmojisLoaded = false;
   static var _cachedFruitEmojis = <Map<String, dynamic>>[];
   static var _cachedAllVariants = <Map<String, dynamic>>[];
+
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -70,22 +112,26 @@ class _FruitsScreenState extends State<FruitsScreen> {
       final prefsCachedVariants = await CacheService.getCachedList('fruits_screen_all_variants');
       
       if (prefsCachedFruits.isNotEmpty) {
-        setState(() {
-          fruitEmojis = List<Map<String, dynamic>>.from(prefsCachedFruits);
-          allFruitVariants = List<Map<String, dynamic>>.from(prefsCachedVariants);
-          isLoadingEmojis = false;
-        });
+        if (mounted) {
+          setState(() {
+            fruitEmojis = List<Map<String, dynamic>>.from(prefsCachedFruits);
+            allFruitVariants = List<Map<String, dynamic>>.from(prefsCachedVariants);
+            isLoadingEmojis = false;
+          });
+        }
         print('✅ Loaded ${fruitEmojis.length} fruits from SharedPreferences cache (instant display)');
         return;
       }
       
       // If static cache is available, use it temporarily
       if (_isEmojisLoaded && _cachedFruitEmojis.isNotEmpty) {
-        setState(() {
-          fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
-          allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
-          isLoadingEmojis = true; // Keep loading state to show we're refreshing
-        });
+        if (mounted) {
+          setState(() {
+            fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
+            allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
+            isLoadingEmojis = true; // Keep loading state to show we're refreshing
+          });
+        }
         print('📋 Showing static cached fruit emojis temporarily (${fruitEmojis.length} items) while loading fresh data...');
       }
     } catch (e) {
@@ -197,7 +243,6 @@ class _FruitsScreenState extends State<FruitsScreen> {
       }).toList();
       
       print('✅ Filtered to ${emojis.length} fruit emojis matching fruits from table');
-      
       // Store all variants first (for variant dialog)
       final allVariants = List<Map<String, dynamic>>.from(emojis);
       
@@ -356,11 +401,13 @@ class _FruitsScreenState extends State<FruitsScreen> {
       }
       
       // Update UI with fresh data (not from cache reference)
-      setState(() {
-        fruitEmojis = freshFruitEmojis;
-        allFruitVariants = freshAllVariants;
-        isLoadingEmojis = false;
-      });
+      if (mounted) {
+        setState(() {
+          fruitEmojis = freshFruitEmojis;
+          allFruitVariants = freshAllVariants;
+          isLoadingEmojis = false;
+        });
+      }
       
       print('✅ Fresh fruit emojis loaded and cached (${fruitEmojis.length} items)');
       print('✅ Cache updated with latest data');
@@ -370,19 +417,23 @@ class _FruitsScreenState extends State<FruitsScreen> {
       
       // If we have cached data, use it even on error
       if (_isEmojisLoaded && _cachedFruitEmojis.isNotEmpty) {
-        setState(() {
-          fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
-          allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
-          isLoadingEmojis = false;
-        });
+        if (mounted) {
+          setState(() {
+            fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
+            allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
+            isLoadingEmojis = false;
+          });
+        }
         print('✅ Using cached data after error');
       } else {
         // No cached data - set empty list
-        setState(() {
-          fruitEmojis = [];
-          allFruitVariants = [];
-          isLoadingEmojis = false;
-        });
+        if (mounted) {
+          setState(() {
+            fruitEmojis = [];
+            allFruitVariants = [];
+            isLoadingEmojis = false;
+          });
+        }
       }
     }
   }
@@ -589,11 +640,10 @@ class _FruitsScreenState extends State<FruitsScreen> {
     });
     
     if (variants.isEmpty) {
-      Get.snackbar(
+      _showCustomSnackbar(
+        context,
         'No Variants',
         'No variants found for $fruitName',
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
       );
       return;
     }
@@ -637,6 +687,7 @@ class _FruitsScreenState extends State<FruitsScreen> {
       allFruitVariants: allFruitVariants,
       buildHighQualityImage: _buildHighQualityImage,
       buildEmojiFallback: _buildEmojiFallback,
+      isRootTab: widget.isRootTab,
     );
   }
 }
@@ -663,6 +714,43 @@ class _FruitVariantsDialog extends StatefulWidget {
 }
 
 class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
+  /// Show a custom snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
+    if (!mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : AppTheme.iconscolor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -847,6 +935,65 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                         child: InkWell(
                           onTap: () async {
                             print('🖱️ Variant tapped: ${variant['name']}');
+
+                            // 1. Show Loading Dialog immediately
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (context) => Center(
+                                child: Container(
+                                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 24)),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.2),
+                                        blurRadius: 20,
+                                        spreadRadius: 5,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        height: ResponsiveHelper.spacing(context, 40),
+                                        width: ResponsiveHelper.spacing(context, 40),
+                                        child: CircularProgressIndicator(
+                                          valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF8B4513)),
+                                          strokeWidth: 3,
+                                        ),
+                                      ),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, 20)),
+                                      Text(
+                                        'Updating feeling...',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: const Color(0xFF8B4513),
+                                          letterSpacing: 0.5,
+                                        ).copyWith(
+                                          decoration: TextDecoration.none, // Isse lines hat jayengi
+                                        ),
+                                      ),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                                      Text(
+                                        'Please wait a moment',
+                                        style: ResponsiveHelper.textStyle(
+                                          context,
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ).copyWith(
+                                          decoration: TextDecoration.none, // Isse lines hat jayengi
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
                             // Record usage
                             try {
                               final userId = await UserStorage.getUserId();
@@ -861,158 +1008,134 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                 
                                 // Priority 1: Use code (like "meekness_grapes_03") - BEST for API
                                 final variantCode = variant['code'] as String?;
+                                final emojiChar = variant['emoji_char'] as String?;
+                                final imageUrl = variant['image_url'] as String?;
+                                final name = variant['name'] as String?;
+
                                 if (variantCode != null && variantCode.toString().trim().isNotEmpty) {
                                   emojiValue = variantCode.toString().trim();
-                                  print('✅ Using variant code: $emojiValue');
-                                } 
-                                // Priority 2: Use emoji_char if available (for emoji-based)
-                                else {
-                                  final emojiChar = variant['emoji_char'] as String?;
-                                  if (emojiChar != null && emojiChar.toString().trim().isNotEmpty) {
-                                    emojiValue = emojiChar.toString().trim();
-                                    print('✅ Using variant emoji_char: $emojiValue');
-                                  }
-                                  // Priority 3: Use full image_url (API can match by image URL)
-                                   else {
-                                    final imageUrl = variant['image_url'] as String?;
-                                    if (imageUrl != null && imageUrl.toString().trim().isNotEmpty) {
-                                      emojiValue = imageUrl.toString().trim();
-                                      print('✅ Using variant image_url: $emojiValue');
-                                    }
-                                    // Priority 4: Fallback to name (least reliable for API)
-                                    else {
-                                      emojiValue = variant['name'] as String?;
-                                      print('✅ Using variant name: $emojiValue');
-                                    }
-                                  }
+                                } else if (emojiChar != null && emojiChar.toString().trim().isNotEmpty) {
+                                  emojiValue = emojiChar.toString().trim();
+                                } else if (imageUrl != null && imageUrl.toString().trim().isNotEmpty) {
+                                  emojiValue = imageUrl.toString().trim();
+                                } else {
+                                  emojiValue = name;
                                 }
-                                
-                                if (emojiValue != null) {
-                                  // Extract emoji value from variant
-                                  // Priority: code > emoji_char > image_url (full) > name
-                                  String? emojiValueForApi;
-                                  
-                                  // Priority 1: Use code (like "meekness_grapes_03") - BEST for API
-                                  final variantCode = variant['code'] as String?;
-                                  if (variantCode != null && variantCode.toString().trim().isNotEmpty) {
-                                    emojiValueForApi = variantCode.toString().trim();
-                                  } 
-                                  // Priority 2: Use emoji_char if available
-                                  else {
-                                    final emojiChar = variant['emoji_char'] as String?;
-                                    if (emojiChar != null && emojiChar.toString().trim().isNotEmpty) {
-                                      emojiValueForApi = emojiChar.toString().trim();
+
+                                if (emojiValue != null && emojiValue.isNotEmpty) {
+                                  try {
+                                    // STEP 1: Save to database via API
+                                    print('🍎 FRUIT UPDATE: Saving to database: $emojiValue');
+
+                                    // Add a small delay so the user actually sees the loader (UX improvement)
+                                    // otherwise successful calls might be too fast and look glitchy
+                                    await Future.delayed(const Duration(milliseconds: 800));
+
+                                    await EmojisService.useEmoji(
+                                      userId: userId,
+                                      emoji: emojiValue,
+                                    );
+
+                                    // STEP 2: Update local storage
+                                    await widget.homeController.updateUserFeeling(emojiValue, emojiData: variant);
+
+                                    // Close Loading Dialog
+                                    if (mounted) {
+                                      Navigator.of(context).pop();
                                     }
-                                    // Priority 3: Use full image_url
-                                    else {
-                                      final imageUrl = variant['image_url'] as String?;
-                                      if (imageUrl != null && imageUrl.toString().trim().isNotEmpty) {
-                                        emojiValueForApi = imageUrl.toString().trim();
-                                      }
-                                      // Priority 4: Fallback to name
-                                      else {
-                                        emojiValueForApi = variant['name'] as String?;
-                                      }
+
+                                    // Close Variants Dialog
+                                    if (mounted) {
+                                      Navigator.of(context).pop();
                                     }
-                                  }
-                                  
-                                  if (emojiValueForApi != null && emojiValueForApi.isNotEmpty) {
+
+                                    // Go to Dashboard
+                                    if (mounted) {
+                                      // Direct navigation to dashboard without GetX route checking
+                                      Navigator.of(context).pushNamedAndRemoveUntil(
+                                        Routes.DASHBOARD,
+                                        (route) => false,
+                                      );
+                                    }
+
+                                    // Show success message
+                                    _showCustomSnackbar(
+                                      context,
+                                      'Success',
+                                      'Feeling updated successfully!',
+                                    );
+
+                                  } catch (e) {
+                                    print('❌ API Error: $e, falling back to local storage');
+
+                                    // Fallback: save locally
                                     try {
-                                      // STEP 1: Save to database FIRST (via API)
-                                      print('🍎 FRUIT ISSUE: 💾 STEP 1: Saving to database via API...');
-                                      print('🍎 FRUIT ISSUE:   - userId: $userId');
-                                      print('🍎 FRUIT ISSUE:   - emojiValueForApi: $emojiValueForApi');
-                                      print('🍎 FRUIT ISSUE:   - variant name: ${variant['name']}');
-                                      print('🍎 FRUIT ISSUE:   - variant ID: ${variant['id']}');
-                                      final apiResponse = await EmojisService.useEmoji(
-                                        userId: userId,
-                                        emoji: emojiValueForApi,
-                                      );
-                                      print('🍎 FRUIT ISSUE: ✅ Emoji saved to database successfully. Response: $apiResponse');
-                                      
-                                      // STEP 2: Update local storage IMMEDIATELY with variant data
-                                      // This ensures instant UI update and persistence
-                                      print('🍎 FRUIT ISSUE: 💾 STEP 2: Saving to local storage with variant data...');
-                                      print('🍎 FRUIT ISSUE:   - Calling updateUserFeeling with emoji: $emojiValueForApi');
-                                      print('🍎 FRUIT ISSUE:   - Variant data: name=${variant['name']}, id=${variant['id']}');
-                                      await widget.homeController.updateUserFeeling(emojiValueForApi, emojiData: variant);
-                                      print('🍎 FRUIT ISSUE: ✅ Emoji saved to local storage successfully');
-                                      
-                                      // Close dialog - check if still mounted
-                                      if (mounted) {
-                                        Navigator.of(context).pop();
-                                      }
-                                      
-                                      // STEP 3: Don't reload from API immediately - trust local storage
-                                      // The local storage already has the correct data with proper emoji_details
-                                      print('✅ STEP 3: Skipping API reload - local storage has correct data');
-                                      print('✅ UI should show the selected variant: ${variant['name']}');
-                                      
-                                      // Navigate to home page after fruit selection
-                                      Get.offNamedUntil(Routes.HOME, (route) => false);
-                                      
-                                      // Show success message
-                                      Get.snackbar(
-                                        'Success',
-                                        'Feeling updated successfully!',
-                                        snackPosition: SnackPosition.BOTTOM,
-                                        backgroundColor: Colors.green,
-                                        colorText: Colors.white,
-                                        duration: const Duration(seconds: 2),
-                                      );
-                                    } catch (e) {
-                                      print('❌ Error saving emoji: $e');
-                                      
-                                      // Even if API fails, save to local storage for offline support
-                                      print('💾 Saving to local storage as fallback...');
-                                      try {
-                                        await widget.homeController.updateUserFeeling(emojiValueForApi, emojiData: variant);
-                                        print('✅ Saved to local storage as fallback');
-                                      } catch (localError) {
-                                        print('❌ Error saving to local storage: $localError');
-                                      }
-                                      
-                                      // Close dialog on error
-                                      if (mounted) {
-                                        Navigator.of(context).pop();
-                                      }
-                                      
-                                      // Navigate to home page after fruit selection (even on error)
-                                      Get.offNamedUntil(Routes.HOME, (route) => false);
-                                      
-                                      // Show warning message
-                                      Get.snackbar(
-                                        'Warning',
-                                        'Saved locally. Will sync when online.',
-                                        snackPosition: SnackPosition.BOTTOM,
-                                        backgroundColor: Colors.orange,
-                                        colorText: Colors.white,
-                                        duration: const Duration(seconds: 2),
+                                      await widget.homeController.updateUserFeeling(emojiValue, emojiData: variant);
+                                    } catch (_) {}
+
+                                    // Close Loader
+                                    if (mounted) {
+                                      Navigator.of(context).pop();
+                                    }
+
+                                    // Close Variants Dialog
+                                    if (mounted) {
+                                      Navigator.of(context).pop();
+                                    }
+
+                                    // Go to Dashboard
+                                    if (mounted) {
+                                      Navigator.of(context).pushNamedAndRemoveUntil(
+                                        Routes.DASHBOARD,
+                                        (route) => false,
                                       );
                                     }
-                                  } else {
-                                    print('❌ Could not determine emojiValue for variant: ${variant['name']}');
+
+                                    _showCustomSnackbar(
+                                      context,
+                                      'Saved',
+                                      'Feeling saved locally.',
+                                    );
                                   }
                                 } else {
-                                  print('❌ Could not determine emojiValue for variant: ${variant['name']}');
+                                  // Close Loader
+                                  if (mounted) {
+                                    Navigator.of(context).pop();
+                                  }
+
+                                  // Get.snackbar(
+                                  //   'Error',
+                                  //   'Invalid fruit data',
+                                  //   backgroundColor: Colors.red,
+                                  //   colorText: Colors.white,
+                                  // );
                                 }
                               } else {
-                                print('⚠️ User not logged in, cannot record fruit selection.');
-                                Get.snackbar(
+                                // Close Loader
+                                if (mounted) {
+                                  Navigator.of(context).pop();
+                                }
+
+                                _showCustomSnackbar(
+                                  context,
                                   'Login Required',
                                   'Please login to select fruits.',
-                                  backgroundColor: Colors.redAccent,
-                                  colorText: Colors.white,
+                                  isError: true,
                                 );
                               }
                             } catch (e) {
-                              print('❌ Error recording fruit selection: $e');
-                              Get.snackbar(
-                                'Error',
-                                'Failed to record fruit selection: ${e.toString().replaceAll('Exception: ', '')}',
-                                backgroundColor: Colors.redAccent,
-                                colorText: Colors.white,
-                              );
+                              // Close Loader logic
+                              if (mounted) {
+                                Navigator.of(context).pop();
+                              }
+
+                              print('❌ Critical Error: $e');
+                              // _showCustomSnackbar(
+                              //   context,
+                              //   'Error',
+                              //   'Something went wrong. Please try again.',
+                              //   isError: true,
+                              // );
                             }
                           },
                               borderRadius: BorderRadius.circular(ScreenSize.borderRadiusMedium),
@@ -1186,6 +1309,7 @@ class _FruitsScreenContent extends StatefulWidget {
   final List<Map<String, dynamic>> allFruitVariants;
   final Widget Function(BuildContext, Map<String, dynamic>, double) buildHighQualityImage;
   final Widget Function(BuildContext, String, double) buildEmojiFallback;
+  final bool isRootTab;
 
   const _FruitsScreenContent({
     Key? key,
@@ -1200,6 +1324,7 @@ class _FruitsScreenContent extends StatefulWidget {
     required this.allFruitVariants,
     required this.buildHighQualityImage,
     required this.buildEmojiFallback,
+    this.isRootTab = false,
   }) : super(key: key);
 
   @override
@@ -1210,6 +1335,10 @@ class _FruitsScreenContentState extends State<_FruitsScreenContent> {
 
   @override
   Widget build(BuildContext context) {
+    // Only show back if this Fruits page is NOT the root-tab instance
+    // and we can pop from the navigator
+    final bool showBackButton = !widget.isRootTab && Navigator.of(context).canPop();
+
     // Professional responsive design for tablets/iPads
     final isTabletDevice = ResponsiveHelper.isTablet(context);
     final double? maxContentWidthValue = isTabletDevice 
@@ -1218,9 +1347,7 @@ class _FruitsScreenContentState extends State<_FruitsScreenContent> {
     
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: const StandardAppBar(
-        showBackButton: false,
-      ),
+      appBar: StandardAppBar(showBackButton: showBackButton),
       body: Builder(
         builder: (context) {
           if (widget.isLoadingEmojis && widget.fruitEmojis.isEmpty) {
@@ -1486,7 +1613,7 @@ class _FruitsScreenContentState extends State<_FruitsScreenContent> {
         );
         },
       ),
-      bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 1),
+      // bottomNavigationBar: const AppBottomNavigationBar(currentIndex: 1),
     );
   }
 

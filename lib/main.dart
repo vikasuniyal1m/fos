@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:get/get.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/deep_link_service.dart';
 import 'package:fruitsofspirit/services/push_notification_service.dart';
 import 'package:fruitsofspirit/services/analytics_service.dart';
@@ -12,11 +13,33 @@ import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/utils/screen_size.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fruitsofspirit/screens/IntroVideoScreen.dart';
+import 'package:fruitsofspirit/services/intro_service.dart';
+import 'package:fruitsofspirit/services/jingle_service.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
+import 'package:fruitsofspirit/config/api_config.dart';
+
+import 'bindings/InitialBinding.dart';
+
 // Uncomment next line to run comprehensive tests
 // import 'package:fruitsofspirit/testing/comprehensive_test.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Force the app to stay in portrait mode.
+  // Only the Intro Video Overlay is allowed to rotate.
+  try {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  } catch (e) {
+    // Ignore orientation change errors (common on iOS with certain windowing modes)
+    print('Orientation change error: $e');
+  }
+
   await _initializeDependencies();
 
   runApp(
@@ -33,6 +56,10 @@ Future<void> _initializeDependencies() async {
   // 🧪 To run comprehensive tests - Uncomment below
   // await ComprehensiveTest.runAllTests();
 
+  // Initialize SharedPreferences (now handled by IntroService)
+  debugPrint('Initializing IntroService...');
+  await IntroService.init();
+
   // Initialize Hive (must be done before other services)
   await Hive.initFlutter();
 
@@ -41,6 +68,13 @@ Future<void> _initializeDependencies() async {
 
   // Initialize Hive Cache Service
   await HiveCacheService.init();
+
+  // Stripe: set key only here; applySettings() runs after first frame so Android theme is applied
+  Stripe.publishableKey = ApiConfig.stripePublishableKey;
+
+  // Pre-initialize Jingle Service (starts pre-caching)
+  // Get.put will automatically call onInit() which calls initialize()
+  Get.put(JingleService(), permanent: true);
 
   // Initialize Easy Localization
   await EasyLocalization.ensureInitialized();
@@ -167,43 +201,70 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Initialize Stripe after first frame (Android needs theme applied first)
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await Stripe.instance.applySettings();
+      } catch (e) {
+        debugPrint('Stripe init deferred or failed: $e');
+      }
+    });
     return GetMaterialApp(
-      title: 'Fruits of the Spirit',
+      title: '', // Removed the title to hide the system app bar text
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        // Enable keyboard swipe-down functionality
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        platform: TargetPlatform.iOS,
+        // Set default text input action to Done for all TextFields
+        inputDecorationTheme: const InputDecorationTheme(
+          // You can add other default input decoration settings here
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            // Text button styles
+          ),
+        ),
       ),
+      initialBinding: InitialBinding(),
       localizationsDelegates: context.localizationDelegates,
       supportedLocales: context.supportedLocales,
       locale: context.locale,
-      initialRoute: AppPages.INITIAL,
+      initialRoute: Routes.SPLASH,
       getPages: AppPages.routes,
+      debugShowCheckedModeBanner: false,
       builder: (context, child) {
-        // Clamp textScaleFactor for better accessibility while preventing UI breaks
+        // Safe access to MediaQuery
         final mediaQueryData = MediaQuery.of(context);
-        final constrainedTextScaleFactor = mediaQueryData.textScaleFactor.clamp(0.9, 1.3);
+        final isTablet = mediaQueryData.size.width >= 600;
 
-        // Detect device type first (before ScreenUtilInit)
-        final screenWidth = mediaQueryData.size.width;
-        final isTablet = screenWidth >= 600;
-
-        // Wrap with ScreenUtilInit for responsive design (tablets use 768x1024, mobile uses 375x812)
         return ScreenUtilInit(
           designSize: isTablet ? const Size(768, 1024) : const Size(375, 812),
           minTextAdapt: true,
           splitScreenMode: true,
-          builder: (context, child) {
-            // Initialize ScreenSize utility after ScreenUtilInit
+          builder: (context, _) {
+            // Initialize ScreenSize utility
             ScreenSize.init(context);
+            
+            // Clamp textScaleFactor for better accessibility
+            final constrainedTextScaleFactor = mediaQueryData.textScaleFactor.clamp(0.9, 1.3);
 
-            return MediaQuery(
-              data: mediaQueryData.copyWith(textScaleFactor: constrainedTextScaleFactor),
-              child: child!,
+            // Enable keyboard dismiss by dragging down
+            return GestureDetector(
+              onVerticalDragDown: (_) {
+                // Dismiss keyboard when dragging down anywhere on the screen
+                FocusManager.instance.primaryFocus?.unfocus();
+              },
+              child: MediaQuery(
+                data: mediaQueryData.copyWith(
+                  textScaleFactor: constrainedTextScaleFactor,
+                ),
+                child: child!,
+              ),
             );
           },
-          child: child,
         );
       },
-      debugShowCheckedModeBanner: false,
     );
   }
 }

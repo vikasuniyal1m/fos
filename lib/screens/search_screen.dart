@@ -2,13 +2,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/search_service.dart';
+import 'package:fruitsofspirit/utils/share_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 
 /// Search Screen
@@ -179,7 +183,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return Scaffold(
       backgroundColor: AppTheme.themeColor, // Match home page beige background
       appBar: StandardAppBar(
-        showBackButton: false,
+        showBackButton: true,
         rightActions: [], // No icons in app bar
       ),
       body: Column(
@@ -462,7 +466,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             SizedBox(height: ResponsiveHelper.spacing(context, 8)),
             SizedBox(
-              height: ResponsiveHelper.imageHeight(context, mobile: 180),
+              height: ResponsiveHelper.imageHeight(context, mobile: 180, tablet: 300, desktop: 400),
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.symmetric(
@@ -481,7 +485,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       context,
                       blog,
                       'Blog',
-                      () => Get.toNamed(Routes.BLOG_DETAILS, arguments: blog['id']),
+                      () => PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']),
                     ),
                   );
                 },
@@ -504,7 +508,7 @@ class _SearchScreenState extends State<SearchScreen> {
               context,
               prayer,
               'Prayer',
-              () => Get.toNamed(Routes.PRAYER_DETAILS, arguments: prayer['id']),
+              () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']),
             )),
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
           ],
@@ -523,7 +527,7 @@ class _SearchScreenState extends State<SearchScreen> {
               context,
               video,
               'Video',
-              () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: video['id']),
+              () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
             )),
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
           ],
@@ -539,7 +543,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             SizedBox(height: ResponsiveHelper.spacing(context, 8)),
             SizedBox(
-              height: ResponsiveHelper.imageHeight(context, mobile: 200),
+              height: ResponsiveHelper.imageHeight(context, mobile: 200, tablet: 350, desktop: 450),
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.symmetric(
@@ -559,7 +563,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       context,
                       photo,
                       'Photo',
-                      () => Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']),
+                      () => PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']),
                     ),
                   );
                 },
@@ -582,7 +586,7 @@ class _SearchScreenState extends State<SearchScreen> {
               context,
               story,
               'Story',
-              () => Get.toNamed(Routes.STORY_DETAILS, arguments: story['id']),
+              () => PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: story['id']),
             )),
           ],
         ],
@@ -603,11 +607,11 @@ class _SearchScreenState extends State<SearchScreen> {
         // Remove leading slash if present
         final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
         imageUrl = baseUrl + cleanPath;
-        print('🔍 Photo imageUrl constructed: $imageUrl from file_path: $filePath');
       } else {
-        print('⚠️ Photo has no file_path: $item');
         imageUrl = null;
       }
+    } else if (type == 'Video') {
+      imageUrl = _getVideoThumbnail(item);
     } else {
       imageUrl = null;
     }
@@ -618,7 +622,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return GestureDetector(
         onTap: onTap,
         child: Container(
-          width: ResponsiveHelper.imageWidth(context, mobile: 250),
+          width: ResponsiveHelper.imageWidth(context, mobile: 250, tablet: 350, desktop: 400),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
@@ -632,6 +636,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ],
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ClipRRect(
@@ -641,24 +646,25 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: imageUrl != null
                     ? LazyCachedImage(
                         imageUrl: imageUrl!,
-                        height: ResponsiveHelper.imageHeight(context, mobile: 100),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 90, tablet: 150, desktop: 180),
                         width: double.infinity,
                         fit: BoxFit.cover,
                         errorWidget: Container(
-                          height: ResponsiveHelper.imageHeight(context, mobile: 100),
+                          height: ResponsiveHelper.imageHeight(context, mobile: 90),
                           color: Colors.grey[300],
-                          child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                          child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 36)),
                         ),
                       )
                     : Container(
-                        height: ResponsiveHelper.imageHeight(context, mobile: 100),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 90),
                         color: Colors.grey[300],
-                        child: Icon(Icons.article, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                        child: Icon(Icons.article, size: ResponsiveHelper.iconSize(context, mobile: 36)),
                       ),
               ),
               Padding(
-                padding: ResponsiveHelper.padding(context, all: 8),
+                padding: ResponsiveHelper.padding(context, all: 6),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -669,20 +675,22 @@ class _SearchScreenState extends State<SearchScreen> {
                       style: ResponsiveHelper.textStyle(
                         context,
                         fontWeight: FontWeight.bold,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 16, desktop: 18),
                         color: const Color(0xFF8B4513),
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                    SizedBox(height: ResponsiveHelper.spacing(context, 1)),
                     Text(
                       item['user_name'] ?? item['author_name'] ?? 'Blogger',
                       style: ResponsiveHelper.textStyle(
                         context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 14, desktop: 16),
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 14, desktop: 16),
                         color: Colors.grey[600],
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -820,13 +828,23 @@ class _SearchScreenState extends State<SearchScreen> {
                         if (value == 'view') {
                           onTap();
                         } else if (value == 'share') {
-                          Get.snackbar(
-                            'Info',
-                            'Share feature coming soon',
-                            backgroundColor: Colors.blue,
-                            colorText: Colors.white,
+                          final shareType = type.toLowerCase() == 'prayer' ? 'prayer' : 
+                                           type.toLowerCase() == 'video' ? 'video' :
+                                           type.toLowerCase() == 'photo' ? 'photo' :
+                                           type.toLowerCase() == 'blog' ? 'blog' : 'story';
+                          
+                          ShareHelper.shareContent(
+                            context: context,
+                            contentType: shareType,
+                            contentId: item['id'] is int ? item['id'] : int.tryParse(item['id'].toString()) ?? 0,
+                            title: type.toLowerCase() == 'prayer' ? 'Prayer Request from $userName' : 
+                                   (item['title'] ?? item['description'] ?? type),
+                            content: type.toLowerCase() == 'prayer' ? prayerContent : 
+                                     (item['body'] ?? item['testimony'] ?? item['content']),
                           );
                         }
+
+
                       },
                       itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                         PopupMenuItem<String>(
@@ -980,27 +998,15 @@ class _SearchScreenState extends State<SearchScreen> {
                           width: double.infinity,
                           fit: BoxFit.cover,
                           errorWidget: videoUrl != null
-                              ? Container(
+                              ? CustomVideoThumbnail(
+                                  videoUrl: videoUrl,
+                                  fit: BoxFit.cover,
                                   height: thumbnailHeight,
                                   width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        AppTheme.themeColor,
-                                        AppTheme.primaryColor.withOpacity(0.3),
-                                      ],
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.video_library_rounded,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                                    color: AppTheme.primaryColor,
-                                  ),
                                 )
                               : Container(
                                   height: thumbnailHeight,
+                                  width: double.infinity,
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       begin: Alignment.topLeft,
@@ -1019,24 +1025,11 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ),
                         )
                       : videoUrl != null
-                          ? Container(
+                          ? CustomVideoThumbnail(
+                              videoUrl: videoUrl,
+                              fit: BoxFit.cover,
                               height: thumbnailHeight,
                               width: double.infinity,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AppTheme.themeColor,
-                                    AppTheme.primaryColor.withOpacity(0.3),
-                                  ],
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.video_library_rounded,
-                                size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                                color: AppTheme.primaryColor,
-                              ),
                             )
                           : Container(
                               height: thumbnailHeight,
@@ -1185,7 +1178,12 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                   SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                   InkWell(
-                    onTap: onTap,
+                    onTap: () => ShareHelper.shareContent(
+                      context: context,
+                      contentType: 'video',
+                      contentId: item['id'] is int ? item['id'] : int.tryParse(item['id'].toString()) ?? 0,
+                      title: title,
+                    ),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                     child: Container(
                       padding: ResponsiveHelper.padding(context, all: 10),
@@ -1196,6 +1194,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       child: Icon(Icons.share_rounded, size: ResponsiveHelper.iconSize(context, mobile: 22), color: AppTheme.iconscolor),
                     ),
                   ),
+
                 ],
               ),
             ),
@@ -1208,7 +1207,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return GestureDetector(
         onTap: onTap,
         child: Container(
-          width: ResponsiveHelper.imageWidth(context, mobile: 200),
+          width: ResponsiveHelper.imageWidth(context, mobile: 200, tablet: 300, desktop: 350),
           margin: ResponsiveHelper.padding(context, right: 10),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -1232,17 +1231,17 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: imageUrl != null
                     ? CachedImage(
                         imageUrl: imageUrl!,
-                        height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 220, desktop: 280),
                         width: double.infinity,
                         fit: BoxFit.cover,
                         errorWidget: Container(
-                          height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                          height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 220, desktop: 280),
                           color: Colors.grey[300],
                           child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
                         ),
                       )
                     : Container(
-                        height: ResponsiveHelper.imageHeight(context, mobile: 150),
+                        height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 220, desktop: 280),
                         color: Colors.grey[300],
                         child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
                       ),
@@ -1424,10 +1423,21 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   String _getTimeAgo(String? dateTimeString) {
-    if (dateTimeString == null || dateTimeString.isEmpty) return '';
+    if (dateTimeString == null || dateTimeString.isEmpty) return 'Just now';
     try {
-      final date = DateTime.parse(dateTimeString);
+      // FIX: Assume backend sends UTC time if 'Z' is missing.
+      DateTime date;
+      if (!dateTimeString.endsWith('Z')) {
+        date = DateTime.parse('${dateTimeString}Z').toLocal();
+      } else {
+        date = DateTime.parse(dateTimeString).toLocal();
+      }
+      
       final now = DateTime.now();
+      if (date.isAfter(now)) {
+        date = now.subtract(const Duration(seconds: 1));
+      }
+
       final difference = now.difference(date);
       if (difference.inDays > 365) {
         final years = (difference.inDays / 365).floor();
@@ -1437,7 +1447,7 @@ class _SearchScreenState extends State<SearchScreen> {
         return '$months ${months == 1 ? 'month' : 'months'} ago';
       } else if (difference.inDays > 0) {
         return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inHours > 0) {
+      } else if (difference.inMinutes >= 60) {
         return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
       } else if (difference.inMinutes > 0) {
         return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
@@ -1445,7 +1455,7 @@ class _SearchScreenState extends State<SearchScreen> {
         return 'Just now';
       }
     } catch (e) {
-      return '';
+      return 'Just now';
     }
   }
 }

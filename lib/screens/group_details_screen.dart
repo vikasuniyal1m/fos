@@ -8,26 +8,73 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Group Details Screen
 /// Shows single group with members
 class GroupDetailsScreen extends GetView<GroupsController> {
-  const GroupDetailsScreen({Key? key}) : super(key: key);
+  final int? groupId;
+  const GroupDetailsScreen({Key? key, this.groupId}) : super(key: key);
+
+  /// Show a simple snackbar using ScaffoldMessenger
+  void _showCustomSnackbar(BuildContext context, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    // Close any existing snackbars
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            // Error dot indicator
+            if (isError) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                margin: const EdgeInsets.only(right: 12),
+              ),
+            ],
+            // Message text
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+        ),
+        margin: EdgeInsets.all(AppTheme.spacingMD),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final groupId = Get.arguments as int? ?? 0;
+    final int? currentGroupId = groupId ?? Get.arguments as int?;
+    final int effectiveGroupId = currentGroupId ?? 0;
     
-    // Only load if group is not already loaded
-    if (groupId > 0 && (controller.selectedGroup.isEmpty || controller.selectedGroup['id'] != groupId)) {
+    // Always load group details when navigating to this screen
+    // This ensures fresh data is loaded every time the screen is accessed
+    if (effectiveGroupId > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        // Only load if not already loaded
+        // Ensure user groups are loaded for membership check
         if (controller.userGroups.isEmpty) {
           await controller.loadUserGroups();
         }
-        if (controller.selectedGroup.isEmpty || controller.selectedGroup['id'] != groupId) {
-          await controller.loadGroupDetails(groupId);
-        }
+        // Always load group details regardless of current state
+        // This fixes the issue where group content wasn't loading on navigation
+        await controller.loadGroupDetails(effectiveGroupId);
       });
     }
 
@@ -71,7 +118,7 @@ class GroupDetailsScreen extends GetView<GroupsController> {
         }
 
         final group = controller.selectedGroup;
-        final isMember = controller.isMember(groupId);
+        final isMember = controller.isMember(effectiveGroupId);
         final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
         String? imageUrl;
         if (group['group_image'] != null && group['group_image'].toString().isNotEmpty) {
@@ -85,39 +132,51 @@ class GroupDetailsScreen extends GetView<GroupsController> {
         final category = group['category'] as String? ?? 'General';
         final memberCount = controller.groupMembers.length;
 
-        return SingleChildScrollView(
-          padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        return RefreshIndicator(
+          onRefresh: () async {
+            // Refresh group details when user pulls down
+            await controller.loadGroupDetails(effectiveGroupId);
+          },
+          color: AppTheme.iconscolor,
+          backgroundColor: Colors.white,
+          child: SingleChildScrollView(
+            padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+            physics: const AlwaysScrollableScrollPhysics(), // Enable scroll for pull-to-refresh
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               // Group Image - Full width, proper aspect ratio
               if (imageUrl != null && imageUrl.isNotEmpty)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9, // Professional aspect ratio
-                    child: CachedImage(
-                      imageUrl: imageUrl,
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.cover,
-                      errorWidget: Container(
+                Center( // Center the image
+                  child: Container( // New Container for white background
+                    width: double.infinity, // Make it full width
+                    height: ResponsiveHelper.imageHeight(context, mobile: 200, tablet: 250, desktop: 300), // Add a fixed height
+                    color: Colors.white, // White background
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // Rounded corners
+                      child: CachedImage(
+                        imageUrl: imageUrl,
                         width: double.infinity,
                         height: double.infinity,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              AppTheme.themeColor,
-                              AppTheme.iconscolor.withOpacity(0.3),
-                            ],
+                        fit: BoxFit.contain,
+                        errorWidget: Container(
+                          width: double.infinity,
+                          height: double.infinity,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                AppTheme.themeColor,
+                                AppTheme.iconscolor.withOpacity(0.3),
+                              ],
+                            ),
                           ),
-                        ),
-                        child: Icon(
-                          Icons.group_rounded,
-                          size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
-                          color: AppTheme.iconscolor,
+                          child: Icon(
+                            Icons.group_rounded,
+                            size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
+                            color: AppTheme.iconscolor,
+                          ),
                         ),
                       ),
                     ),
@@ -238,8 +297,8 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                           }
                           
                           final success = isMember
-                              ? await controller.leaveGroup(groupId)
-                              : await controller.joinGroup(groupId);
+                              ? await controller.leaveGroup(effectiveGroupId)
+                              : await controller.joinGroup(effectiveGroupId);
                           
                           if (success) {
                             // Show success message (or info message if already member)
@@ -251,13 +310,10 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                               // Check if it's an "already member" message
                               final isInfoMessage = messageText.toLowerCase().contains('already a member');
                               
-                              Get.snackbar(
-                                isInfoMessage ? 'Info' : 'Success',
+                              _showCustomSnackbar(
+                                context,
                                 messageText,
-                                backgroundColor: isInfoMessage ? Colors.blue : Colors.green,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 2),
-                                margin: const EdgeInsets.all(16),
+                                isError: false,
                               );
                             });
                             
@@ -265,15 +321,12 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                           } else {
                             // Show error message
                             WidgetsBinding.instance.addPostFrameCallback((_) {
-                              Get.snackbar(
-                                'Error',
+                              _showCustomSnackbar(
+                                context,
                                 controller.message.value.isNotEmpty 
                                     ? controller.message.value 
                                     : 'Action failed. Please try again.',
-                                backgroundColor: Colors.red,
-                                colorText: Colors.white,
-                                duration: const Duration(seconds: 3),
-                                margin: const EdgeInsets.all(16),
+                                isError: true,
                               );
                             });
                           }
@@ -312,15 +365,13 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                       final category = group['category'] as String? ?? '';
                       
                       if (category.isNotEmpty) {
-                        final jingleService = JingleService();
+                        final jingleService = Get.find<JingleService>();
                         // Start jingle first (non-blocking)
                         jingleService.startJingle(category);
-                        // Wait a bit for jingle to start, then navigate
-                        await Future.delayed(const Duration(milliseconds: 500));
                       }
                       
-                      // Navigate to chat
-                      Get.toNamed(Routes.GROUP_CHAT, arguments: groupId);
+                      // Navigate to chat (payment gate)
+                      await PaymentGate.navigateToFeature(Routes.GROUP_CHAT, arguments: effectiveGroupId);
                     },
                     icon: Icon(
                       Icons.chat_bubble_outline,
@@ -389,10 +440,11 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                 ...controller.groupMembers.map((member) => _buildMemberCard(context, member)),
             ],
           ),
-        );
-      }),
-    );
-  }
+        ),
+      );
+    }),
+  );
+}
 
   Widget _buildMemberCard(BuildContext context, Map<String, dynamic> member) {
     final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
@@ -475,4 +527,3 @@ class GroupDetailsScreen extends GetView<GroupsController> {
     );
   }
 }
-

@@ -48,6 +48,16 @@ class QuickActionsConfig {
         description: 'Explore fruits of the spirit',
         imagePath: 'assets/healthy-food.png', // PNG image from assets
       ),
+      /*QuickAction(
+        id: 'live',
+        icon: Icons.live_tv,
+        iconColor: Colors.red,
+        backgroundColor: Colors.red.withOpacity(0.1),
+        label: 'LIVE',
+        route: Routes.LIVE,
+        description: 'Watch live streams',
+        imagePath: 'assets/live.png', // Placeholder, check if asset exists
+      ),*/
     ];
   }
 

@@ -8,7 +8,13 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/utils/permission_manager.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint;
+import '../controllers/main_dashboard_controller.dart';
+import '../routes/app_pages.dart';
+import '../services/terms_service.dart';
+import '../services/user_storage.dart' as us;
+import 'terms_acceptance_screen.dart';
 
 /// New Moment Screen - Social Media Style
 /// Upload photo with Fruit tags, feeling tags, hashtags, and testimony
@@ -60,6 +66,61 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
     super.dispose();
   }
 
+  void _showCustomSnackbar(BuildContext context, String message, {bool isError = false}) {
+    if (!context.mounted) return;
+    
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    
+    final lower = message.toLowerCase();
+    final isModeration = lower.contains('community guidelines') ||
+        lower.contains('inappropriate content') ||
+        lower.contains('terms') ||
+        lower.contains('moderation');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Icon(
+                isModeration ? Icons.security_rounded : (isError ? Icons.error_outline : Icons.check_circle_outline),
+                color: isModeration ? const Color(0xFFC79211) : Colors.white,
+                size: 20,
+              ),
+            ),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isModeration ? 'Community Guidelines' : (isError ? 'Error' : 'Success'),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    message,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: isModeration ? const Color(0xFF5D4037) : (isError ? AppTheme.errorColor : AppTheme.successColor),
+        duration: isModeration ? const Duration(seconds: 5) : const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: EdgeInsets.all(AppTheme.spacingMD),
+      ),
+    );
+  }
+
   Future<void> _pickImage() async {
     final image = await _picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
@@ -74,24 +135,13 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
       // Request camera permission first
       final hasPermission = await PermissionManager.requestCameraPermission();
       if (!hasPermission) {
-        Get.snackbar(
-          'Permission Required',
-          'Camera permission is required to take photos. Please enable it in settings.',
-          backgroundColor: Colors.orange,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
+        _showCustomSnackbar(context, 'Camera permission is required. Please enable it in settings.', isError: true);
         return;
       }
 
       // Check if camera is available (especially for iPad)
       if (!kIsWeb && !Platform.isAndroid && !Platform.isIOS) {
-        Get.snackbar(
-          'Not Supported',
-          'Camera is not available on this device.',
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
+        _showCustomSnackbar(context, 'Camera is not available on this device.', isError: true);
         return;
       }
 
@@ -110,20 +160,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
     } catch (e) {
       // Handle camera errors gracefully
       print('Camera error: $e');
-      Get.snackbar(
-        'Camera Error',
-        'Failed to open camera. Please try again or select from gallery.',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-        mainButton: TextButton(
-          onPressed: () {
-            Get.back(); // Close snackbar
-            _pickImage(); // Fallback to gallery
-          },
-          child: Text('Use Gallery', style: TextStyle(color: Colors.white)),
-        ),
-      );
+      _showCustomSnackbar(context, 'Failed to open camera. Try again or select from gallery.', isError: true);
     }
   }
 
@@ -314,14 +351,23 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
   }
 
   Future<void> _submitMoment() async {
+    // Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+    
+    // Check for terms acceptance
+    final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
+    if (!hasAcceptedFactors) {
+      Get.to(() => TermsAcceptanceScreen(
+        onAccepted: () {
+          Get.back(); // Pop the terms screen
+          _submitMoment(); // Retry submission
+        },
+      ));
+      return;
+    }
+
     if (_selectedPhoto == null) {
-      Get.snackbar(
-        'Error',
-        'Please select a photo',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
-      );
+      _showCustomSnackbar(context, 'Please select a photo', isError: true);
       return;
     }
 
@@ -330,8 +376,10 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
           ? Get.find<GalleryController>() 
           : Get.put(GalleryController());
       
-      print('📸 Starting photo upload...');
-      print('📸 User ID: ${controller.userId.value}');
+      if (kDebugMode) {
+        debugPrint('📸 Starting photo upload...');
+        debugPrint('📸 User ID: ${controller.userId.value}');
+      }
       
       // Show loading
       Get.dialog(
@@ -358,39 +406,38 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
       if (success) {
         // Show success message
         if (mounted) {
-          Get.snackbar(
-            'Success',
-            controller.message.value.isNotEmpty 
-                ? controller.message.value 
-                : 'Photo uploaded successfully!',
-            backgroundColor: Colors.green,
-            colorText: Colors.white,
-            duration: const Duration(seconds: 2),
-            icon: const Icon(Icons.check_circle, color: Colors.white),
-            margin: const EdgeInsets.all(16),
-          );
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _showCustomSnackbar(
+                context,
+                controller.message.value.isNotEmpty 
+                    ? controller.message.value 
+                    : 'Photo uploaded successfully!',
+                isError: false
+              );
+            }
+          });
         }
         
         // Navigate back to previous screen immediately
         if (mounted) {
-          // Use Get.back() which works with GetX navigation
-          Get.back();
+          if (Get.isRegistered<MainDashboardController>()) {
+            Get.find<MainDashboardController>().changeIndex(4);
+          }
+          Navigator.pop(context); // Use Flutter's built-in Navigator instead of Get.back()
         }
       } else {
         // Show error message
         if (mounted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              Get.snackbar(
-                'Error',
-                controller.message.value.isNotEmpty 
-                    ? controller.message.value 
-                    : 'Failed to upload photo. Please try again.',
-                backgroundColor: Colors.red,
-                colorText: Colors.white,
-                duration: const Duration(seconds: 3),
-                icon: const Icon(Icons.error, color: Colors.white),
-                margin: const EdgeInsets.all(16),
+              final errorMsg = controller.message.value;
+              _showCustomSnackbar(
+                context,
+                errorMsg.isNotEmpty
+                    ? errorMsg
+                    : 'Action could not be completed. Please try again.',
+                isError: true
               );
             }
           });
@@ -402,14 +449,9 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
         Get.back();
       }
       
-      Get.snackbar(
-        'Error',
-        'Failed to upload photo: ${e.toString()}',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-        icon: const Icon(Icons.error, color: Colors.white),
-      );
+      if (mounted) {
+        _showCustomSnackbar(context, 'Failed to upload photo: ${e.toString()}', isError: true);
+      }
       print('Error in _submitMoment: $e');
     }
   }
@@ -418,6 +460,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.themeColor,
+      resizeToAvoidBottomInset: true,
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(
           ResponsiveHelper.safeHeight(
@@ -504,13 +547,15 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
           ),
         ),
       ),
-      body: GetBuilder<GalleryController>(
-        init: Get.isRegistered<GalleryController>() 
-            ? Get.find<GalleryController>() 
-            : Get.put(GalleryController()),
-        builder: (controller) => SingleChildScrollView(
-          padding: ResponsiveHelper.padding(context, all: 16),
-          child: Column(
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: GetBuilder<GalleryController>(
+          init: Get.isRegistered<GalleryController>() 
+              ? Get.find<GalleryController>() 
+              : Get.put(GalleryController()),
+          builder: (controller) => SingleChildScrollView(
+            padding: ResponsiveHelper.padding(context, all: 16),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Image Preview Section - Enhanced
@@ -642,12 +687,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
                                   child: InkWell(
                                     onTap: () {
                                       // TODO: Implement image editing
-                                      Get.snackbar(
-                                        'Info',
-                                        'Edit feature coming soon',
-                                        backgroundColor: Colors.blue,
-                                        colorText: Colors.white,
-                                      );
+                                      _showCustomSnackbar(context, 'Edit feature coming soon');
                                     },
                                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
                                     child: Container(
@@ -1329,12 +1369,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
                 height: ResponsiveHelper.buttonHeight(context, mobile: 50),
                 child: OutlinedButton(
                   onPressed: () {
-                    Get.snackbar(
-                      'Info',
-                      'Draft feature coming soon',
-                      backgroundColor: Colors.blue,
-                      colorText: Colors.white,
-                    );
+                    _showCustomSnackbar(context, 'Draft feature coming soon');
                   },
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(
@@ -1372,6 +1407,7 @@ class _UploadPhotoScreenState extends State<UploadPhotoScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

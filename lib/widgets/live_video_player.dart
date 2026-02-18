@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'package:get/get.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
 
@@ -45,7 +44,8 @@ class _LiveVideoPlayerState extends State<LiveVideoPlayer> {
       });
 
       // Get stream URL
-      final streamUrl = LiveStreamingService.getStreamUrl(widget.liveStream);
+      final streamDetails = await LiveStreamingService.getStream(widget.liveStream['stream_id']);
+      final streamUrl = streamDetails['stream_url'];
       
       if (streamUrl == null || streamUrl.isEmpty) {
         throw Exception('No stream URL available');

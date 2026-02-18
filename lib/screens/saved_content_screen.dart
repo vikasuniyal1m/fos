@@ -5,6 +5,7 @@ import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Saved Content Screen
 class SavedContentScreen extends StatefulWidget {
@@ -208,19 +209,19 @@ class _SavedContentScreenState extends State<SavedContentScreen> {
     
     switch (contentType) {
       case 'blog':
-        onTap = () => Get.toNamed(Routes.BLOG_DETAILS, arguments: contentId);
+        onTap = () => PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: contentId);
         break;
       case 'prayer':
-        onTap = () => Get.toNamed(Routes.PRAYER_DETAILS, arguments: contentId);
+        onTap = () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: contentId);
         break;
       case 'video':
-        onTap = () => Get.toNamed(Routes.VIDEO_DETAILS, arguments: contentId);
+        onTap = () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: contentId);
         break;
       case 'photo':
-        onTap = () => Get.toNamed(Routes.PHOTO_DETAILS, arguments: contentId);
+        onTap = () => PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: contentId);
         break;
       case 'story':
-        onTap = () => Get.toNamed(Routes.STORY_DETAILS, arguments: contentId);
+        onTap = () => PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: contentId);
         break;
     }
 

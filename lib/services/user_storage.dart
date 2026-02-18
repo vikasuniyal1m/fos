@@ -12,6 +12,7 @@ class UserStorage {
   static const String _keyIsLoggedIn = 'is_logged_in';
   static const String _keyUserFeeling = 'user_feeling'; // Store selected emoji locally
   static const String _keyOnboardingSeen = 'onboarding_seen'; // Track if user has seen onboarding
+  static const String _keyUgcTermsAccepted = 'ugc_terms_accepted'; // Track if user has accepted UGC terms
   
   static Box? _box;
   static bool _isInitialized = false;
@@ -100,7 +101,24 @@ class UserStorage {
   static Future<void> saveUser(Map<String, dynamic> user) async {
     final box = await _getBox();
     await box.put(_keyUser, jsonEncode(user));
-    await box.put(_keyUserId, user['id'] as int);
+
+    // Safely parse ID which might be String or Int from different APIs
+    int? userId;
+    if (user['id'] != null) {
+      if (user['id'] is int) {
+        userId = user['id'] as int;
+      } else if (user['id'] is String) {
+        userId = int.tryParse(user['id']);
+      }
+    }
+
+    if (userId != null) {
+      await box.put(_keyUserId, userId);
+      print('✅ User ID saved to storage: $userId');
+    } else {
+      print('⚠️ Warning: No valid ID found in user data: ${user['id']}');
+    }
+
     await box.put(_keyIsLoggedIn, true);
   }
 
@@ -126,7 +144,18 @@ class UserStorage {
       final userId = box.get(_keyUserId);
       if (userId is int) {
         return userId;
+      } else if (userId is String) {
+        final parsed = int.tryParse(userId);
+        if (parsed != null) return parsed;
       }
+
+      // Fallback: Check in user_data map if ID exists there
+      final user = await getUser();
+      if (user != null && user['id'] != null) {
+        if (user['id'] is int) return user['id'] as int;
+        if (user['id'] is String) return int.tryParse(user['id']);
+      }
+
       return null;
     } catch (e) {
       print('⚠️ Error getting user ID from Hive: $e');
@@ -159,6 +188,7 @@ class UserStorage {
     await box.delete(_keyUser);
     await box.delete(_keyUserId);
     await box.delete(_keyUserFeeling); // Also clear feeling on logout
+    await box.delete(_keyUgcTermsAccepted); // Clear terms acceptance on logout to ensure safety
     await box.put(_keyIsLoggedIn, false);
   }
 
@@ -256,6 +286,27 @@ class UserStorage {
       print('✅ Onboarding status reset');
     } catch (e) {
       print('⚠️ Error resetting onboarding status: $e');
+    }
+  }
+  /// Mark UGC Terms as Accepted
+  static Future<void> setUgcTermsAccepted(bool accepted) async {
+    try {
+      final box = await _getBox();
+      await box.put(_keyUgcTermsAccepted, accepted);
+      print('✅ UGC terms acceptance status updated: $accepted');
+    } catch (e) {
+      print('⚠️ Error saving terms acceptance status: $e');
+    }
+  }
+
+  /// Check if UGC Terms have been Accepted
+  static Future<bool> hasAcceptedUgcTerms() async {
+    try {
+      final box = await _getBox();
+      return box.get(_keyUgcTermsAccepted, defaultValue: false);
+    } catch (e) {
+      print('⚠️ Error checking terms acceptance status: $e');
+      return false;
     }
   }
 }

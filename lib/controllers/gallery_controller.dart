@@ -1,10 +1,14 @@
 import 'dart:io';
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/gallery_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/services/fruits_service.dart';
 
 /// Gallery Controller
 /// Manages gallery photos data and operations
@@ -71,11 +75,11 @@ class GalleryController extends GetxController {
     if (filterUserId.value > 0) {
       refresh = true;
     }
-    //COMMENT THIS
 
     if (refresh) {
       currentPage.value = 0;
       _isDataLoaded = false; // Reset loaded flag on refresh
+      photos.clear(); // Clear all photos when refreshing
     }
 
     isLoading.value = true;
@@ -85,7 +89,8 @@ class GalleryController extends GetxController {
       // Performance: Always load ALL photos (no fruit tag filter) to populate cache
       // Then apply client-side filtering for instant updates
       final photosList = await GalleryService.getPhotos(
-        status: filterUserId.value > 0 ? 'Pending,Approved' : 'Approved',        fruitTag: null, // Always load all photos for cache
+        status: 'Approved', // Only approved photos from main call
+        fruitTag: null, // Always load all photos for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
         currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
@@ -95,6 +100,25 @@ class GalleryController extends GetxController {
       if (refresh || currentPage.value == 0) {
         // Performance: Store ALL photos in cache (no filters)
         _allPhotos = List<Map<String, dynamic>>.from(photosList);
+        
+        // Always include pending photos if a user is logged in
+        if (userId.value > 0) {
+          try {
+            final pendingPhotos = await GalleryService.getPhotos(
+              status: 'Pending',
+              fruitTag: null,
+              userId: filterUserId.value > 0 ? filterUserId.value : userId.value,
+              currentUserId: userId.value,
+              limit: 10,
+              offset: 0,
+            );
+            // Add pending photos at the beginning
+            _allPhotos.insertAll(0, pendingPhotos);
+          } catch (e) {
+            print('Error loading pending photos: $e');
+          }
+        }
+        
         // Apply current filter to display
         _applyClientSideFilter();
       } else {
@@ -140,6 +164,7 @@ class GalleryController extends GetxController {
   /// Load single photo with comments
   Future<void> loadPhotoDetails(int photoId) async {
     isLoading.value = true;
+    selectedPhoto.value = {}; // Clear previous photo to show loader
     message.value = '';
 
     try {
@@ -698,6 +723,34 @@ class GalleryController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content
+    if (testimony != null && testimony.isNotEmpty) {
+      final check = ContentModerationService.checkContent(testimony);
+      if (!check['isClean']) {
+        message.value = 'Testimony: ${check['message']}';
+        _showModerationSnackbar(check['message']);
+        return false;
+      }
+    }
+
+    if (feelingTags != null && feelingTags.isNotEmpty) {
+      final check = ContentModerationService.checkContent(feelingTags);
+      if (!check['isClean']) {
+        message.value = 'Feeling Tags: ${check['message']}';
+        _showModerationSnackbar(check['message']);
+        return false;
+      }
+    }
+
+    if (hashtags != null && hashtags.isNotEmpty) {
+      final check = ContentModerationService.checkContent(hashtags);
+      if (!check['isClean']) {
+        message.value = 'Hashtags: ${check['message']}';
+        _showModerationSnackbar(check['message']);
+        return false;
+      }
+    }
+
     isLoading.value = true;
     message.value = 'Uploading photo...';
 
@@ -735,6 +788,14 @@ class GalleryController extends GetxController {
 
     if (userId.value == 0) {
       message.value = 'Please login first';
+      return false;
+    }
+
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
       return false;
     }
 
@@ -904,6 +965,15 @@ class GalleryController extends GetxController {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error reporting comment: $e');
       return false;
+    }
+  }
+
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allPhotos = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
     }
   }
 
@@ -1099,5 +1169,40 @@ class GalleryController extends GetxController {
       return false;
     }
   }
-}
 
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    final ctx = Get.context;
+    if (ctx != null) {
+      ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+              ),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Community Guidelines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(message, style: const TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF5D4037),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  }
+}

@@ -1,10 +1,14 @@
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/prayers_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/advanced_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:share_plus/share_plus.dart';
 
 /// Prayers Controller
@@ -97,21 +101,50 @@ class PrayersController extends GetxController {
     try {
       // Performance: Always load ALL prayers (no category filter) to populate cache
       // Then apply client-side filtering for instant updates
-      final prayersList = await PrayersService.getPrayers(
-        status: filterUserId.value > 0 ? 'Pending,Approved' : 'Approved',        category: null, // Always load all prayers for cache
+      final approvedPrayers = await PrayersService.getPrayers(
+        status: 'Approved',
+        category: null, // Always load all prayers for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
 
+      // If user wants to see their pending prayers, load them too
+      List<Map<String, dynamic>> allPrayers = List.from(approvedPrayers);
+
+      // Always include pending prayers if a user is logged in (only for current user)
+      if (userId.value > 0 && filterUserId.value == 0) {
+        try {
+          final pendingPrayers = await PrayersService.getPrayers(
+            status: 'Pending',
+            userId: userId.value,
+            category: null, // Always load all prayers for cache
+            limit: 10,
+            offset: 0,
+          );
+          // Add pending prayers at the beginning
+          allPrayers.insertAll(0, pendingPrayers);
+          print('🙏 Pending Prayers Loaded: ${pendingPrayers.length}');
+        } catch (e) {
+          print('Error loading pending prayers: $e');
+        }
+      }
+
+      print('🙏 Total Prayers Loaded: ${allPrayers.length} (Approved: ${approvedPrayers.length})');
+      for (var prayer in allPrayers) {
+        final status = prayer['status'] ?? 'Unknown';
+        print('   - Prayer: ${prayer['id']} (Status: $status)');
+      }
+
       if (refresh || currentPage.value == 0) {
         // Performance: Store ALL prayers in cache (no category filter)
-        _allPrayers = List<Map<String, dynamic>>.from(prayersList);
+        _allPrayers = List<Map<String, dynamic>>.from(allPrayers);
         // Apply current filter to display
         _applyClientSideFilter();
       } else {
         // Performance: Add to all prayers cache
-        _allPrayers.addAll(prayersList);
+        _allPrayers.addAll(allPrayers);
         // Apply current filter to display
         _applyClientSideFilter();
       }
@@ -145,11 +178,18 @@ class PrayersController extends GetxController {
     message.value = '';
 
     try {
-      final prayer = await PrayersService.getPrayerDetails(prayerId);
+      final prayer = await PrayersService.getPrayerDetails(
+        prayerId,
+        currentUserId: userId.value > 0 ? userId.value : null,
+      );
       selectedPrayer.value = prayer;
       
-      // Load comments
-      await loadPrayerComments(prayerId);
+      // Load emojis and comments
+      await Future.wait([
+        loadAvailableEmojis(),
+        loadQuickEmojis(),
+        loadPrayerComments(prayerId),
+      ]);
     } catch (e) {
       message.value = 'Error loading prayer: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error loading prayer details: $e');
@@ -180,8 +220,9 @@ class PrayersController extends GetxController {
       final emojiReactions = <String, List<Map<String, dynamic>>>{};
       
       for (var comment in comments) {
-        final content = comment['content'] as String? ?? '';
-        final trimmed = content.trim();
+        // Handle both 'content' and 'comment' fields for backward compatibility
+        final content = (comment['content'] as String? ?? comment['comment'] as String? ?? '').trim();
+        final trimmed = content;
         final parentId = comment['parent_comment_id'];
         final commentId = comment['id'];
         
@@ -227,7 +268,13 @@ class PrayersController extends GetxController {
           emojiKey = trimmed;
           print('✅ Found emoji reaction (ID): $emojiKey');
         }
-        
+        // Strategy 5: Check if it's a fruit keyword using Helper
+        else if (FruitEmojiHelper.isFruit(trimmed)) {
+          isEmojiReaction = true;
+          emojiKey = trimmed;
+          print('✅ Found emoji reaction (fruit keyword): $emojiKey');
+        }
+
         if (isEmojiReaction && emojiKey != null) {
           // It's an emoji reaction - store user information
           if (!emojiReactions.containsKey(emojiKey)) {
@@ -419,6 +466,13 @@ class PrayersController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      return false;
+    }
+
     isLoading.value = true;
     message.value = '';
 
@@ -461,6 +515,14 @@ class PrayersController extends GetxController {
 
     if (userId.value == 0) {
       message.value = 'Please login first';
+      return false;
+    }
+
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
       return false;
     }
 
@@ -583,6 +645,15 @@ class PrayersController extends GetxController {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       print('❌ Error reporting comment: $e');
       return false;
+    }
+  }
+
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allPrayers = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
     }
   }
 
@@ -809,6 +880,14 @@ class PrayersController extends GetxController {
       print('Error following user: $e');
       return false;
     }
+  }
+
+  
+  /// Show moderation snackbar - This method is called from UI, so context will be passed from there
+  /// Note: This method should be called from UI layer with proper context
+  void _showModerationSnackbar(String message) {
+    // This method is now just a placeholder - moderation messages will be shown through the UI layer's _showCustomSnackbar
+    this.message.value = message;
   }
 }
 

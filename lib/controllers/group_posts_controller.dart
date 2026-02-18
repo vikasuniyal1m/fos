@@ -5,6 +5,8 @@ import 'package:fruitsofspirit/services/group_posts_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Group Posts Controller
 /// Manages group posts, reactions, and comments
@@ -198,6 +200,16 @@ class GroupPostsController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content in post
+    if (postType == 'text' && content.isNotEmpty) {
+      final moderationCheck = ContentModerationService.checkContent(content);
+      if (!moderationCheck['isClean']) {
+        message.value = moderationCheck['message'];
+        _showModerationSnackbar(moderationCheck['message']);
+        return false;
+      }
+    }
+
     isLoading.value = true;
     message.value = 'Creating post...';
 
@@ -274,12 +286,27 @@ class GroupPostsController extends GetxController {
       print('❌ Error reacting to post: $e');
       // Don't show snackbar for 404 errors - they're handled gracefully
       if (!errorMsg.contains('404') && !errorMsg.contains('not found')) {
-        Get.snackbar(
-          'Error',
-          errorMsg,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
+        final ctx = Get.context;
+        if (ctx != null) {
+          ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            SnackBar(
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(errorMsg, style: const TextStyle(color: Colors.white)),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
       }
       return false;
     }
@@ -315,6 +342,14 @@ class GroupPostsController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
+      return false;
+    }
+
     try {
       await CommentsService.addComment(
         userId: userId.value,
@@ -346,5 +381,40 @@ class GroupPostsController extends GetxController {
   Future<void> refresh() async {
     await loadGroupPosts(currentGroupId.value, refresh: true);
   }
-}
 
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    final ctx = Get.context;
+    if (ctx != null) {
+      ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Icon(Icons.security_rounded, color: Color(0xFFC79211)),
+              ),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Community Guidelines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(message, style: const TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF5D4037),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  }
+}

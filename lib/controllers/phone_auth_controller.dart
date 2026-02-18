@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../routes/app_pages.dart';
 import '../services/auth_service.dart';
 import '../services/user_storage.dart';
+import '../bindings/InitialBinding.dart';
 
 class PhoneAuthController extends GetxController {
   final TextEditingController emailOrPhoneController = TextEditingController();
@@ -84,11 +85,14 @@ class PhoneAuthController extends GetxController {
       // Save user data
       await UserStorage.saveUser(user);
 
+      // Re-initialize controllers
+      InitialBinding().dependencies();
+
       isLoading.value = false;
       message.value = 'Authentication successful!';
       
       // Navigate to home
-      Get.offAllNamed(Routes.HOME);
+      Get.offAllNamed(Routes.DASHBOARD);
     } catch (e) {
       isLoading.value = false;
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';

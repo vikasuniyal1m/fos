@@ -23,12 +23,14 @@ class NotificationsController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    print('🔔 NotificationsController onInit called');
     _loadUserId();
   }
 
   @override
   void onReady() {
     super.onReady();
+    print('🔔 NotificationsController onReady called');
     loadNotifications();
     loadUnreadCount();
   }
@@ -41,24 +43,34 @@ class NotificationsController extends GetxController {
 
   /// Load user ID from storage
   Future<void> _loadUserId() async {
+    print('🔔 _loadUserId called');
     final id = await UserStorage.getUserId();
+    print('🔔 UserStorage returned userId: $id');
     if (id != null) {
       userId.value = id;
+      print('🔔 userId.value set to: $id');
     }
   }
 
   /// Load notifications
   Future<void> loadNotifications({bool refresh = false}) async {
+    print('🔔 loadNotifications called, refresh: $refresh');
+    print('🔔 Current userId: ${userId.value}');
+    
     if (userId.value == 0) {
+      print('🔔 UserId is 0, loading from storage...');
       await _loadUserId();
+      print('🔔 After loading, userId: ${userId.value}');
     }
 
     if (userId.value == 0) {
+      print('🔔 UserId still 0, returning empty notifications');
       notifications.value = [];
       return;
     }
 
     if (refresh) {
+      print('🔔 Refresh requested, resetting currentPage to 0');
       currentPage.value = 0;
     }
 
@@ -66,6 +78,12 @@ class NotificationsController extends GetxController {
     message.value = '';
 
     try {
+      print('🔔 Calling NotificationsService.getNotifications with params:');
+      print('  userId: ${userId.value}');
+      print('  isRead: ${showOnlyUnread.value ? 0 : null}');
+      print('  limit: $itemsPerPage');
+      print('  offset: ${currentPage.value * itemsPerPage}');
+      
       final notificationsList = await NotificationsService.getNotifications(
         userId: userId.value,
         isRead: showOnlyUnread.value ? 0 : null,
@@ -73,14 +91,20 @@ class NotificationsController extends GetxController {
         offset: currentPage.value * itemsPerPage,
       );
 
+      print('🔔 NotificationsService returned ${notificationsList.length} notifications');
+      
       if (refresh || currentPage.value == 0) {
+        print('🔔 Setting notifications.value directly');
         notifications.value = notificationsList;
       } else {
+        print('🔔 Adding notifications to existing list');
         notifications.addAll(notificationsList);
       }
+      
+      print('🔔 Final notifications count: ${notifications.length}');
     } catch (e) {
+      print('🔔 Error loading notifications: $e');
       message.value = 'Error loading notifications: ${e.toString().replaceAll('Exception: ', '')}';
-      print('Error loading notifications: $e');
       if (refresh || currentPage.value == 0) {
         notifications.value = [];
       }

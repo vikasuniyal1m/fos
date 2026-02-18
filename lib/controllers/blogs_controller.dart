@@ -1,9 +1,13 @@
 import 'dart:io';
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/blogs_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
+import 'package:fruitsofspirit/services/content_moderation_service.dart';
+import 'package:fruitsofspirit/services/profile_service.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Blogs Controller
 /// Manages blogs data and operations
@@ -22,6 +26,7 @@ class BlogsController extends GetxController {
   var userId = 0.obs;
   var userRole = ''.obs;
   var userStatus = ''.obs; // User status: Active, Inactive, Pending
+  var isBloggerRequestPending = false.obs;
 
   // Filters
   var selectedCategory = ''.obs;
@@ -40,7 +45,7 @@ class BlogsController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    _loadUserData();
+    refreshUserData();
     // Don't reset filter here - it might be set before navigation
     // Filter will be reset by home screen navigation if needed
   }
@@ -66,6 +71,61 @@ class BlogsController extends GetxController {
       userId.value = user['id'] as int;
       userRole.value = user['role'] as String? ?? 'User';
       userStatus.value = user['status'] as String? ?? 'Active';
+      // Also update isBloggerRequestPending from local storage data
+      isBloggerRequestPending.value = userRole.value == 'Blogger' && 
+                                      (userStatus.value == 'Inactive' || userStatus.value == 'Pending');
+    }
+  }
+
+  /// Refresh user data from server to get latest role and status
+  Future<void> refreshUserData() async {
+    if (userId.value == 0) {
+      await _loadUserData();
+    }
+
+    if (userId.value == 0) {
+      return;
+    }
+
+    try {
+      // First, get locally stored user data (which might contain PendingBlogger status)
+      final localUserData = await UserStorage.getUser();
+
+      // Get fresh profile data from server
+      final serverProfileData = await ProfileService.getProfile(userId.value);
+
+      // Merge local data with server data, prioritizing server data unless local is PendingBlogger
+      Map<String, dynamic> mergedUserData = {};
+      if (localUserData != null) {
+        mergedUserData.addAll(localUserData);
+      }
+      if (serverProfileData != null) {
+        mergedUserData.addAll(serverProfileData);
+      }
+
+      // If local role was PendingBlogger and server hasn't explicitly changed it, keep local
+      if (localUserData?['role'] == 'PendingBlogger' && serverProfileData?['role'] != 'Blogger' && serverProfileData?['role'] != 'User') {
+        mergedUserData['role'] = 'PendingBlogger';
+        mergedUserData['status'] = 'Pending';
+      }
+
+      // Update local storage with the merged data
+      await UserStorage.updateUser(mergedUserData);
+
+      // Update observable values for UI
+      userRole.value = mergedUserData['role'] as String? ?? 'User';
+      userStatus.value = mergedUserData['status'] as String? ?? 'Active';
+
+      // Update isBloggerRequestPending based on current role and status
+      isBloggerRequestPending.value = (userRole.value == 'Blogger' &&
+                                      (userStatus.value == 'Inactive' || userStatus.value == 'Pending')) ||
+                                      userRole.value == 'PendingBlogger';
+
+      // print('✅ User data refreshed: Role=${userRole.value}, Status=${userStatus.value}, IsBloggerRequestPending=${isBloggerRequestPending.value}');
+    } catch (e) {
+      print('⚠️ Failed to refresh user data: $e');
+      // Fall back to local storage if server call fails
+      await _loadUserData();
     }
   }
 
@@ -91,6 +151,8 @@ class BlogsController extends GetxController {
     if (refresh) {
       currentPage.value = 0;
       _isDataLoaded = false;
+      // Refresh user data on explicit refresh to get latest role/status
+      await refreshUserData();
     }
 
     _isLoading = true;
@@ -104,6 +166,7 @@ class BlogsController extends GetxController {
         status: filterUserId.value > 0 ? 'Pending,Approved' : 'Approved',        category: null, // Always load all blogs for cache
         language: null, // Always load all blogs for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
+        currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
@@ -149,7 +212,10 @@ class BlogsController extends GetxController {
     message.value = '';
 
     try {
-      final blog = await BlogsService.getBlogDetails(blogId);
+      final blog = await BlogsService.getBlogDetails(
+        blogId,
+        currentUserId: userId.value > 0 ? userId.value : null,
+      );
       selectedBlog.value = blog;
       
       // Load emojis and comments
@@ -168,14 +234,23 @@ class BlogsController extends GetxController {
 
   /// Load blog comments (with emoji reactions parsing)
   Future<void> loadBlogComments(int blogId) async {
+    print('⏱️ [BlogsController] Starting loadBlogComments for blogId: $blogId');
+    final startTime = DateTime.now();
+    
     try {
+      final commentsFetchStartTime = DateTime.now();
       final comments = await CommentsService.getComments(
         postType: 'blog',
         postId: blogId,
         userId: userId.value > 0 ? userId.value : null,
       );
+
+      final commentsFetchEndTime = DateTime.now();
+      print('⏱️ [BlogsController] CommentsService.getComments took: ${commentsFetchEndTime.difference(commentsFetchStartTime).inMilliseconds}ms');
+      
       
       // Parse emoji reactions from comments (same logic as prayers)
+      final emojiParsingStartTime = DateTime.now();
       final emojiReactions = <String, List<Map<String, dynamic>>>{};
       final textComments = <Map<String, dynamic>>[];
       
@@ -247,7 +322,8 @@ class BlogsController extends GetxController {
           }
         }
       }
-      
+      final emojiParsingEndTime = DateTime.now();
+      print('⏱️ [BlogsController] Emoji parsing took: ${emojiParsingEndTime.difference(emojiParsingStartTime).inMilliseconds}ms');
       blogComments.value = textComments;
       blogEmojiReactions.value = emojiReactions;
       print('✅ Loaded ${textComments.length} text comments and ${emojiReactions.length} emoji reaction types');
@@ -255,6 +331,9 @@ class BlogsController extends GetxController {
       print('❌ Error loading blog comments: $e');
       blogComments.value = [];
       blogEmojiReactions.value = <String, List<Map<String, dynamic>>>{};
+    } finally {
+      final endTime = DateTime.now();
+      print('⏱️ [BlogsController] loadBlogComments finished in: ${endTime.difference(startTime).inMilliseconds}ms');
     }
   }
   
@@ -349,6 +428,25 @@ class BlogsController extends GetxController {
       return false;
     }
 
+    // Check for inappropriate content
+    if (title.isNotEmpty) {
+      final titleCheck = ContentModerationService.checkContent(title);
+      if (!titleCheck['isClean']) {
+        message.value = 'Title: ${titleCheck['message']}';
+        _showModerationSnackbar(titleCheck['message']);
+        return false;
+      }
+    }
+
+    if (body.isNotEmpty) {
+      final bodyCheck = ContentModerationService.checkContent(body);
+      if (!bodyCheck['isClean']) {
+        message.value = 'Body: ${bodyCheck['message']}';
+        _showModerationSnackbar(bodyCheck['message']);
+        return false;
+      }
+    }
+
     isLoading.value = true;
     message.value = 'Creating blog...';
 
@@ -385,6 +483,14 @@ class BlogsController extends GetxController {
 
     if (userId.value == 0) {
       message.value = 'Please login first';
+      return false;
+    }
+
+    // Check for inappropriate content in comment
+    final moderationCheck = ContentModerationService.checkContent(content);
+    if (!moderationCheck['isClean']) {
+      message.value = moderationCheck['message'];
+      _showModerationSnackbar(moderationCheck['message']);
       return false;
     }
 
@@ -433,6 +539,58 @@ class BlogsController extends GetxController {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error toggling like: $e');
       return false;
+    }
+  }
+
+  /// Request to become a blogger
+  Future<bool> requestBloggerAccess() async {
+    if (userId.value == 0) {
+      await _loadUserData();
+    }
+
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      return false;
+    }
+
+    isLoading.value = true;
+    message.value = '';
+
+    try {
+      final success = await BlogsService.requestBloggerAccess(userId: userId.value);
+      if (success) {
+          message.value = 'Your blogger request has been sent. Admin will review your request.';
+          isBloggerRequestPending.value = true; // Set to true on successful request
+
+          // Locally update user role and status to reflect pending request
+          userRole.value = 'PendingBlogger';
+          userStatus.value = 'Pending';
+
+          // Persist this updated state to UserStorage
+          await UserStorage.updateUser({'role': 'PendingBlogger', 'status': 'Pending'});
+
+          // No immediate refreshUserData() call here to avoid resetting state prematurely
+          // The onInit() will handle server refresh on next page load
+        } else {
+        message.value = 'Failed to send blogger request. Please try again.';
+      }
+      return success;
+    } catch (e) {
+      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      print('Error requesting blogger access: $e');
+      return false;
+    } finally {
+      isLoading.value = false;
+      // isBloggerRequestPending.value = false; // This should be handled by refreshUserData
+    }
+  }
+
+  /// Set initial data from cache
+  void setInitialData(List<Map<String, dynamic>> data) {
+    if (data.isNotEmpty) {
+      _allBlogs = List<Map<String, dynamic>>.from(data);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
     }
   }
 
@@ -541,40 +699,41 @@ class BlogsController extends GetxController {
     await loadBlogs(refresh: true);
   }
 
-  /// Request to become a blogger
-  Future<bool> requestBloggerAccess() async {
-    if (userId.value == 0) {
-      await _loadUserData();
-    }
 
-    if (userId.value == 0) {
-      message.value = 'Please login first';
-      return false;
-    }
 
-    if (userRole.value == 'Blogger') {
-      message.value = 'You are already a blogger';
-      return false;
-    }
-
-    isLoading.value = true;
-    message.value = 'Sending request...';
-
-    try {
-      await BlogsService.requestBloggerAccess(userId: userId.value);
-      message.value = 'Request sent successfully. Admin will review your request.';
-      
-      // Reload user data to check if role changed
-      await _loadUserData();
-      
-      return true;
-    } catch (e) {
-      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
-      print('Error requesting blogger access: $e');
-      return false;
-    } finally {
-      isLoading.value = false;
+  
+  /// Show moderation snackbar
+  void _showModerationSnackbar(String message) {
+    final ctx = Get.context;
+    if (ctx != null) {
+      ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.security_rounded, color: Color(0xFFC79211), size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Community Guidelines',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(message, style: const TextStyle(color: Colors.white)),
+            ],
+          ),
+          backgroundColor: const Color(0xFF5D4037),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
     }
   }
 }
-

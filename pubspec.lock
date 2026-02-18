@@ -17,6 +17,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.63"
+  agora_rtc_engine:
+    dependency: "direct main"
+    description:
+      name: agora_rtc_engine
+      sha256: "6559294d18ce4445420e19dbdba10fb58cac955cd8f22dbceae26716e194d70e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.5.3"
   analyzer:
     dependency: transitive
     description:
@@ -329,6 +337,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.6"
+  dbus:
+    dependency: transitive
+    description:
+      name: dbus
+      sha256: "79e0c23480ff85dc68de79e2cd6334add97e48f7f4865d17686dd6ea81a47e8c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.11"
   device_frame:
     dependency: transitive
     description:
@@ -337,6 +353,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  device_info_plus:
+    dependency: "direct main"
+    description:
+      name: device_info_plus
+      sha256: a7fd703482b391a87d60b6061d04dfdeab07826b96f9abd8f5ed98068acc0074
+      url: "https://pub.dev"
+    source: hosted
+    version: "10.1.2"
+  device_info_plus_platform_interface:
+    dependency: transitive
+    description:
+      name: device_info_plus_platform_interface
+      sha256: e1ea89119e34903dca74b883d0dd78eb762814f97fb6c76f35e9ff74d261a18f
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.0.3"
   device_preview:
     dependency: "direct dev"
     description:
@@ -515,6 +547,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.9.3"
+  flutter_stripe:
+    dependency: "direct main"
+    description:
+      name: flutter_stripe
+      sha256: "588f7b179784c0203fe99a388ca1f453b61fdc5e35bf32e508685ed00cffbb2e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "12.2.0"
   flutter_svg:
     dependency: "direct main"
     description:
@@ -549,6 +589,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.0.0"
+  gal:
+    dependency: "direct main"
+    description:
+      name: gal
+      sha256: "969598f986789127fd407a750413249e1352116d4c2be66e81837ffeeaafdfee"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.3.2"
   get:
     dependency: "direct main"
     description:
@@ -782,7 +830,7 @@ packages:
     source: hosted
     version: "0.2.2"
   intl:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: intl
       sha256: "3df61194eb431efc39c4ceba583b95633a403f46c9fd341e550ce0bfa50e9aa5"
@@ -797,6 +845,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.5"
+  iris_method_channel:
+    dependency: transitive
+    description:
+      name: iris_method_channel
+      sha256: bfb5cfc6c6eae42da8cd1b35977a72d8b8881848a5dfc3d672e4760a907d11a0
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.4"
   js:
     dependency: transitive
     description:
@@ -845,6 +901,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.1.1"
+  logger:
+    dependency: transitive
+    description:
+      name: logger
+      sha256: a7967e31b703831a893bbc3c3dd11db08126fe5f369b5c648a36f821979f5be3
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.6.2"
   logging:
     dependency: transitive
     description:
@@ -881,10 +945,10 @@ packages:
     dependency: transitive
     description:
       name: meta
-      sha256: e3641ec5d63ebf0d9b41bd43201a66e3fc79a65db5f61fc181f04cd27aab950c
+      sha256: "23f08335362185a5ea2ad3a4e597f1375e78bce8a040df5c600c8d3552ef2394"
       url: "https://pub.dev"
     source: hosted
-    version: "1.16.0"
+    version: "1.17.0"
   mime:
     dependency: transitive
     description:
@@ -909,6 +973,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
+  network_info_plus:
+    dependency: "direct main"
+    description:
+      name: network_info_plus
+      sha256: "5bd4b86e28fed5ed4e6ac7764133c031dfb7d3f46aa2a81b46f55038aa78ecc0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "5.0.3"
+  network_info_plus_platform_interface:
+    dependency: transitive
+    description:
+      name: network_info_plus_platform_interface
+      sha256: "7e7496a8a9d8136859b8881affc613c4a21304afeb6c324bcefc4bd0aff6b94b"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.2"
+  nm:
+    dependency: transitive
+    description:
+      name: nm
+      sha256: "2c9aae4127bdc8993206464fcc063611e0e36e72018696cd9631023a31b24254"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.0"
   octo_image:
     dependency: transitive
     description:
@@ -1077,6 +1165,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.0.3"
+  profanity_filter:
+    dependency: "direct main"
+    description:
+      name: profanity_filter
+      sha256: afe466d42a2763a5b86849192bee3337de45a9566d5915a0fe4aa5f9cd2e8ac4
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.0"
   provider:
     dependency: transitive
     description:
@@ -1101,6 +1197,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.0"
+  rename:
+    dependency: "direct main"
+    description:
+      name: rename
+      sha256: da5f4d67f8c68f066ad04edfd6585495dbe595f2baf3b1999eb6af1805d79539
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.1.0"
   rxdart:
     dependency: transitive
     description:
@@ -1322,6 +1426,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
+  stripe_android:
+    dependency: transitive
+    description:
+      name: stripe_android
+      sha256: "2bd3ad54a024701a3ef1d623c7ab81e6e8800c0586f91e4263530c47cdd19d82"
+      url: "https://pub.dev"
+    source: hosted
+    version: "12.2.0"
+  stripe_ios:
+    dependency: transitive
+    description:
+      name: stripe_ios
+      sha256: "948e2480182931c600ca07e2a132973503e9ba0f2caa8c7a94517ef861786f60"
+      url: "https://pub.dev"
+    source: hosted
+    version: "12.2.0"
+  stripe_platform_interface:
+    dependency: transitive
+    description:
+      name: stripe_platform_interface
+      sha256: "34b39cbc987b46f4d47cc0b3df2dd83994b6247c076a35ea7b1ec016959af449"
+      url: "https://pub.dev"
+    source: hosted
+    version: "12.2.0"
   synchronized:
     dependency: transitive
     description:
@@ -1342,10 +1470,10 @@ packages:
     dependency: transitive
     description:
       name: test_api
-      sha256: "522f00f556e73044315fa4585ec3270f1808a4b186c936e612cab0b565ff1e00"
+      sha256: ab2726c1a94d3176a45960b6234466ec367179b87dd74f1611adb1f3b5fb9d55
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.6"
+    version: "0.7.7"
   timing:
     dependency: transitive
     description:
@@ -1427,7 +1555,7 @@ packages:
     source: hosted
     version: "3.1.5"
   uuid:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: uuid
       sha256: a11b666489b1954e01d992f3d601b1804a33937b5a8fe677bd26b8a9f96f96e8
@@ -1562,6 +1690,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.15.0"
+  win32_registry:
+    dependency: transitive
+    description:
+      name: win32_registry
+      sha256: "21ec76dfc731550fd3e2ce7a33a9ea90b828fdf19a5c3bcf556fa992cfa99852"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.5"
   xdg_directories:
     dependency: transitive
     description:
