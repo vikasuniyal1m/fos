@@ -1218,7 +1218,7 @@ class HomeScreen extends GetView<HomeController> {
                 ],
               ),
             ),
-            // Content - Truncated text with ellipsis (Responsive)
+            // Content - Truncated; "See translation" only on detail screen
             Padding(
               padding: ResponsiveHelper.padding(
                 context,
@@ -1485,10 +1485,7 @@ class HomeScreen extends GetView<HomeController> {
                     SizedBox(height: ResponsiveHelper.spacing(context, 1)),
                   if (!ResponsiveHelper.isMobile(context))
                     Text(
-                      AutoTranslateHelper.getTranslatedTextSync(
-                        text: blog['content'] ?? blog['description'] ?? '',
-                        sourceLanguage: blog['language'] as String?,
-                      ),
+                      blog['content'] ?? blog['description'] ?? '',
                       style: ResponsiveHelper.textStyle(
                         context,
                         fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
@@ -3101,7 +3098,10 @@ class HomeScreen extends GetView<HomeController> {
     } else if (label.contains('Blogger') || label.contains('blogger')) {
       onTap = () => HomeScreen.navigateToBloggerZone(context);
     } else if (label.contains('Fruit') || label.contains('fruit')) {
-      onTap = () => PaymentGate.navigateToFeature(Routes.FRUITS);
+      onTap = () => PaymentGate.navigateToFeature(Routes.FRUITS).then( (_) {
+        final homeCtrl = Get.find<HomeController>();
+        homeCtrl.loadUserFeeling();
+      });
     } else if (label.contains('Group') || label.contains('group')) {
       onTap = () {
         if (!Get.isRegistered<GroupsController>()) {
@@ -4451,17 +4451,14 @@ class HomeScreen extends GetView<HomeController> {
               children: [
                   // Title
                 Text(
-                    AutoTranslateHelper.getTranslatedTextSync(
-                      text: blog['title'] ?? 'The Power of Forgiveness',
-                      sourceLanguage: blog['language'] as String?,
-                    ),
-                    style: TextStyle(
-                    fontWeight: FontWeight.bold,
+                    blog['title'] ?? 'The Power of Forgiveness',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
                       fontSize: 14,
                       color: Colors.black87,
-                  ),
+                    ),
                     maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                    overflow: TextOverflow.ellipsis,
                 ),
                   SizedBox(height: ResponsiveHelper.spacing(context, 3)),
                   // AON tag with emoji
@@ -5182,23 +5179,15 @@ class _BlogContentWidgetState extends State<_BlogContentWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final textToShow = widget.content.isNotEmpty 
-        ? AutoTranslateHelper.getTranslatedTextSync(
-            text: widget.content,
-            sourceLanguage: widget.language,
-          )
-        : AutoTranslateHelper.getTranslatedTextSync(
-            text: widget.title,
-            sourceLanguage: widget.language);
-    
+    final rawText = widget.content.isNotEmpty ? widget.content : widget.title;
     final maxLines = 4;
-    final needsMoreButton = textToShow.length > 200; // Approximate check for long text
-    
+    final needsMoreButton = rawText.length > 200; // Approximate check for long text
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          textToShow,
+          rawText,
           style: const TextStyle(
             fontSize: 14,
             color: Colors.black87,

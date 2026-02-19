@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/widgets/see_translation_widget.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
@@ -485,11 +486,9 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                               ),
 
                             // Title
-                            Text(
-                              AutoTranslateHelper.getTranslatedTextSync(
-                                text: blog['title'] as String? ?? 'Untitled',
-                                sourceLanguage: blog['language'] as String?,
-                              ),
+                            SeeTranslationWidget(
+                              text: blog['title'] as String? ?? 'Untitled',
+                              sourceLanguage: blog['language'] as String?,
                               style: ResponsiveHelper.textStyle(
                                 context,
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22, desktop: 24),
@@ -551,11 +550,9 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                             SizedBox(height: ResponsiveHelper.spacing(context, 20)),
 
                             // Body Content
-                            Text(
-                              AutoTranslateHelper.getTranslatedTextSync(
-                                text: blog['body'] as String? ?? '',
-                                sourceLanguage: blog['language'] as String?,
-                              ),
+                            SeeTranslationWidget(
+                              text: blog['body'] as String? ?? '',
+                              sourceLanguage: blog['language'] as String?,
                               style: ResponsiveHelper.textStyle(
                                 context,
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),

@@ -6,6 +6,7 @@ import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/utils/image_helper.dart';
+import 'package:fruitsofspirit/widgets/see_translation_widget.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
@@ -435,11 +436,9 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                           // Content - Full content displayed (Same style as home screen)
                           Padding(
                             padding: ResponsiveHelper.padding(context, horizontal: 16, vertical: 0),
-                            child: Text(
-                              AutoTranslateHelper.getTranslatedTextSync(
-                                text: prayer['content'] as String? ?? '',
-                                sourceLanguage: prayer['language'] as String?,
-                              ),
+                            child: SeeTranslationWidget(
+                              text: prayer['content'] as String? ?? '',
+                              sourceLanguage: prayer['language'] as String?,
                               style: ResponsiveHelper.textStyle(
                                 context,
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
