@@ -1,5 +1,6 @@
 import 'package:get/get.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
+import 'package:flutter/widgets.dart';
 import 'package:fruitsofspirit/services/payment_service.dart';
 
 class PaymentController extends GetxController {
@@ -14,7 +15,9 @@ class PaymentController extends GetxController {
     try {
       final result = await PaymentService.createPaymentIntent();
       if (result['already_paid'] == 'true') {
-        Get.back(result: true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Navigator.pop(Get.context!, true);
+        });
         return;
       }
       final clientSecret = result['client_secret']!;
@@ -23,7 +26,7 @@ class PaymentController extends GetxController {
       await Stripe.instance.initPaymentSheet(
         paymentSheetParameters: SetupPaymentSheetParameters(
           paymentIntentClientSecret: clientSecret,
-          merchantDisplayName: 'Fruits of the Spirit',
+          merchantDisplayName: 'FOS Productions',
         ),
       );
       await Stripe.instance.presentPaymentSheet();
@@ -31,7 +34,9 @@ class PaymentController extends GetxController {
       await PaymentService.confirmPayment(
         paymentIntentId: paymentIntentId,
       );
-      Get.back(result: true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pop(Get.context!, true);
+      });
     } on StripeException catch (e) {
       errorMessage.value = e.error.message ?? 'Payment failed';
     } catch (e) {

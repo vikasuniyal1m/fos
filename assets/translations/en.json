@@ -1,5 +1,5 @@
 {
-  "app_name": "Fruits of the Spirit",
+  "app_name": "FOS Messenger",
   "welcome": "Welcome",
   "login": "Login",
   "register": "Register",
@@ -26,7 +26,7 @@
   "upload_photo": "Upload Photo",
   "create_group": "Create Group",
   "edit_profile": "Edit Profile",
-  "nine_fruits": "Nine Fruits of the Spirit",
+  "nine_fruits": "Nine Fruit of the Spirit",
   "share_testimony": "Share Your Testimony",
   "go_live": "Go Live",
   "quick_actions": "Quick Actions",

@@ -45,7 +45,7 @@ class QuickActionsConfig {
         backgroundColor: const Color(0xFF5F4628).withOpacity(0.1), // Light dark brown background
         label: 'Fruits of Spirit',
         route: Routes.FRUITS,
-        description: 'Explore fruits of the spirit',
+        description: 'Explore fruit of the spirit',
         imagePath: 'assets/healthy-food.png', // PNG image from assets
       ),
       /*QuickAction(
