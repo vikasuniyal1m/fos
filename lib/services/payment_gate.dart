@@ -6,6 +6,18 @@ import 'package:fruitsofspirit/services/iap_service.dart';
 /// Payment gate: show payment screen when user tries to use a paid feature.
 /// Video dekhna / browse karna free; jab prayer dalen, blog post karen, group me enter karen, live karen, etc. tab payment dikhe.
 class PaymentGate {
+
+  static Future<bool> checkPremiumAccess() async {
+    final iapService = Get.find<IAPService>();
+    return await iapService.hasPremium();
+  }
+
+  static Future<void> verifyPremiumStatus() async {
+    final iapService = Get.find<IAPService>();
+    final hasPremium = await iapService.hasPremium();
+    // Use the premium status
+  }
+
   /// Returns true if user may access (already paid). If not paid, opens payment screen and returns false.
   static Future<bool> checkAndNavigate() async {
     final iap = Get.find<IAPService>();

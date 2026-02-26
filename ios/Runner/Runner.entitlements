@@ -6,5 +6,8 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Add this section for In-App Purchase -->
+    <key>com.apple.developer.in-app-payments</key>
+    <array/>
 </dict>
 </plist>

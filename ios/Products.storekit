@@ -1,0 +1,19 @@
+{
+  "identifier" : "Local Configuration",
+  "products" : [
+    {
+      "displayPrice" : "₹ 10",
+      "familyShareable" : false,
+      "groupNumber" : 0,
+      "id" : "com.fruitsofspirit.ios.lifetime.test",
+      "localizedDescription" : "Lifetime Premium Access",
+      "localizedTitle" : "Lifetime Premium",
+      "price" : "0.99",
+      "type" : "NonConsumable"
+    }
+  ],
+  "version" : {
+    "major" : 1,
+    "minor" : 0
+  }
+}

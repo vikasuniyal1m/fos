@@ -13,6 +13,7 @@ import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/utils/screen_size.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fruitsofspirit/screens/IntroVideoScreen.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
@@ -27,6 +28,8 @@ import 'bindings/InitialBinding.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+
 
   // Force the app to stay in portrait mode.
   // Only the Intro Video Overlay is allowed to rotate.

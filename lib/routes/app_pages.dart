@@ -286,8 +286,10 @@ class AppPages {
     ),
     GetPage(
       name: Routes.PAYMENT,
-      page: () => const PaymentScreen(),
+      page: () => PaymentScreen(),
       transition: Transition.fadeIn,
     ),
+
+
   ];
 }
