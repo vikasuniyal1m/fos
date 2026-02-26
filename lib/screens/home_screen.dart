@@ -41,11 +41,6 @@ class HomeScreen extends GetView<HomeController> {
 
   // Helper method for blogger zone navigation with loading
   static Future<void> navigateToBloggerZone(BuildContext context) async {
-    final hasPaid = await PaymentGate.hasPaid();
-    if (!hasPaid) {
-      Get.toNamed(Routes.PAYMENT);
-      return;
-    }
     // Show loading dialog using standard showDialog for better control
     showDialog(
       context: context,
@@ -111,11 +106,6 @@ class HomeScreen extends GetView<HomeController> {
 
   // Helper method for gallery navigation with loading
   static Future<void> navigateToGallery(BuildContext context) async {
-    final hasPaid = await PaymentGate.hasPaid();
-    if (!hasPaid) {
-      Get.toNamed(Routes.PAYMENT);
-      return;
-    }
     // Show loading dialog
     showDialog(
       context: context,
@@ -169,11 +159,6 @@ class HomeScreen extends GetView<HomeController> {
 
   // Helper method for story details navigation with loading
   static Future<void> navigateToStoryDetails(BuildContext context, int storyId) async {
-    final hasPaid = await PaymentGate.hasPaid();
-    if (!hasPaid) {
-      Get.toNamed(Routes.PAYMENT);
-      return;
-    }
     // Show loading dialog
     showDialog(
       context: context,
@@ -8044,5 +8029,4 @@ class _EmojiLoadingWrapperState extends State<_EmojiLoadingWrapper> {
     );
   }
 }
-
 

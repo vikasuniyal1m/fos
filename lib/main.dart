@@ -17,7 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fruitsofspirit/screens/IntroVideoScreen.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
-import 'package:flutter_stripe/flutter_stripe.dart';
+// import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:fruitsofspirit/config/api_config.dart';
 
 import 'bindings/InitialBinding.dart';
@@ -70,7 +70,7 @@ Future<void> _initializeDependencies() async {
   await HiveCacheService.init();
 
   // Stripe: set key only here; applySettings() runs after first frame so Android theme is applied
-  Stripe.publishableKey = ApiConfig.stripePublishableKey;
+  // Stripe.publishableKey = ApiConfig.stripePublishableKey;
 
   // Pre-initialize Jingle Service (starts pre-caching)
   // Get.put will automatically call onInit() which calls initialize()
@@ -204,7 +204,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Initialize Stripe after first frame (Android needs theme applied first)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
-        await Stripe.instance.applySettings();
+        // await Stripe.instance.applySettings();
       } catch (e) {
         debugPrint('Stripe init deferred or failed: $e');
       }

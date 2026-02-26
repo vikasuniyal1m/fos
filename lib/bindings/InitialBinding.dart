@@ -17,6 +17,7 @@ import 'package:fruitsofspirit/controllers/onboarding_controller.dart';
 import 'package:fruitsofspirit/controllers/phone_auth_controller.dart';
 import 'package:fruitsofspirit/controllers/forgot_password_controller.dart';
 import 'package:fruitsofspirit/controllers/reset_password_controller.dart';
+import 'package:fruitsofspirit/services/iap_service.dart';
 
 class InitialBinding extends Bindings {
   @override
@@ -83,5 +84,9 @@ class InitialBinding extends Bindings {
       Get.put(JingleService(), permanent: true);
     }
 
+    if (!Get.isRegistered<IAPService>()) {
+      final iap = Get.put(IAPService(), permanent: true);
+      iap.initialize();
+    }
   }
 }

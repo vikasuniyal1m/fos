@@ -31,6 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
   get: ^4.6.5
+  in_app_purchase: ^3.1.11
   permission_handler: ^11.3.1
   flutter_svg: ^2.0.10+1
   icons_plus: ^5.0.0
@@ -97,7 +98,7 @@ dependencies:
   agora_rtc_engine: ^6.3.2
   profanity_filter: ^2.0.0
   gal: ^2.3.2
-  flutter_stripe: ^12.2.0
+#  flutter_stripe: ^12.2.0
   translator: ^1.0.4+1
 
 

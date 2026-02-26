@@ -47,12 +47,12 @@ class ApiConfig {
   static const String liveStreamingGetComments = '$baseUrl/live_streaming/get_live_comments.php';
 
   // Payment (Stripe $0.99 one-time)
-  static const String paymentBaseUrl = '$baseUrl/payment';
-  static const String paymentCheckStatus = '$paymentBaseUrl/check-status.php';
-  static const String paymentCreateIntent = '$paymentBaseUrl/create-intent.php';
-  static const String paymentConfirm = '$paymentBaseUrl/confirm.php';
-  /// Stripe publishable key (use test key for dev; set via env in production).
-  static const String stripePublishableKey = 'pk_test_51SymPZFecPOAbRJqoQaoi4bhz5XcxgSlWoEZeE8BsHsiYj4sPftf5slaGnUKOPPqcAdX4W7JjKsbtHsvHwft4ETT00S5dbenc8';
+  // static const String paymentBaseUrl = '$baseUrl/payment';
+  // static const String paymentCheckStatus = '$paymentBaseUrl/check-status.php';
+  // static const String paymentCreateIntent = '$paymentBaseUrl/create-intent.php';
+  // static const String paymentConfirm = '$paymentBaseUrl/confirm.php';
+  // /// Stripe publishable key (use test key for dev; set via env in production).
+  // static const String stripePublishableKey = 'pk_test_51SymPZFecPOAbRJqoQaoi4bhz5XcxgSlWoEZeE8BsHsiYj4sPftf5slaGnUKOPPqcAdX4W7JjKsbtHsvHwft4ETT00S5dbenc8';
 
   // Request timeout
   static const Duration timeout = Duration(seconds: 60);

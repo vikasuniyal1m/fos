@@ -52,6 +52,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
         
         // Note: ndk.abiFilters should NOT be set when using splits.abi
         // The splits configuration below handles ABI filtering instead
@@ -61,8 +65,8 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
-            isShrinkResources = false // Ise false karne se error chala jayega
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

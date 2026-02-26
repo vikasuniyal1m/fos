@@ -5,7 +5,7 @@ import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
-import 'package:fruitsofspirit/services/payment_service.dart';
+import 'package:fruitsofspirit/services/iap_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class MainDashboardController extends GetxController {
@@ -31,10 +31,9 @@ class MainDashboardController extends GetxController {
   Future<void> changeIndex(int index) async {
     if (currentIndex.value == index) return;
 
-    // Payment gate: Fruits (1), Prayer (2), Videos (3), Gallery (4)
     if (index == 1 || index == 2 || index == 3 || index == 4) {
-      final hasPaid = await PaymentService.hasUserPaid();
-      if (!hasPaid) {
+      final ok = await Get.find<IAPService>().hasPremium();
+      if (!ok) {
         Get.toNamed(Routes.PAYMENT);
         return;
       }
