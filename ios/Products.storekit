@@ -1,17 +1,27 @@
 {
-  "identifier" : "Local Configuration",
+  "identifier" : "FruitsOfSpirit Products",
+  "nonRenewingSubscriptions" : [],
   "products" : [
     {
-      "displayPrice" : "₹ 10",
+      "displayPrice" : "0.99",
       "familyShareable" : false,
-      "groupNumber" : 0,
-      "id" : "com.fruitsofspirit.ios.lifetime.test",
-      "localizedDescription" : "Lifetime Premium Access",
-      "localizedTitle" : "Lifetime Premium",
-      "price" : "0.99",
-      "type" : "NonConsumable"
+      "groupNumber" : 1,
+      "localizations" : [
+        {
+          "description" : "Full access to all premium features",
+          "displayName" : "Lifetime Premium",
+          "locale" : "en_US"
+        }
+      ],
+      "productId" : "com.fruitsofspirit.ios.premium",
+      "referenceName" : "Premium Unlock",
+      "type" : "NON_CONSUMABLE"
     }
   ],
+  "settings" : {
+    "_applicationInternalID" : "1234567890",
+    "developmentRegion" : "en_US"
+  },
   "version" : {
     "major" : 1,
     "minor" : 0

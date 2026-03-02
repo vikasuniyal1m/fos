@@ -95,16 +95,14 @@ class CachedImage extends StatelessWidget {
             httpHeaders: headers,
             placeholder: (context, url) => placeholder ?? _defaultPlaceholder(context),
             errorWidget: (context, url, error) {
-              // Log the error for debugging
-              print('❌ Error loading network image: $url');
-              if (error != null) {
-                print('   Error type: ${error.runtimeType}');
-                print('   Error message: $error');
-                // Check for 404 specifically
-                if (error.toString().contains('404') || 
-                    error.toString().contains('HttpException') ||
-                    error.toString().contains('statusCode: 404')) {
-                  print('   ⚠️ Image not found (404): $url');
+              final msg = error?.toString() ?? '';
+              final is404 = msg.contains('404') || msg.contains('statusCode: 404') || msg.contains('Not Found');
+              if (!is404) {
+                // Only log non-404 errors to avoid console noise
+                print('❌ Error loading network image: $url');
+                if (error != null) {
+                  print('   Error type: ${error.runtimeType}');
+                  print('   Error message: $error');
                 }
               }
               return errorWidget ?? _defaultErrorWidget(context);
@@ -302,4 +300,3 @@ class _LazyCachedImageState extends State<LazyCachedImage> {
     );
   }
 }
-

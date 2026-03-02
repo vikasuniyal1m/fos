@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class MainDashboardController extends GetxController {
   var currentIndex = 0.obs;
-  var showIntroVideo = true.obs; // New observable to control intro video visibility
+  var showIntroVideo = true.obs;
 
   @override
   void onInit() {
@@ -19,7 +19,7 @@ class MainDashboardController extends GetxController {
   }
 
   Future<void> _loadIntroVideoPreference() async {
-    await IntroService.init(); // Ensure IntroService is initialized
+    await IntroService.init();
     showIntroVideo.value = IntroService.shouldShowIntroOverlay();
     debugPrint('MainDashboardController: showIntroVideo after loading preference: ${showIntroVideo.value}');
   }
@@ -28,9 +28,11 @@ class MainDashboardController extends GetxController {
     showIntroVideo.value = false;
   }
 
-  Future<void> changeIndex(int index) async {
+  // 🔴 YEH FUNCTION IMPORTANT HAI - ISME PREMIUM CHECK HAI
+  Future<void> changeIndex(int index) async {  // <-- async add karo
     if (currentIndex.value == index) return;
 
+    // 🔴 PREMIUM CHECK - YEH LINES ADD KARO
     if (index == 1 || index == 2 || index == 3 || index == 4) {
       final ok = await Get.find<IAPService>().hasPremium();
       if (!ok) {
@@ -39,7 +41,7 @@ class MainDashboardController extends GetxController {
       }
     }
 
-    // Special logic for certain tabs if needed (like resetting filters)
+    // Special logic for certain tabs
     if (index == 2) {
       // Prayer Requests
       try {

@@ -94,14 +94,14 @@ Future<void> _initializeServices() async {
         .catchError((error) {
       debugPrint('⚠️ DeepLinkService initialization failed: $error');
     });
-    
+
     // Initialize Push Notifications with timeout
     await PushNotificationService.initialize()
         .timeout(const Duration(seconds: 5))
         .catchError((error) {
       debugPrint('⚠️ PushNotificationService initialization failed: $error');
     });
-    
+
     // Send pending analytics events (non-blocking)
     AnalyticsService.sendPendingEvents()
         .timeout(const Duration(seconds: 3))
@@ -138,24 +138,24 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        // App is in the foreground - resume any paused operations
+      // App is in the foreground - resume any paused operations
         _handleAppResumed();
         break;
       case AppLifecycleState.inactive:
-        // App is in an inactive state (e.g., phone call, app switcher)
-        // Pause video players temporarily
+      // App is in an inactive state (e.g., phone call, app switcher)
+      // Pause video players temporarily
         _handleAppInactive();
         break;
       case AppLifecycleState.paused:
-        // App is in the background - pause video players and save state
+      // App is in the background - pause video players and save state
         _handleAppPaused();
         break;
       case AppLifecycleState.detached:
-        // App is detached from the Flutter engine (e.g., terminated)
+      // App is detached from the Flutter engine (e.g., terminated)
         _handleAppDetached();
         break;
       case AppLifecycleState.hidden:
-        // App is hidden (e.g., minimized)
+      // App is hidden (e.g., minimized)
         _handleAppHidden();
         break;
     }
@@ -248,7 +248,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           builder: (context, _) {
             // Initialize ScreenSize utility
             ScreenSize.init(context);
-            
+
             // Clamp textScaleFactor for better accessibility
             final constrainedTextScaleFactor = mediaQueryData.textScaleFactor.clamp(0.9, 1.3);
 
