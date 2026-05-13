@@ -10,7 +10,7 @@ import 'package:fruitsofspirit/config/api_config.dart';
 import 'package:fruitsofspirit/services/agora_service.dart';
 import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
-import 'package:fruitsofspirit/services/fruits_service.dart';
+import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
@@ -53,6 +53,10 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
   /// Viewer: true when host ended the live (so we show "Live video ended")
   bool _hostEndedLive = false;
 
+  // Viewer count tracking
+  final Set<int> _remoteUids = {};
+  int get _viewerCount => _remoteUids.length;
+
   // Broadcaster controls
   bool _micMuted = false;
   bool _videoMuted = false;
@@ -68,7 +72,7 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
   // Floating emoji reactions (Instagram-style)
   final List<Map<String, dynamic>> _floatingEmojis = [];
   int _floatingEmojiId = 0;
-  /// Quick reaction row: fruit emojis from API (Fruits screen jaisa); image_url when emoji_char empty
+  /// Quick reaction row: fruit emojis from API (Fruit screen jaisa); image_url when emoji_char empty
   List<Map<String, dynamic>> _quickFruitEmojis = [];
 
   String _viewerName = 'You';
@@ -88,20 +92,20 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
     _startCommentPolling();
   }
 
-  /// Saare variants chahiye (har fruit ke 3) — fruits_screen_all_variants use karo, nahi to API se full list
+  /// Saare variants chahiye (har fruit ke 3) — fruit_screen_all_variants use karo, nahi to API se full list
   Future<void> _loadQuickFruitEmojis() async {
     try {
-      var cached = HiveCacheService.getCachedList('fruits_screen_all_variants');
-      if (cached.isEmpty) cached = await CacheService.getCachedList('fruits_screen_all_variants');
+      var cached = HiveCacheService.getCachedList('fruit_screen_all_variants');
+      if (cached.isEmpty) cached = await CacheService.getCachedList('fruit_screen_all_variants');
       if (mounted && cached.isNotEmpty) {
         setState(() => _quickFruitEmojis = List<Map<String, dynamic>>.from(cached));
         return;
       }
-      final fruitsFromTable = await FruitsService.getAllFruits();
-      if (fruitsFromTable.isEmpty && mounted) return;
+      final fruitFromTable = await FruitService.getAllFruit();
+      if (fruitFromTable.isEmpty && mounted) return;
       var emojis = await EmojisService.getEmojis(status: 'Active', sortBy: 'image_url', order: 'ASC');
       if (emojis.isEmpty && mounted) return;
-      final fruitNames = fruitsFromTable.map((f) => (f['name'] as String? ?? '').toLowerCase().trim()).toList();
+      final fruitNames = fruitFromTable.map((f) => (f['name'] as String? ?? '').toLowerCase().trim()).toList();
       emojis = emojis.where((emoji) {
         final name = (emoji['name'] as String? ?? '').toLowerCase();
         final category = (emoji['category'] as String? ?? '').toLowerCase();
@@ -116,8 +120,8 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
       }).toList();
       final list = List<Map<String, dynamic>>.from(emojis);
       if (list.isNotEmpty) {
-        await HiveCacheService.cacheList('fruits_screen_all_variants', list);
-        await CacheService.cacheList('fruits_screen_all_variants', list);
+        await HiveCacheService.cacheList('fruit_screen_all_variants', list);
+        await CacheService.cacheList('fruit_screen_all_variants', list);
       }
       if (mounted && list.isNotEmpty) setState(() => _quickFruitEmojis = list);
     } catch (_) {
@@ -209,15 +213,24 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
           },
           onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
             if (mounted) {
-              setState(() => _remoteUid = remoteUid);
+              setState(() {
+                _remoteUid = remoteUid;
+                _remoteUids.add(remoteUid);
+              });
             }
           },
           onUserOffline: (RtcConnection connection, int remoteUid,
               UserOfflineReasonType reason) {
             if (mounted) {
               setState(() {
-                _remoteUid = null;
-                if (!widget.isBroadcaster) _hostEndedLive = true;
+                _remoteUids.remove(remoteUid);
+                if (_remoteUids.isEmpty) {
+                  _remoteUid = null;
+                  if (!widget.isBroadcaster) _hostEndedLive = true;
+                } else {
+                  // Still have other viewers, update remoteUid to first available
+                  _remoteUid = _remoteUids.first;
+                }
               });
             }
           },
@@ -302,10 +315,19 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _error = e.toString().replaceAll('Exception: ', '');
-          _isLoading = false;
-        });
+        final errorMsg = e.toString().replaceAll('Exception: ', '');
+        // Check if stream has ended
+        if (errorMsg.contains('ended') || errorMsg.contains('not found')) {
+          setState(() {
+            _hostEndedLive = true;
+            _isLoading = false;
+          });
+        } else {
+          setState(() {
+            _error = errorMsg;
+            _isLoading = false;
+          });
+        }
       }
     }
   }
@@ -500,7 +522,7 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
     LiveStreamingService.addLiveComment(channelName: widget.channelName, userName: _viewerName, text: reactionText, isEmoji: true);
   }
 
-  /// Fruit tap / arrow tap: sirf us fruit ke 3 variants dikhao (simple picker, no Fruits UI)
+  /// Fruit tap / arrow tap: sirf us fruit ke 3 variants dikhao (simple picker, no Fruit UI)
   void _showVariantOverlay(List<Map<String, dynamic>> variants) {
     if (variants.isEmpty) return;
     final list = List<Map<String, dynamic>>.from(variants);
@@ -700,7 +722,16 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
         resizeToAvoidBottomInset: false,
         backgroundColor: Colors.black,
         body: Stack(
-        children: [
+          children: [
+          // GestureDetector for video and top area - dismisses keyboard on tap
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () {
+                FocusScope.of(context).unfocus();
+              },
+              behavior: HitTestBehavior.translucent,
+              child: Stack(
+                children: [
           // Video
           Center(
             child: widget.isBroadcaster
@@ -737,30 +768,34 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
               child: Row(
                 children: [
                   // Profile + username + chevron (left)
-                  GestureDetector(
-                    onTap: () {},
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: Colors.white24,
-                          backgroundImage: _profilePhotoUrl != null && _profilePhotoUrl!.startsWith('http')
-                              ? NetworkImage(_profilePhotoUrl!)
-                              : null,
-                          child: _profilePhotoUrl == null || !_profilePhotoUrl!.startsWith('http')
-                              ? Text(_viewerName.isNotEmpty ? _viewerName[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white, fontSize: 16))
-                              : null,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _viewerName,
-                          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 22),
-                      ],
+                  Flexible(
+                    child: GestureDetector(
+                      onTap: () {},
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: Colors.white24,
+                            backgroundImage: _profilePhotoUrl != null && _profilePhotoUrl!.startsWith('http')
+                                ? NetworkImage(_profilePhotoUrl!)
+                                : null,
+                            child: _profilePhotoUrl == null || !_profilePhotoUrl!.startsWith('http')
+                                ? Text(_viewerName.isNotEmpty ? _viewerName[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white, fontSize: 16))
+                                : null,
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              _viewerName,
+                              style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 22),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -777,6 +812,26 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
                         Icon(Icons.circle, color: Colors.white, size: 8),
                         SizedBox(width: 5),
                         Text('LIVE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Viewer count badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.visibility, color: Colors.white, size: 14),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$_viewerCount',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
+                        ),
                       ],
                     ),
                   ),
@@ -845,6 +900,9 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
               ),
             ),
           ],
+                ]),
+              ),
+            ),
           // Broadcaster: "We're telling your followers..." banner (dismissible)
           if (widget.isBroadcaster && _showFollowerBanner)
             Positioned(
@@ -930,11 +988,17 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
             ),
           ),
           // Bottom: emoji + comment input – keyboard open hone pe iske upar uth jata hai
+          // This is outside GestureDetector so buttons work properly
           Positioned(
             left: 0,
             right: 0,
             bottom: keyboardHeight,
-            child: Container(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () {
+                // Absorb tap - don't dismiss keyboard when tapping bottom bar area
+              },
+              child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
@@ -982,6 +1046,7 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
                                 onSubmitted: (v) {
                                   _addComment(v);
                                   _commentController.clear();
+                                  FocusScope.of(context).unfocus();
                                 },
                               ),
                             ),
@@ -998,6 +1063,7 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
                                 if (t.isNotEmpty) {
                                   _addComment(t);
                                   _commentController.clear();
+                                  FocusScope.of(context).unfocus();
                                 }
                               }),
                             ],
@@ -1009,11 +1075,9 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
                 ),
               ),
             ),
-          ),
-        ],
-      ),
     ),
-    );
+      ),
+    ])));
   }
 
   Widget _buildHostEndedOverlay() {

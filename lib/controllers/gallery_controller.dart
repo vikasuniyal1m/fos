@@ -8,7 +8,7 @@ import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/content_moderation_service.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
-import 'package:fruitsofspirit/services/fruits_service.dart';
+import 'package:fruitsofspirit/services/fruit_service.dart';
 
 /// Gallery Controller
 /// Manages gallery photos data and operations
@@ -575,41 +575,42 @@ class GalleryController extends GetxController {
         }
       }
       
-      if (isEmojiReaction && emojiKey != null) {
-        // It's an emoji reaction - store user information
-        if (!emojiReactions.containsKey(emojiKey)) {
-          emojiReactions[emojiKey] = [];
-          print('🍎 GALLERY EMOJI: ✅ Created new emoji reaction entry for key: "$emojiKey"');
-        }
-        // Add user info for this reaction
-        emojiReactions[emojiKey]!.add({
-          'user_id': comment['user_id'],
-          'user_name': comment['user_name'] ?? 'Anonymous',
-          'profile_photo': comment['profile_photo'],
-          'created_at': comment['created_at'],
-        });
-        print('🍎 GALLERY EMOJI: ✅ Added emoji reaction: "$emojiKey" by ${comment['user_name']} (total: ${emojiReactions[emojiKey]!.length})');
-      } else {
-        // It's a text comment - add to text comments list
-        // Only add top-level comments (replies are nested in 'replies' array) - SAME AS PRAYERS
-        if (parentId == null || parentId == 0) {
-          // Check if replies array exists and log it
-          final replies = comment['replies'];
-          final replyCount = replies != null ? (replies as List).length : 0;
-          print('📝 Found top-level comment: id=$commentId, replies=$replyCount');
-          if (replyCount > 0) {
-            print('   ✅ Replies found in replies array:');
-            for (var i = 0; i < (replies as List).length; i++) {
-              final reply = (replies as List)[i];
-              print('      - Reply ${i + 1}: id=${reply['id']}, content=${(reply['content'] as String? ?? '').substring(0, (reply['content'] as String? ?? '').length > 30 ? 30 : (reply['content'] as String? ?? '').length)}...');
-            }
-          } else {
-            print('   ⚠️ No replies in replies array (might be empty or null)');
+      // FIX: Add ALL top-level comments to textComments (including emoji comments)
+      // Emoji reactions and emoji comments are both stored in comments table
+      // The UI (FruitEmojiHelper.buildCommentText) will render emoji URLs as images
+      if (parentId == null || parentId == 0) {
+        // Check if replies array exists and log it
+        final replies = comment['replies'];
+        final replyCount = replies != null ? (replies as List).length : 0;
+        print('📝 Found top-level comment: id=$commentId, replies=$replyCount, content="${trimmed.substring(0, trimmed.length > 30 ? 30 : trimmed.length)}..."');
+        if (replyCount > 0) {
+          print('   ✅ Replies found in replies array:');
+          for (var i = 0; i < (replies as List).length; i++) {
+            final reply = (replies as List)[i];
+            print('      - Reply ${i + 1}: id=${reply['id']}, content=${(reply['content'] as String? ?? '').substring(0, (reply['content'] as String? ?? '').length > 30 ? 30 : (reply['content'] as String? ?? '').length)}...');
           }
-          textComments.add(comment);
-        } else {
-          print('⏭️ Skipping reply (will be shown in parent comment): id=$commentId, parent=$parentId');
         }
+        
+        // ✅ ADD TO COMMENTS LIST (including emoji comments)
+        textComments.add(comment);
+        print('✅ Added to photoComments: id=$commentId, isEmoji=$isEmojiReaction');
+        
+        // Also track emoji reactions separately for the reactions bar (if it's an emoji)
+        if (isEmojiReaction && emojiKey != null) {
+          if (!emojiReactions.containsKey(emojiKey)) {
+            emojiReactions[emojiKey] = [];
+            print('🍎 GALLERY EMOJI: ✅ Created new emoji reaction entry for key: "$emojiKey"');
+          }
+          emojiReactions[emojiKey]!.add({
+            'user_id': comment['user_id'],
+            'user_name': comment['user_name'] ?? 'Anonymous',
+            'profile_photo': comment['profile_photo'],
+            'created_at': comment['created_at'],
+          });
+          print('🍎 GALLERY EMOJI: ✅ Also added to emojiReactions: "$emojiKey" by ${comment['user_name']}');
+        }
+      } else {
+        print('⏭️ Skipping reply (will be shown in parent comment): id=$commentId, parent=$parentId');
       }
     }
     
@@ -618,6 +619,19 @@ class GalleryController extends GetxController {
       print('   - $emoji: ${emojiReactions[emoji]!.length} reactions');
     }
     
+      // Sort comments by created_at in increasing order (oldest first)
+      textComments.sort((a, b) {
+        final aTime = a['created_at'] as String? ?? '';
+        final bTime = b['created_at'] as String? ?? '';
+        try {
+          final aDate = DateTime.parse(aTime.contains('T') ? aTime : '${aTime}T00:00:00Z');
+          final bDate = DateTime.parse(bTime.contains('T') ? bTime : '${bTime}T00:00:00Z');
+          return aDate.compareTo(bDate);
+        } catch (e) {
+          return aTime.compareTo(bTime);
+        }
+      });
+      
       // Update reactive variables - EXACTLY LIKE PRAYERS
       // Create new list instance and force UI refresh
       photoComments.value = List<Map<String, dynamic>>.from(textComments);

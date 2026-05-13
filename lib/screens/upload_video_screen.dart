@@ -46,7 +46,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
   Animation<Offset>? _slideAnimation;
 
   // Fruit of the Spirit options
-  final List<String> _fruitsOfSpirit = [
+  final List<String> _fruitOfSpirit = [
     'Love',
     'Joy',
     'Peace',
@@ -613,7 +613,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> with SingleTicker
                           vertical: ResponsiveHelper.spacing(context, 16),
                         ),
                       ),
-                      items: _fruitsOfSpirit.map((fruit) {
+                      items: _fruitOfSpirit.map((fruit) {
                         return DropdownMenuItem(
                         value: fruit,
                           child: Row(

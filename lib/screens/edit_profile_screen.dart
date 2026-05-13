@@ -638,7 +638,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 ? NetworkImage(
                                     profilePhoto.startsWith('http://') || profilePhoto.startsWith('https://')
                                       ? profilePhoto
-                                      : 'https://fruitofthespirit.templateforwebsites.com/$profilePhoto'
+                                      : 'http://admin.fosmessenger.com/$profilePhoto'
                                   )
                                 : null) as ImageProvider?,
                         child: selectedImage == null && (profilePhoto == null || profilePhoto.isEmpty)

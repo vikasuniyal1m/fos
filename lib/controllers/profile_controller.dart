@@ -7,7 +7,7 @@ import 'package:fruitsofspirit/controllers/home_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
-import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/fruit_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
@@ -27,6 +27,8 @@ class ProfileController extends GetxController {
   void onInit() {
     super.onInit();
     _loadUserId();
+    // Clear any existing profile data on init to prevent data leak
+    profile.clear();
   }
 
   /// Set initial data from pre-loaded source
@@ -154,20 +156,48 @@ class ProfileController extends GetxController {
       // Clear local storage and navigate to login screen
       await UserStorage.clear();
 
-      // Delete permanent controllers to prevent data leak between users
+      // Clear controller data instead of deleting permanent controllers
       try {
-        Get.delete<HomeController>(force: true);
-        Get.delete<PrayersController>(force: true);
-        Get.delete<GroupsController>(force: true);
-        Get.delete<NotificationsController>(force: true);
-        Get.delete<FruitsController>(force: true);
-        Get.delete<BlogsController>(force: true);
-        Get.delete<VideosController>(force: true);
-        Get.delete<GalleryController>(force: true);
-        // Delete this controller last
-        Get.delete<ProfileController>(force: true);
+        if (Get.isRegistered<HomeController>()) {
+          final homeController = Get.find<HomeController>();
+          homeController.fruit.clear();
+          homeController.prayers.clear();
+          homeController.blogs.clear();
+          homeController.isInitialLoading.value = true;
+        }
+        if (Get.isRegistered<PrayersController>()) {
+          final prayersController = Get.find<PrayersController>();
+          prayersController.prayers.clear();
+        }
+        if (Get.isRegistered<GroupsController>()) {
+          final groupsController = Get.find<GroupsController>();
+          groupsController.groups.clear();
+        }
+        if (Get.isRegistered<NotificationsController>()) {
+          final notificationsController = Get.find<NotificationsController>();
+          notificationsController.notifications.clear();
+        }
+        if (Get.isRegistered<FruitController>()) {
+          final fruitController = Get.find<FruitController>();
+          fruitController.allFruit.clear();
+        }
+        if (Get.isRegistered<BlogsController>()) {
+          final blogsController = Get.find<BlogsController>();
+          blogsController.blogs.clear();
+        }
+        if (Get.isRegistered<VideosController>()) {
+          final videosController = Get.find<VideosController>();
+          videosController.videos.clear();
+        }
+        if (Get.isRegistered<GalleryController>()) {
+          final galleryController = Get.find<GalleryController>();
+          galleryController.photos.clear();
+        }
+        // Clear this controller's data last
+        profile.clear();
+        userId.value = 0;
       } catch (e) {
-        print('Error deleting controllers: $e');
+        print('Error clearing controller data: $e');
       }
 
       Get.offAllNamed('/login');

@@ -556,7 +556,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     // Initialize ScreenSize for responsive design
     ScreenSize.init(context);
     
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final thumbnailPath = photo['thumbnail_path'] as String?;
     final filePath = photo['file_path'] as String? ?? '';
     final imageUrl = thumbnailPath != null 

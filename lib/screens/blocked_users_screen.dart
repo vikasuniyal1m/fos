@@ -4,6 +4,7 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 
 /// Blocked Users Screen
 /// Shows list of users that the current user has blocked
@@ -196,7 +197,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                           ),
                           subtitle: blockedAt != null
                               ? Text(
-                                  'Blocked on ${_formatDate(blockedAt)}',
+                                  'Blocked on ${TimeHelper.getTimeAgo(blockedAt)}',
                                   style: AppTheme.bodySmall(context).copyWith(color: AppTheme.textSecondary),
                                 )
                               : null,
@@ -217,25 +218,5 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                   ),
                 ),
     );
-  }
-
-  String _formatDate(String dateString) {
-    try {
-      final date = DateTime.parse(dateString);
-      final now = DateTime.now();
-      final difference = now.difference(date);
-
-      if (difference.inDays > 30) {
-        return '${date.day}/${date.month}/${date.year}';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
-      } else if (difference.inHours > 0) {
-        return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
-      } else {
-        return 'Today';
-      }
-    } catch (e) {
-      return dateString;
-    }
   }
 }

@@ -227,44 +227,22 @@ class AppBottomNavigationBar extends StatelessWidget {
               icon: SizedBox(
                 width: iconSize,
                 height: iconSize,
-                child: Icon(
-                  Icons.apple,
-                  size: activeIconSize,
-                  color: AppTheme.primaryColor,
-                ) /*Image.asset(
-                  'assets/happy.png',
+                child: Image.asset(
+                  'assets/orange.png',
                   width: iconSize,
                   height: iconSize,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.apple,
-                      size: iconSize,
-                      color: Colors.grey[600],
-                    );
-                  },
-                )*/,
+                ),
               ),
               activeIcon: SizedBox(
                 width: activeIconSize,
                 height: activeIconSize,
-                child: Icon(
-                  Icons.apple,
-                  size: activeIconSize,
-                  color: AppTheme.primaryColor,
-                ) /*Image.asset(
-                  'assets/happy.png',
+                child: Image.asset(
+                  'assets/orange.png',
                   width: activeIconSize,
                   height: activeIconSize,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.apple,
-                      size: activeIconSize,
-                      color: themeColor,
-                    );
-                  },
-                )*/,
+                ),
               ),
               label: '',
             ),

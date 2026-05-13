@@ -1,4 +1,3 @@
-// screens/iap_debug_screen.dart
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/iap_service.dart';
@@ -10,25 +9,28 @@ class IAPDebugScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('IAP Debug'),
+        title: const Text('IAP Status'),
       ),
       body: Obx(() => ListView(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         children: [
           Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Status:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text('Initialized: ${_iapService.isInitialized.value}'),
-                  Text('Loading: ${_iapService.isLoading.value}'),
-                  Text('Error: ${_iapService.errorMessage.value}'),
-                  SizedBox(height: 8),
+                  const Text('Status', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text('Initialized: ${_iapService.isInitialized}'),
+                  Text('Loading: ${_iapService.isLoading}'),
+                  Text('Premium Active: ${_iapService.premiumActive.value}'),
+                  if (_iapService.errorMessage.isNotEmpty)
+                    Text('Error: ${_iapService.errorMessage.value}',
+                        style: const TextStyle(color: Colors.red)),
+                  const SizedBox(height: 8),
                   ElevatedButton(
                     onPressed: () => _iapService.initialize(),
-                    child: Text('Re-initialize IAP'),
+                    child: const Text('Re-initialize IAP'),
                   ),
                 ],
               ),
@@ -36,21 +38,21 @@ class IAPDebugScreen extends StatelessWidget {
           ),
           Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Products:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('Products', style: TextStyle(fontWeight: FontWeight.bold)),
                   ..._iapService.products.map((p) => Padding(
-                    padding: EdgeInsets.symmetric(vertical: 4),
-                    child: Text('${p.id} - ${p.price}'),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('${p.id} — ${p.price}'),
                   )),
                   if (_iapService.products.isEmpty)
-                    Text('No products loaded'),
-                  SizedBox(height: 8),
+                    const Text('No products loaded'),
+                  const SizedBox(height: 8),
                   ElevatedButton(
                     onPressed: () => _iapService.loadProducts(),
-                    child: Text('Reload Products'),
+                    child: const Text('Reload Products'),
                   ),
                 ],
               ),
@@ -58,17 +60,17 @@ class IAPDebugScreen extends StatelessWidget {
           ),
           Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
                   ElevatedButton(
-                    onPressed: () => _iapService.purchaseLifetime(),
-                    child: Text('Test Purchase'),
+                    onPressed: () => _iapService.purchasePackage(1),
+                    child: const Text('Purchase'),
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   ElevatedButton(
                     onPressed: () => _iapService.restorePurchases(),
-                    child: Text('Test Restore'),
+                    child: const Text('Restore Purchases'),
                   ),
                 ],
               ),

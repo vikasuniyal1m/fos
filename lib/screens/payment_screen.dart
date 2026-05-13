@@ -1,340 +1,445 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/iap_service.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 
-class PaymentScreen extends StatelessWidget {
+class PaymentScreen extends StatefulWidget {
+  const PaymentScreen({Key? key}) : super(key: key);
+
+  @override
+  State<PaymentScreen> createState() => _PaymentScreenState();
+}
+
+class _PaymentScreenState extends State<PaymentScreen> {
+  IAPService? _iapService;
+  bool _isInitializing = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeIAP();
+  }
+
+  Future<void> _initializeIAP() async {
+    try {
+      if (Get.isRegistered<IAPService>()) {
+        _iapService = Get.find<IAPService>();
+      } else {
+        // Register IAP service if not already registered
+        _iapService = Get.put(IAPService(), permanent: true);
+        await _iapService!.initialize();
+      }
+    } catch (e) {
+      debugPrint('Error accessing IAP service: $e');
+      // Try to register and initialize as fallback
+      try {
+        _iapService = Get.put(IAPService(), permanent: true);
+        await _iapService!.initialize();
+      } catch (e2) {
+        debugPrint('Fallback IAP initialization failed: $e2');
+      }
+    }
+    setState(() {
+      _isInitializing = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final iap = Get.put(IAPService(), permanent: true);
-    return Obx(() {
-      if (iap.premiumActive.value) {
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          print('🔔 IAP: Premium active, redirecting to Dashboard...');
-          await Future.delayed(const Duration(milliseconds: 400));
-          Get.offAllNamed(Routes.DASHBOARD);
-        });
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
-      }
-      final product = iap.products.isNotEmpty ? iap.products.first : null;
-      final displayPrice = product?.price ?? '\$ 0.99';
+    final size = MediaQuery.of(context).size;
+    final isSmall = size.height < 700;
+
+    // Show loading during initialization
+    if (_isInitializing) {
       return Scaffold(
         backgroundColor: AppTheme.themeColor,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          iconTheme: const IconThemeData(color: AppTheme.textPrimary),
-          title: const Text('Premium Membership', style: TextStyle(color: AppTheme.textPrimary)),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: AppTheme.primaryColor),
+              const SizedBox(height: 16),
+              Text(
+                'Loading premium options...',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+              ),
+            ],
+          ),
         ),
-        bottomNavigationBar: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: (iap.products.isEmpty)
-                      ? null
-                      : () async {
-                    if (iap.isLoading.value) return;
-                    iap.errorMessage.value = '';
-                    final started = await iap.purchaseLifetime();
-                    if (!started) {
-                      if (iap.errorMessage.isNotEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Purchase failed: ${iap.errorMessage.value}'),
-                            behavior: SnackBarBehavior.floating,
-                            duration: const Duration(seconds: 4),
-                          ),
-                        );
-                      }
-                      return;
-                    }
-                  },
-                  icon: const Icon(Icons.lock_open),
-                  label: iap.isLoading.value
-                      ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                      : Text('Unlock Lifetime Premium – $displayPrice'),
-                  style: AppTheme.primaryButtonStyle().copyWith(
-                    minimumSize: MaterialStateProperty.all(const Size(double.infinity, 54)),
+      );
+    }
+
+    // If IAP service is not available, show error
+    if (_iapService == null) {
+      return Scaffold(
+        backgroundColor: AppTheme.themeColor,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    color: AppTheme.errorColor,
+                    size: 48,
                   ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: (iap.isLoading.value || iap.products.isEmpty)
-                            ? null
-                            : () async {
-                          iap.errorMessage.value = '';
-                          final ok = await iap.restorePurchases();
-                          if (!ok && iap.errorMessage.isNotEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Restore failed: ${iap.errorMessage.value}'),
-                                behavior: SnackBarBehavior.floating,
-                                duration: const Duration(seconds: 4),
-                              ),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.restore),
-                        label: const Text('Restore'),
-                        style: AppTheme.secondaryButtonStyle(),
-                      ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Payment Service Unavailable',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Get.offAllNamed(Routes.DASHBOARD),
-                        style: AppTheme.secondaryButtonStyle(),
-                        child: const Text('Maybe later'),
-                      ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Unable to initialize payment service. Please check your internet connection and try again.',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 14,
                     ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                // 🔴 PRODUCT LOAD STATUS - YEH ADD KIYA HAI
-                _buildProductStatus(iap),
-              ],
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: () => Get.offAllNamed(Routes.DASHBOARD),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                    ),
+                    child: const Text('Go Back'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      );
+    }
+
+    // IAP service is available
+    final iapService = _iapService!;
+
+    return Obx(() {
+      // Show loading state while initializing
+      if (!iapService.isInitialized.value && iapService.isLoading.value) {
+        return Scaffold(
+          backgroundColor: AppTheme.themeColor,
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(color: AppTheme.primaryColor),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading premium options...',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      // Auto-redirect when premium activates with success message
+      if (iapService.premiumActive.value) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          // Show success message first
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('🎉 Premium activated successfully! Enjoy all premium features.'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          
+          // Then redirect after delay
+          await Future.delayed(const Duration(milliseconds: 2000));
+          Get.offAllNamed(Routes.DASHBOARD);
+        });
+        return const Scaffold(
+          backgroundColor: AppTheme.themeColor,
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(color: AppTheme.primaryColor),
+                SizedBox(height: 16),
+                Text(
+                  'Activating Premium...',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      final product = iapService.products.isNotEmpty ? iapService.products.first : null;
+      final displayPrice = product?.price ?? '\$0.99';
+
+      return Scaffold(
+        backgroundColor: AppTheme.themeColor,
+        body: SafeArea(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _header(displayPrice),
-              const SizedBox(height: 14),
-              _featurePanel(),
-              const SizedBox(height: 8),
-              if (iap.debugMode.value) _debugPanel(iap),
+              // ── Top Bar ──────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppTheme.textPrimary),
+                      onPressed: () => Get.offAllNamed(Routes.DASHBOARD),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Premium Membership',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 48), // balance close button
+                  ],
+                ),
+              ),
+
+              // ── Scrollable Body ───────────────────────────
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(16, isSmall ? 4 : 8, 16, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Hero Banner
+                      _HeroBanner(price: displayPrice, isSmall: isSmall),
+                      SizedBox(height: isSmall ? 10 : 14),
+
+                      // Benefits grid  
+                      _BenefitsCard(isSmall: isSmall),
+                      SizedBox(height: isSmall ? 8 : 12),
+
+                      // Trust badges
+                      const _TrustRow(),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ── Bottom CTA ────────────────────────────────
+              Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))],
+                ),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Error message with better styling - only show when not loading and after initialization
+                      if (iapService.errorMessage.isNotEmpty && 
+                          iapService.isInitialized.value && 
+                          !iapService.isLoading.value)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.errorColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.errorColor.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                color: AppTheme.errorColor,
+                                size: 20,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                iapService.errorMessage.value,
+                                style: const TextStyle(
+                                  color: AppTheme.errorColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              // Add retry button for connection errors
+                              if (iapService.errorMessage.value.contains('connection') ||
+                                  iapService.errorMessage.value.contains('try again'))
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: TextButton(
+                                    onPressed: () {
+                                      iapService.errorMessage.value = '';
+                                      iapService.loadProducts();
+                                    },
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppTheme.errorColor,
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    ),
+                                    child: const Text(
+                                      'Retry',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+
+                      // Purchase button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: iapService.products.isEmpty || iapService.isLoading.value
+                              ? null
+                              : () async {
+                                  iapService.errorMessage.value = '';
+                                  final started = await iapService.purchasePackage(1);
+                                  if (!started && iapService.errorMessage.isNotEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(iapService.errorMessage.value),
+                                        behavior: SnackBarBehavior.floating,
+                                        backgroundColor: AppTheme.primaryColor,
+                                        duration: const Duration(seconds: 4),
+                                      ),
+                                    );
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: AppTheme.primaryColor.withOpacity(0.4),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            elevation: 2,
+                          ),
+                          child: iapService.isLoading.value
+                              ? const SizedBox(
+                                  width: 20, height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : Text(
+                                  iapService.products.isEmpty || iapService.errorMessage.isNotEmpty
+                                      ? 'Loading...'
+                                      : 'Unlock Lifetime Premium – $displayPrice',
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Skip button only - restore button hidden after purchase
+                      Center(
+                        child: TextButton(
+                          onPressed: () => Get.offAllNamed(Routes.DASHBOARD),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppTheme.textSecondary,
+                            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                          ),
+                          child: const Text('Maybe later', style: TextStyle(fontSize: 13)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       );
     });
   }
+}
 
-  Widget _debugPanel(IAPService iap) {
-    final status = [
-      'initialized: ${iap.isInitialized.value}',
-      'loading: ${iap.isLoading.value}',
-      'products_count: ${iap.products.length}',
-      'products_from_store: ${iap.productsFromStore.value}',
-      'premium_active: ${iap.premiumActive.value}',
-      if (iap.errorMessage.isNotEmpty) 'error: ${iap.errorMessage.value}',
-      if (iap.lastVerifyStatus.isNotEmpty) 'verify_status: ${iap.lastVerifyStatus.value}',
-      if (iap.lastErrorCode.isNotEmpty) 'error_code: ${iap.lastErrorCode.value}',
-      if (iap.lastErrorReason.isNotEmpty) 'error_reason: ${iap.lastErrorReason.value}',
-    ];
+// ─────────────────────────────────────────────────────────────
+// Hero Banner
+// ─────────────────────────────────────────────────────────────
+class _HeroBanner extends StatelessWidget {
+  final String price;
+  final bool isSmall;
+  const _HeroBanner({required this.price, required this.isSmall});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      decoration: AppTheme.cardDecoration(color: Colors.white, borderRadius: 12, elevated: true),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Debug Info', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-          const SizedBox(height: 8),
-          ...status.map((s) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text(s, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-              )),
-          const SizedBox(height: 8),
-          if (iap.lastVerifyBody.isNotEmpty)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Server Response', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
-                const SizedBox(height: 4),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: Text(
-                    iap.lastVerifyBody.value.length > 800
-                        ? iap.lastVerifyBody.value.substring(0, 800) + '...'
-                        : iap.lastVerifyBody.value,
-                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: iap.lastVerifyBody.value));
-                        Get.snackbar('Copied', 'Server response copied to clipboard');
-                      },
-                      icon: const Icon(Icons.copy, size: 16),
-                      label: const Text('Copy', style: TextStyle(fontSize: 12)),
-                      style: AppTheme.secondaryButtonStyle(),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        await iap.runSelfTest();
-                      },
-                      icon: const Icon(Icons.bug_report, size: 16),
-                      label: const Text('Self Test', style: TextStyle(fontSize: 12)),
-                      style: AppTheme.secondaryButtonStyle(),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
-  // 🔴 NAYA FUNCTION - PRODUCT LOAD STATUS DIKHAYEGA
-  Widget _buildProductStatus(IAPService iap) {
-    if (iap.isLoading.value) {
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-        decoration: BoxDecoration(
-          color: Colors.blue[50],
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            SizedBox(
-              width: 14, height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 8),
-            Text('Loading products...', style: TextStyle(color: Colors.blue, fontSize: 12)),
-          ],
-        ),
-      );
-    } else if (iap.products.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-        decoration: BoxDecoration(
-          color: Colors.green[50],
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.check_circle, color: Colors.green, size: 14),
-            const SizedBox(width: 6),
-            Text(
-              '✅ Product Loaded: ${iap.products.first.price}',
-              style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-        decoration: BoxDecoration(
-          color: Colors.orange[50],
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.warning_amber, color: Colors.orange, size: 14),
-            const SizedBox(width: 6),
-            Text(
-              '⚠️ Using test product',
-              style: const TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      );
-    }
-  }
-
-  Widget _benefit(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          const Icon(Icons.check_circle, color: AppTheme.successColor, size: 18),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text)),
-        ],
-      ),
-    );
-  }
-
-  Widget _section(String title, List<String> items) {
-    return Container(
-      decoration: AppTheme.cardDecoration(color: Colors.white, borderRadius: 12, elevated: true),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-          const SizedBox(height: 8),
-          ...items.map(_benefit).toList(),
-        ],
-      ),
-    );
-  }
-
-  Widget _header(String price) {
-    return Container(
+      padding: EdgeInsets.all(isSmall ? 14 : 18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppTheme.primaryColor.withOpacity(0.95),
-            AppTheme.primaryColor.withOpacity(0.75),
-          ],
+        gradient: const LinearGradient(
+          colors: [Color(0xFF8B4513), Color(0xFFB5651D)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8B4513).withOpacity(0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.all(18),
       child: Row(
         children: [
           Container(
-            width: 56,
-            height: 56,
+            width: isSmall ? 46 : 54,
+            height: isSmall ? 46 : 54,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
+              color: Colors.white.withOpacity(0.18),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.stars, color: Colors.white, size: 30),
+            child: Icon(Icons.auto_awesome, color: Colors.white, size: isSmall ? 24 : 28),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Lifetime Premium', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
+                Text(
+                  'Lifetime Premium',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: isSmall ? 17 : 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'One-time purchase · Unlock everything',
+                  style: TextStyle(color: Colors.white70, fontSize: isSmall ? 11 : 12),
+                ),
+                SizedBox(height: isSmall ? 6 : 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  child: Text(price, style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w700)),
+                  child: Text(
+                    price,
+                    style: const TextStyle(
+                      color: AppTheme.primaryColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -343,51 +448,111 @@ class PaymentScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _featurePanel() {
+// ─────────────────────────────────────────────────────────────
+// Benefits Card
+// ─────────────────────────────────────────────────────────────
+class _BenefitsCard extends StatelessWidget {
+  final bool isSmall;
+  const _BenefitsCard({required this.isSmall});
+
+  static const _benefits = [
+    (Icons.spa_rounded,            'Personalized fruit journey'),
+    (Icons.menu_book_rounded,      'Daily devotionals & reflections'),
+    (Icons.notifications_rounded,  'Prayer reminders & schedules'),
+    (Icons.group_rounded,          'Create & join spiritual groups'),
+    (Icons.live_tv_rounded,        'Go live & watch live videos'),
+    (Icons.photo_library_rounded,  'Upload & share media freely'),
+    (Icons.block,                  'Ad-free experience'),
+    (Icons.all_inclusive,          'One-time purchase, lifetime access'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       decoration: AppTheme.cardDecoration(color: Colors.white, borderRadius: 16, elevated: true),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isSmall ? 12 : 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('You will get', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-          const SizedBox(height: 10),
-          _group('Fruits of the Spirit', [
-            'Personalized fruit journey',
-            'Daily reflections & growth tracking',
-            'Curated devotionals & scriptures',
-          ]),
-          const SizedBox(height: 10),
-          _group('Spiritual Tools', [
-            'Prayer reminders & schedules',
-            'Scripture cards & inspirations',
-            'Saved content library',
-          ]),
-          const SizedBox(height: 10),
-          _group('Community & Media', [
-            'Create & join groups',
-            'Go live and watch live videos',
-            'Upload & share media',
-          ]),
-          const SizedBox(height: 10),
-          _group('Premium Perks', [
-            'Ad‑free experience',
-            'Priority support & early features',
-            'One‑time purchase, lifetime access',
-          ]),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppTheme.iconscolor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.stars_rounded, color: AppTheme.iconscolor, size: 16),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'What you get',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+              ),
+            ],
+          ),
+          SizedBox(height: isSmall ? 8 : 12),
+          ..._benefits.map((b) => _BenefitRow(icon: b.$1, label: b.$2, isSmall: isSmall)),
         ],
       ),
     );
   }
+}
 
-  Widget _group(String title, List<String> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+class _BenefitRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isSmall;
+  const _BenefitRow({required this.icon, required this.label, required this.isSmall});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: isSmall ? 3 : 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: AppTheme.iconscolor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(fontSize: isSmall ? 12 : 13, color: AppTheme.textPrimary, height: 1.3),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Trust badges row
+// ─────────────────────────────────────────────────────────────
+class _TrustRow extends StatelessWidget {
+  const _TrustRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-        const SizedBox(height: 6),
-        ...items.map(_benefit).toList(),
+        _badge(Icons.security_rounded, 'Secure'),
+        const SizedBox(width: 16),
+        _badge(Icons.refresh_rounded, 'Restorable'),
+        const SizedBox(width: 16),
+        _badge(Icons.all_inclusive_rounded, 'Lifetime'),
+      ],
+    );
+  }
+
+  Widget _badge(IconData icon, String label) {
+    return Column(
+      children: [
+        Icon(icon, size: 18, color: AppTheme.textSecondary),
+        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
       ],
     );
   }

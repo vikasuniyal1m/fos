@@ -144,5 +144,45 @@ class BlogsService {
       throw ApiException(response['message'] ?? 'Failed to send request');
     }
   }
+
+  // edit feature: Edit Blog (15-minute window)
+  /// Edit Blog (15-minute window)
+  ///
+  /// Parameters:
+  /// - userId: User ID (must be the blog owner)
+  /// - blogId: Blog ID to edit
+  /// - title: New blog title (optional)
+  /// - body: New blog content (optional)
+  /// - category: New category (optional)
+  ///
+  /// Returns: Success status
+  static Future<Map<String, dynamic>> editBlog({ // edit feature
+    required int userId, // edit feature
+    required int blogId, // edit feature
+    String? title, // edit feature
+    String? body, // edit feature
+    String? category, // edit feature
+  }) async { // edit feature
+    final fields = <String, String>{ // edit feature
+      'action': 'edit', // edit feature
+      'user_id': userId.toString(), // edit feature
+      'blog_id': blogId.toString(), // edit feature
+    }; // edit feature
+
+    if (title != null) fields['title'] = title; // edit feature
+    if (body != null) fields['body'] = body; // edit feature
+    if (category != null) fields['category'] = category; // edit feature
+
+    final response = await ApiService.post( // edit feature
+      ApiConfig.blogs, // edit feature
+      body: fields, // edit feature
+    ); // edit feature
+
+    if (response['success'] == true) { // edit feature
+      return response; // edit feature
+    } else { // edit feature
+      throw ApiException(response['message'] ?? 'Failed to edit blog'); // edit feature
+    } // edit feature
+  } // edit feature
 }
 

@@ -332,7 +332,7 @@ class _VideosScreenState extends State<VideosScreen> {
   }
 
   String _getThumbnailUrl(Map<String, dynamic> video) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
 
     // Priority 1: Check thumbnail_path (from database - generated during upload)
     if (video['thumbnail_path'] != null && (video['thumbnail_path'] as String).isNotEmpty) {
@@ -376,7 +376,7 @@ class _VideosScreenState extends State<VideosScreen> {
   }
 
   String? _getVideoUrl(Map<String, dynamic> video) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     if (video['file_path'] != null) {
       final filePath = video['file_path'].toString();
       if (filePath.isNotEmpty) {

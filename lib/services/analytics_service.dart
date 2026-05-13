@@ -24,6 +24,7 @@ class AnalyticsService {
       // Try to send immediately (non-blocking)
       _sendEvent(event).catchError((e) {
         print('Analytics send error: $e');
+        return null;
       });
     } catch (e) {
       print('Analytics track error: $e');

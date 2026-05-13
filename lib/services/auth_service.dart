@@ -14,7 +14,7 @@ class AuthService {
   /// - password: User password
   /// - role: User role ('User' or 'Blogger')
   /// 
-  /// Returns: User data with selected fruits
+  /// Returns: User data with selected fruit
   static Future<Map<String, dynamic>> login({
     String? email,
     String? phone,
@@ -220,19 +220,21 @@ class AuthService {
   /// - email: User email
   /// - name: User name
   /// - profilePicture: Profile picture URL (optional)
+  /// - role: User role ('User' or 'Blogger')
   /// 
-  /// Returns: User data with selected fruits
+  /// Returns: User data with selected fruit
   static Future<Map<String, dynamic>> googleAuth({
     required String googleId,
     required String email,
     required String name,
     String? profilePicture,
+    String role = 'User', // Default role for social login
   }) async {
     final body = <String, dynamic>{
       'google_id': googleId,
       'email': email,
       'name': name,
-      'role': 'User', // Default role for social login
+      'role': role, // Use provided role parameter
     };
 
     if (profilePicture != null) {
@@ -259,7 +261,7 @@ class AuthService {
   /// - name: User name
   /// - profilePicture: Profile picture URL (optional)
   /// 
-  /// Returns: User data with selected fruits
+  /// Returns: User data with selected fruit
   static Future<Map<String, dynamic>> facebookAuth({
     required String facebookId,
     required String email,
@@ -295,7 +297,7 @@ class AuthService {
   /// - phone: User phone (optional if email provided)
   /// - otp: OTP code received via SMS/Email
   /// 
-  /// Returns: User data with selected fruits
+  /// Returns: User data with selected fruit
   static Future<Map<String, dynamic>> phoneOtpLogin({
     String? email,
     String? phone,
@@ -336,7 +338,7 @@ class AuthService {
   /// - identityToken: JWT identity token from Apple
   /// - authorizationCode: Authorization code from Apple
   /// 
-  /// Returns: User data with selected fruits
+  /// Returns: User data with selected fruit
   static Future<Map<String, dynamic>> appleAuth({
     required String appleId,
     String? email,

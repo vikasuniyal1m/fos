@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
@@ -37,48 +38,10 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
       return null;
     }
     
-    return NetworkImage('https://fruitofthespirit.templateforwebsites.com/$photoUrl');
+    return NetworkImage('http://admin.fosmessenger.com/$photoUrl');
   }
 
   /// Format time ago
-  String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return 'Just now';
-    
-    try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      DateTime date;
-      if (!dateString.endsWith('Z')) {
-        date = DateTime.parse('${dateString}Z').toLocal();
-      } else {
-        date = DateTime.parse(dateString).toLocal();
-      }
-      
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
-
-      final difference = now.difference(date);
-      
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
-    } catch (e) {
-      return 'Just now';
-    }
-  }
 
   /// Get prayer type color (using AppTheme colors)
   Color _getPrayerTypeColor(String? category) {
@@ -100,6 +63,8 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
 
   @override
   Widget build(BuildContext context) {
+    Get.put(PrayersController());
+    
     // Professional responsive design for tablets/iPads
     final isTabletDevice = ResponsiveHelper.isTablet(context);
     final double? maxContentWidthValue = isTabletDevice 
@@ -377,7 +342,7 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
       if (photoPath.startsWith('http://') || photoPath.startsWith('https://')) {
         profilePhotoUrl = photoPath; // Use as-is if already a full URL
       } else if (!photoPath.startsWith('assets/') && !photoPath.startsWith('file://') && !photoPath.startsWith('assets/images/')) {
-        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+        profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
       }
     }
     final prayerContent = AutoTranslateHelper.getTranslatedTextSync(

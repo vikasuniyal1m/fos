@@ -53,6 +53,15 @@ class JingleService extends GetxController {
     }
   }
 
+  // Global flag to enable/disable jingles - set to true to enable
+  static bool enableJingles = true;
+
+  // Categories that should NOT play audio
+  static const List<String> _blockedCategories = [
+    'praise report',
+    'holiday',
+  ];
+
   static const Map<String, String> _categoryToJingle = {
     'Love': 'Welcome - LOVE.mp3',
     'Joy': 'Welcome - JOY.mp3',
@@ -180,12 +189,35 @@ class JingleService extends GetxController {
     } catch (e) {}
   }
 
-  Future<bool> startJingle(String category) async {
+  Future<bool> startJingle(String category, {String? groupName}) async {
     initialize();
-    final cleanCategory = category.trim();
+    final cleanCategory = category.trim().toLowerCase();
     print('DEBUG: JingleService.startJingle - category: "$cleanCategory"');
     if (cleanCategory.isEmpty) {
       print('DEBUG: JingleService.startJingle - category is empty, returning false');
+      return false;
+    }
+
+    // Check if group name contains blocked terms (holiday, praise report)
+    if (groupName != null && groupName.isNotEmpty) {
+      final cleanGroupName = groupName.trim().toLowerCase();
+      for (var blockedTerm in _blockedCategories) {
+        if (cleanGroupName.contains(blockedTerm)) {
+          print('DEBUG: JingleService.startJingle - group name "$cleanGroupName" contains blocked term "$blockedTerm", skipping jingle');
+          return false;
+        }
+      }
+    }
+
+    // Check if category is blocked (praise, report, holiday)
+    if (_blockedCategories.contains(cleanCategory)) {
+      print('DEBUG: JingleService.startJingle - category "$cleanCategory" is blocked, skipping jingle');
+      return false;
+    }
+
+    // Check global enable flag
+    if (!enableJingles) {
+      print('DEBUG: JingleService.startJingle - jingles disabled globally, skipping');
       return false;
     }
 
@@ -213,23 +245,25 @@ class JingleService extends GetxController {
     try {
       _isPlaying = true;
       
-      // Set URL source (cache will be checked automatically by DefaultCacheManager)
-      print('DEBUG: JingleService.startJingle - Setting URL source: $url');
-      await _audioPlayer.setSource(UrlSource(url, mimeType: 'audio/mpeg'));
+      print('DEBUG: JingleService.startJingle - Caching file from: $url');
+      // 1. Get the file via CacheManager (downloads if not cached)
+      final fileInfo = await DefaultCacheManager().getSingleFile(url);
+      final localPath = fileInfo.path;
+      print('DEBUG: JingleService.startJingle - Playing from local path: $localPath');
+
+      // 2. Play using DeviceFileSource instead of UrlSource
+      await _audioPlayer.setSource(DeviceFileSource(localPath));
       print('DEBUG: JingleService.startJingle - Resuming audio player');
       await _audioPlayer.resume();
 
-      // Listen for completion and errors
+      // Listen for completion
       _audioPlayer.onPlayerComplete.first.then((_) async {
         _isPlaying = false;
         await _incrementPlayCount(category);
-        // Update observable to notify screen
         lastFinishedCategory.value = category;
         lastFinishedCategory.refresh();
-        print('DEBUG: JingleService.startJingle - Jingle completed for category: $category');
+        print('DEBUG: JingleService.startJingle - Jingle completed: $category');
       });
-
-
 
       return true;
     } catch (e) {

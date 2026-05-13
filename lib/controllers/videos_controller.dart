@@ -715,4 +715,15 @@ class VideosController extends GetxController {
       );
     }
   }
+
+  @override
+  void onClose() {
+    videos.clear();
+    _allVideos.clear();
+    liveVideos.clear();
+    videoComments.clear();
+    videoEmojiReactions.clear();
+    _isDataLoaded = false;
+    super.onClose();
+  }
 }

@@ -162,6 +162,10 @@ class LiveStreamingService {
           'expire_seconds': response['expire_seconds'] ?? tokenExpireSeconds,
         };
       }
+      // Check if stream has ended
+      if (response['stream_status'] != null && response['stream_status'] != 'live') {
+        throw ApiException('This live stream has ended.');
+      }
       throw ApiException(
           response['message'] ?? 'Failed to get Agora token.');
     } catch (e) {
@@ -261,6 +265,34 @@ class LiveStreamingService {
     } catch (e) {
       print('Error fetching all live streams: $e');
       rethrow;
+    }
+  }
+
+  /// Increment viewer count when a viewer joins a stream
+  static Future<bool> incrementViewerCount(String streamId) async {
+    try {
+      final response = await ApiService.postJson(
+        '${ApiConfig.baseUrl}/live_streaming/increment_viewer.php',
+        body: {'stream_id': streamId},
+      );
+      return response['success'] == true;
+    } catch (e) {
+      print('Error incrementing viewer count: $e');
+      return false;
+    }
+  }
+
+  /// Decrement viewer count when a viewer leaves a stream
+  static Future<bool> decrementViewerCount(String streamId) async {
+    try {
+      final response = await ApiService.postJson(
+        '${ApiConfig.baseUrl}/live_streaming/decrement_viewer.php',
+        body: {'stream_id': streamId},
+      );
+      return response['success'] == true;
+    } catch (e) {
+      print('Error decrementing viewer count: $e');
+      return false;
     }
   }
 }

@@ -146,16 +146,8 @@ class ApiService {
     Map<String, dynamic>? body,
     Map<String, String>? headers,
   }) async {
-    print('🌐 ========== API POST REQUEST START ==========');
-    print('🌐 Endpoint: $endpoint');
-    print('🌐 Body: $body');
-    print('🌐 Headers: ${headers ?? ApiConfig.headers}');
-    
     try {
       final encodedBody = body != null ? _encodeFormData(body) : null;
-      print('🌐 Encoded Body: $encodedBody');
-      print('🌐 Final URL: $endpoint');
-      print('🌐 Making HTTP POST request...');
       
       final response = await http
           .post(
@@ -165,14 +157,7 @@ class ApiService {
           )
           .timeout(ApiConfig.timeout);
 
-      print('🌐 ========== HTTP RESPONSE RECEIVED ==========');
-      print('🌐 Status Code: ${response.statusCode}');
-      print('🌐 Response Headers: ${response.headers}');
-      print('🌐 Response Body Length: ${response.body.length}');
-      print('🌐 Response Body (first 500 chars): ${response.body.length > 500 ? response.body.substring(0, 500) + "..." : response.body}');
-
       final result = await _handleResponse(response);
-      print('🌐 ========== API POST REQUEST SUCCESS ==========');
       return result;
     } on SocketException {
       throw NetworkException('No internet connection');

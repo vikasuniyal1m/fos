@@ -204,66 +204,41 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Initialize Stripe after first frame (Android needs theme applied first)
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try {
-        // await Stripe.instance.applySettings();
-      } catch (e) {
-        debugPrint('Stripe init deferred or failed: $e');
-      }
-    });
-    return GetMaterialApp(
-      title: '', // Removed the title to hide the system app bar text
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        // Enable keyboard swipe-down functionality
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        platform: TargetPlatform.iOS,
-        // Set default text input action to Done for all TextFields
-        inputDecorationTheme: const InputDecorationTheme(
-          // You can add other default input decoration settings here
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            // Text button styles
+    // 1. Get initial media query data for responsive design
+    final mediaQueryData = MediaQuery.of(context);
+    final isTablet = mediaQueryData.size.width >= 600;
+
+    return ScreenUtilInit(
+      designSize: isTablet ? const Size(768, 1024) : const Size(375, 812),
+      minTextAdapt: true,
+      splitScreenMode: true,
+      builder: (context, _) {
+        // Initialize ScreenSize utility
+        ScreenSize.init(context);
+        
+        final constrainedTextScaleFactor = MediaQuery.of(context).textScaleFactor.clamp(0.9, 1.3);
+
+        return GetMaterialApp(
+          navigatorKey: Get.key, // CRITICAL: Explicitly set Get's global key
+          title: 'Fruit of the Spirit',
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+            visualDensity: VisualDensity.adaptivePlatformDensity,
+            platform: TargetPlatform.iOS,
           ),
-        ),
-      ),
-      initialBinding: InitialBinding(),
-      localizationsDelegates: context.localizationDelegates,
-      supportedLocales: context.supportedLocales,
-      locale: context.locale,
-      initialRoute: Routes.SPLASH,
-      getPages: AppPages.routes,
-      debugShowCheckedModeBanner: false,
-      builder: (context, child) {
-        // Safe access to MediaQuery
-        final mediaQueryData = MediaQuery.of(context);
-        final isTablet = mediaQueryData.size.width >= 600;
-
-        return ScreenUtilInit(
-          designSize: isTablet ? const Size(768, 1024) : const Size(375, 812),
-          minTextAdapt: true,
-          splitScreenMode: true,
-          builder: (context, _) {
-            // Initialize ScreenSize utility
-            ScreenSize.init(context);
-
-            // Clamp textScaleFactor for better accessibility
-            final constrainedTextScaleFactor = mediaQueryData.textScaleFactor.clamp(0.9, 1.3);
-
-            // Enable keyboard dismiss by dragging down
-            return GestureDetector(
-              onVerticalDragDown: (_) {
-                // Dismiss keyboard when dragging down anywhere on the screen
-                FocusManager.instance.primaryFocus?.unfocus();
-              },
-              child: MediaQuery(
-                data: mediaQueryData.copyWith(
-                  textScaleFactor: constrainedTextScaleFactor,
-                ),
-                child: child!,
+          initialBinding: InitialBinding(),
+          localizationsDelegates: context.localizationDelegates,
+          supportedLocales: context.supportedLocales,
+          locale: context.locale,
+          initialRoute: Routes.SPLASH,
+          getPages: AppPages.routes,
+          debugShowCheckedModeBanner: false,
+          builder: (context, child) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaleFactor: constrainedTextScaleFactor,
               ),
+              child: child!,
             );
           },
         );

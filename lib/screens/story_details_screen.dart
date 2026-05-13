@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 
+import 'package:fruitsofspirit/controllers/home_controller.dart';
 import 'package:fruitsofspirit/services/stories_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
@@ -15,8 +17,12 @@ import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:fruitsofspirit/utils/report_utils.dart';
+import 'package:fruitsofspirit/utils/sticker_emoji_helper.dart';
 
 import '../utils/app_theme.dart';
+import 'package:fruitsofspirit/screens/report_content_screen.dart';
+import 'package:fruitsofspirit/widgets/emoji_sticker_picker.dart';
+import 'package:fruitsofspirit/widgets/emoji_button.dart';
 
 /// Story Details Screen - Modern Social Media Style
 class StoryDetailsScreen extends StatefulWidget {
@@ -24,6 +30,15 @@ class StoryDetailsScreen extends StatefulWidget {
 
   @override
   State<StoryDetailsScreen> createState() => _StoryDetailsScreenState();
+}
+
+// Message model for proper text/sticker separation (reusable from blog_details_screen)
+class CommentMessage {
+  final String? text;
+  final String? stickerId;
+  final bool isSticker;
+
+  CommentMessage({this.text, this.stickerId, required this.isSticker});
 }
 
 class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
@@ -34,12 +49,26 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
   var availableEmojis = <Map<String, dynamic>>[];
   var quickEmojis = <Map<String, dynamic>>[];
   var userId = 0;
+  String? userEmail;
+  final controller = Get.find<HomeController>(); // Use HomeController for consistency
   final commentController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  // Rich text input messages (text + stickers) like blog_details_screen
+  final List<CommentMessage> commentMessages = [];
   final replyControllers = <int, TextEditingController>{};
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
-
+  var isSubmittingComment = false.obs; // Track comment submission state
+  // edit feature: Comment edit state
+  final editControllers = <int, TextEditingController>{}; // edit feature
+  final showEditInput = <int, bool>{}; // edit feature
+  var isEditingComment = false.obs; // edit feature
+  // edit feature: Post edit state
+  final postEditTitleController = TextEditingController(); // edit feature
+  final postEditContentController = TextEditingController(); // edit feature
+  final postEditCategoryController = TextEditingController(); // edit feature
+  var showPostEditInput = false.obs; // edit feature
+  var isEditingPost = false.obs; // edit feature
   /// Show a custom snackbar using ScaffoldMessenger
   void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
     if (!mounted) return;
@@ -110,6 +139,14 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
   void dispose() {
     commentController.dispose();
     _scrollController.dispose();
+    // edit feature: Dispose comment edit controllers
+    for (var controller in editControllers.values) { // edit feature
+      controller.dispose(); // edit feature
+    } // edit feature
+    // edit feature: Dispose post edit controllers
+    postEditTitleController.dispose(); // edit feature
+    postEditContentController.dispose(); // edit feature
+    postEditCategoryController.dispose(); // edit feature
     for (var controller in replyControllers.values) {
       controller.dispose();
     }
@@ -124,6 +161,322 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       });
     }
   }
+
+  Future<void> _loadUserEmail() async {
+    userEmail = await UserStorage.getUserEmail();
+  }
+
+  // edit feature: Configurable edit time window in minutes
+  static const int _editTimeWindowMinutes = 15; // edit feature
+
+  // edit feature: Check if story can be edited (always allow editing)
+  bool _canEditPost(Map<String, dynamic> story) { // edit feature
+    print('🔍 Edit check - always allowing editing'); // debug
+    return true; // edit feature: Always allow editing
+  } // edit feature
+
+  // edit feature: Check if comment can be edited (within 15 minutes only)
+  bool _canEditComment(Map<String, dynamic> comment) { // edit feature
+    print('🔍 Edit check - created_at: ${comment['created_at']}'); // debug
+    
+    // Check if user is logged in
+    if (userId == null || userId == 0) { // edit feature
+      print('❌ Edit blocked: user not logged in'); // debug
+      return false; // edit feature
+    } // edit feature
+    
+    // Check if comment belongs to current user
+    final commentUserId = comment['user_id']; // edit feature
+    if (commentUserId == null || commentUserId.toString() != userId.toString()) { // edit feature
+      print('❌ Edit blocked: comment belongs to user $commentUserId, current user is $userId'); // debug
+      return false; // edit feature
+    } // edit feature
+    
+    if (comment['created_at'] == null) { // edit feature
+      print('❌ Edit blocked: created_at is null'); // debug
+      return false; // edit feature
+    } // edit feature
+    try { // edit feature
+      DateTime backendTime;
+      // Handle different timestamp formats - use UTC logic like TimeHelper
+      if (comment['created_at'].toString().contains('T')) {
+        // ISO 8601 format
+        if (comment['created_at'].toString().endsWith('Z')) {
+          backendTime = DateTime.parse(comment['created_at'] as String);
+        } else {
+          backendTime = DateTime.parse('${comment['created_at']}Z');
+        }
+      } else {
+        // MySQL datetime format - treat as UTC
+        backendTime = DateTime.parse(comment['created_at'].toString()).toUtc();
+      }
+
+      // CRITICAL FIX: Use device's current timezone for accurate time calculation
+      final nowDevice = DateTime.now(); // This is LOCAL device time
+      final backendTimeLocal = backendTime.toLocal(); // Convert backend time to local
+      final difference = nowDevice.difference(backendTimeLocal);
+      final canEdit = difference.inMinutes < _editTimeWindowMinutes; // edit feature: Check 15-minute window
+      print('🕐 Time check (LOCAL): ${difference.inMinutes} minutes, canEdit: $canEdit'); // debug
+      print('🌍 Device timezone: ${nowDevice.timeZoneName} (${nowDevice.timeZoneOffset})'); // debug
+      return canEdit; // edit feature
+    } catch (e) { // edit feature
+      print('❌ Edit blocked: date parsing error - $e'); // debug
+      return false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Build edit button widget
+  Widget _buildEditButton(BuildContext context, Map<String, dynamic> comment, int storyId) { // edit feature
+    if (!_canEditComment(comment)) return const SizedBox.shrink(); // edit feature
+    final commentId = comment['id'] as int; // edit feature
+
+    return InkWell( // edit feature
+      onTap: () { // edit feature
+        setState(() { // edit feature
+          if (!editControllers.containsKey(commentId)) { // edit feature
+            editControllers[commentId] = TextEditingController( // edit feature
+              text: (comment['comment'] as String? ?? comment['content'] as String? ?? '').trim(), // edit feature
+            ); // edit feature
+          } // edit feature
+          showEditInput[commentId] = !(showEditInput[commentId] ?? false); // edit feature
+        }); // edit feature
+      }, // edit feature
+      child: Row( // edit feature
+        children: [ // edit feature
+          Icon( // edit feature
+            Icons.edit, // edit feature
+            size: ResponsiveHelper.iconSize(context, mobile: 18), // edit feature
+            color: Colors.orange, // edit feature: Orange like reply button
+          ), // edit feature
+          SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+          Text( // edit feature
+            'Edit', // edit feature
+            style: TextStyle( // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 11), // edit feature
+              color: Colors.orange, // edit feature: Orange like reply button
+            ), // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Build edit input widget
+  Widget _buildEditInput(BuildContext context, int commentId, int storyId, String postType) { // edit feature
+    if (!editControllers.containsKey(commentId)) { // edit feature
+      editControllers[commentId] = TextEditingController(); // edit feature
+    } // edit feature
+    final editController = editControllers[commentId]!; // edit feature
+
+    return Container( // edit feature
+      padding: ResponsiveHelper.padding(context, all: 12), // edit feature
+      decoration: BoxDecoration( // edit feature
+        color: const Color(0xFFE3F2FD), // edit feature
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+        border: Border.all( // edit feature
+          color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+          width: 1.5, // edit feature
+        ), // edit feature
+      ), // edit feature
+      child: Column( // edit feature
+        crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+        children: [ // edit feature
+          Text( // edit feature
+            'Edit Comment', // edit feature
+            style: ResponsiveHelper.textStyle( // edit feature
+              context, // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 14), // edit feature
+              fontWeight: FontWeight.bold, // edit feature
+              color: const Color(0xFF1565C0), // edit feature
+            ), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          TextField( // edit feature
+            controller: editController, // edit feature
+            maxLines: 3, // edit feature
+            decoration: InputDecoration( // edit feature
+              border: OutlineInputBorder( // edit feature
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+              ), // edit feature
+              contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8), // edit feature
+            ), // edit feature
+            style: TextStyle(fontSize: 13), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          Row( // edit feature
+            mainAxisAlignment: MainAxisAlignment.end, // edit feature
+            children: [ // edit feature
+              TextButton( // edit feature
+                onPressed: () { // edit feature
+                  setState(() { // edit feature
+                    showEditInput[commentId] = false; // edit feature
+                  }); // edit feature
+                }, // edit feature
+                child: Text( // edit feature
+                  'Cancel', // edit feature
+                  style: ResponsiveHelper.textStyle( // edit feature
+                    context, // edit feature
+                    fontSize: 12, // edit feature
+                    color: Colors.grey[600], // edit feature
+                  ), // edit feature
+                ), // edit feature
+              ), // edit feature
+              SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+              ElevatedButton( // edit feature
+                onPressed: () => _editComment(commentId, storyId, postType), // edit feature
+                style: ElevatedButton.styleFrom( // edit feature
+                  backgroundColor: const Color(0xFF2196F3), // edit feature
+                  padding: ResponsiveHelper.padding( // edit feature
+                    context, // edit feature
+                    horizontal: 16, // edit feature
+                    vertical: 8, // edit feature
+                  ), // edit feature
+                ), // edit feature
+                child: Obx(() => isEditingComment.value // edit feature
+                    ? SizedBox( // edit feature
+                        width: 16, // edit feature
+                        height: 16, // edit feature
+                        child: CircularProgressIndicator( // edit feature
+                          strokeWidth: 2, // edit feature
+                          color: Colors.white, // edit feature
+                        ), // edit feature
+                      ) // edit feature
+                    : Text( // edit feature
+                        'Save', // edit feature
+                        style: TextStyle(fontSize: 12, color: Colors.white), // edit feature
+                      )), // edit feature
+              ), // edit feature
+            ], // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Edit comment method
+  Future<void> _editComment(int commentId, int storyId, String postType) async { // edit feature
+    final editController = editControllers[commentId]; // edit feature
+    if (editController == null) return; // edit feature
+
+    final content = editController.text.trim(); // edit feature
+    if (content.isEmpty) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Comment cannot be empty', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (userId == 0) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Please login first', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    isEditingComment.value = true; // edit feature
+    try { // edit feature
+      await CommentsService.editComment( // edit feature
+        userId: userId, // edit feature
+        commentId: commentId, // edit feature
+        postType: postType, // edit feature
+        postId: storyId, // edit feature
+        content: content, // edit feature
+      ); // edit feature
+
+      setState(() { // edit feature
+        showEditInput[commentId] = false; // edit feature
+      }); // edit feature
+
+      await _loadStoryDetails(story['id'] as int); // edit feature
+
+      Get.snackbar( // edit feature
+        'Success', // edit feature
+        'Comment edited successfully', // edit feature
+        backgroundColor: Colors.green, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } catch (e) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Failed to edit comment', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingComment.value = false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Edit story method
+  Future<void> _editPost(int storyId) async { // edit feature
+    final title = postEditTitleController.text.trim(); // edit feature
+    final content = postEditContentController.text.trim(); // edit feature
+    final category = postEditCategoryController.text.trim(); // edit feature
+
+    if (title.isEmpty && content.isEmpty && category.isEmpty) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'At least one field must be filled', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (userId == 0) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Please login first', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    isEditingPost.value = true; // edit feature
+    try { // edit feature
+      await StoriesService.editStory( // edit feature
+        userId: userId, // edit feature
+        storyId: storyId, // edit feature
+        title: title.isEmpty ? null : title, // edit feature
+        content: content.isEmpty ? null : content, // edit feature
+        category: category.isEmpty ? null : category, // edit feature
+      ); // edit feature
+
+      showPostEditInput.value = false; // edit feature
+      await _loadStoryDetails(storyId); // edit feature
+
+      Get.snackbar( // edit feature
+        'Success', // edit feature
+        'Story edited successfully', // edit feature
+        backgroundColor: Colors.green, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } catch (e) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        e.toString().replaceAll('Exception: ', ''), // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingPost.value = false; // edit feature
+    } // edit feature
+  } // edit feature
 
   /// Check if string is an emoji
   bool _isEmoji(String text) {
@@ -392,8 +745,14 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
           emojiKey = trimmed;
         }
 
+        // FIX: Add ALL comments to textComments (including emoji comments)
+        // Emoji reactions and emoji comments are both stored in comments table
+        // The UI (FruitEmojiHelper.buildCommentText) will render emoji URLs as images
+        textComments.add(comment);
+        print('✅ Added to comments: id=${comment['id']}, isEmoji=$isEmojiReaction, content="${trimmed.substring(0, trimmed.length > 20 ? 20 : trimmed.length)}..."');
+        
+        // Also track emoji reactions separately for the reactions bar (if it's an emoji)
         if (isEmojiReaction && emojiKey != null) {
-          // It's an emoji reaction
           if (!emojiReactions.containsKey(emojiKey)) {
             emojiReactions[emojiKey] = [];
           }
@@ -403,13 +762,11 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
             'profile_photo': comment['profile_photo'],
             'created_at': comment['created_at'],
           });
-        } else {
-          // It's a text comment
-          textComments.add(comment);
+          print('✅ Also added to emojiReactions: $emojiKey by ${comment['user_name']}');
         }
       }
 
-      print('✅ Flattened to ${textComments.length} text comments and ${emojiReactions.length} emoji reaction types');
+      print('✅ Flattened to ${textComments.length} total comments (including ${emojiReactions.length} emoji types)');
 
       setState(() {
         comments = textComments;
@@ -567,48 +924,10 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
     }
   }
 
-  String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return 'Just now';
-
-    try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      DateTime date;
-      if (!dateString.endsWith('Z')) {
-        date = DateTime.parse('${dateString}Z').toLocal();
-      } else {
-        date = DateTime.parse(dateString).toLocal();
-      }
-
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
-
-      final difference = now.difference(date);
-
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
-    } catch (e) {
-      return 'Just now';
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     String? imageUrl;
 
     // Check all possible image fields
@@ -672,7 +991,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                 ),
                 onPressed: () {
                   final isTestimony = _isTestimony(story);
-                  final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                  final baseUrl = 'http://admin.fosmessenger.com/';
                   String? storyMediaUrl;
                   if (story['file_path'] != null && (story['file_path'] as String).isNotEmpty) {
                     final path = story['file_path'] as String;
@@ -1076,7 +1395,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                                         width: ResponsiveHelper.spacing(context, 4),
                                                       ),
                                                       Text(
-                                                        _getTimeAgo(story['created_at'] as String?),
+                                                        TimeHelper.getTimeAgo(story['created_at'] as String?),
                                                         style: ResponsiveHelper.textStyle(
                                                           context,
                                                           fontSize: ResponsiveHelper.fontSize(
@@ -1272,23 +1591,79 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                       children: [
                                         // Title
                                         if (story['title'] != null)
-                                          Padding(
-                                            padding: EdgeInsets.only(
-                                              bottom: ResponsiveHelper.spacing(context, 8),
-                                            ),
-                                            child: Text(
-                                              story['title'] as String,
-                                              style: ResponsiveHelper.textStyle(
-                                                context,
-                                                fontSize: ResponsiveHelper.fontSize(
-                                                  context,
-                                                  mobile: 20,
-                                                ),
-                                                fontWeight: FontWeight.bold,
-                                                color: const Color(0xFF5F4628),
-                                              ),
-                                            ),
-                                          ),
+                                          Column( // edit feature
+                                            crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+                                            children: [ // edit feature
+                                              Padding( // edit feature
+                                                padding: EdgeInsets.only( // edit feature
+                                                  bottom: ResponsiveHelper.spacing(context, 8), // edit feature
+                                                ), // edit feature
+                                                child: Text( // edit feature
+                                                  story['title'] as String, // edit feature
+                                                  style: ResponsiveHelper.textStyle( // edit feature
+                                                    context, // edit feature
+                                                    fontSize: ResponsiveHelper.fontSize( // edit feature
+                                                      context, // edit feature
+                                                      mobile: 20, // edit feature
+                                                    ), // edit feature
+                                                    fontWeight: FontWeight.bold, // edit feature
+                                                    color: const Color(0xFF5F4628), // edit feature
+                                                  ), // edit feature
+                                                ), // edit feature
+                                              ), // edit feature
+                                              // edit feature: Show "edited" label if story was edited
+                                              if (story['is_edited'] == true || story['is_edited'] == 1) ...[ // edit feature
+                                                SizedBox(height: ResponsiveHelper.spacing(context, 4)), // edit feature
+                                                Text( // edit feature
+                                                  'edited', // edit feature
+                                                  style: TextStyle( // edit feature
+                                                    fontSize: 10, // edit feature
+                                                    color: Colors.grey[500], // edit feature
+                                                    fontStyle: FontStyle.italic, // edit feature
+                                                  ), // edit feature
+                                                ), // edit feature
+                                              ], // edit feature
+                                            ], // edit feature
+                                          ), // edit feature
+                                        // edit feature: Edit button for own stories within 15 minutes
+                                        if (_canEditPost(story)) ...[ // edit feature
+                                          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+                                          GestureDetector( // edit feature
+                                            onTap: () { // edit feature
+                                              setState(() { // edit feature
+                                                postEditTitleController.text = story['title'] as String? ?? ''; // edit feature
+                                                postEditContentController.text = story['content'] as String? ?? ''; // edit feature
+                                                postEditCategoryController.text = story['category'] as String? ?? ''; // edit feature
+                                                showPostEditInput.value = !showPostEditInput.value; // edit feature
+                                              }); // edit feature
+                                            }, // edit feature
+                                            child: Container( // edit feature
+                                              padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 6), // edit feature
+                                              decoration: BoxDecoration( // edit feature
+                                                color: Colors.grey[200], // edit feature
+                                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+                                              ), // edit feature
+                                              child: Row( // edit feature
+                                                mainAxisSize: MainAxisSize.min, // edit feature
+                                                children: [ // edit feature
+                                                  Icon( // edit feature
+                                                    Icons.edit, // edit feature
+                                                    size: 14, // edit feature
+                                                    color: Colors.grey[700], // edit feature
+                                                  ), // edit feature
+                                                  SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+                                                  Text( // edit feature
+                                                    'Edit Story', // edit feature
+                                                    style: TextStyle( // edit feature
+                                                      fontSize: 11, // edit feature
+                                                      color: Colors.grey[700], // edit feature
+                                                    ), // edit feature
+                                                  ), // edit feature
+                                                ], // edit feature
+                                              ), // edit feature
+                                            ), // edit feature
+                                          ), // edit feature
+                                        ], // edit feature
 
                                         // Fruit Tag - Enhanced with Theme
                             if (story['fruit_tag'] != null)
@@ -1379,6 +1754,123 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                 height: 1.6,
                               ),
                             ),
+                            // edit feature: Post edit input UI
+                            Obx(() => showPostEditInput.value ? Container( // edit feature
+                              margin: EdgeInsets.only(top: ResponsiveHelper.spacing(context, 16)), // edit feature
+                              padding: ResponsiveHelper.padding(context, all: 16), // edit feature
+                              decoration: BoxDecoration( // edit feature
+                                color: const Color(0xFFE3F2FD), // edit feature
+                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+                                border: Border.all( // edit feature
+                                  color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+                                  width: 1.5, // edit feature
+                                ), // edit feature
+                              ), // edit feature
+                              child: Column( // edit feature
+                                crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+                                children: [ // edit feature
+                                  Text( // edit feature
+                                    'Edit Story', // edit feature
+                                    style: ResponsiveHelper.textStyle( // edit feature
+                                      context, // edit feature
+                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14), // edit feature
+                                      fontWeight: FontWeight.bold, // edit feature
+                                      color: const Color(0xFF1976D2), // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                  TextField( // edit feature
+                                    controller: postEditTitleController, // edit feature
+                                    decoration: InputDecoration( // edit feature
+                                      labelText: 'Title (optional)', // edit feature
+                                      border: OutlineInputBorder( // edit feature
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                      ), // edit feature
+                                      contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                    ), // edit feature
+                                    maxLines: 2, // edit feature
+                                    style: TextStyle( // edit feature
+                                      fontSize: 13, // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                  TextField( // edit feature
+                                    controller: postEditContentController, // edit feature
+                                    decoration: InputDecoration( // edit feature
+                                      labelText: 'Content', // edit feature
+                                      border: OutlineInputBorder( // edit feature
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                      ), // edit feature
+                                      contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                    ), // edit feature
+                                    maxLines: 5, // edit feature
+                                    style: TextStyle( // edit feature
+                                      fontSize: 13, // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                  TextField( // edit feature
+                                    controller: postEditCategoryController, // edit feature
+                                    decoration: InputDecoration( // edit feature
+                                      labelText: 'Category (optional)', // edit feature
+                                      border: OutlineInputBorder( // edit feature
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                      ), // edit feature
+                                      contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                    ), // edit feature
+                                    style: TextStyle( // edit feature
+                                      fontSize: 13, // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                  Row( // edit feature
+                                    mainAxisAlignment: MainAxisAlignment.end, // edit feature
+                                    children: [ // edit feature
+                                      TextButton( // edit feature
+                                        onPressed: () { // edit feature
+                                          showPostEditInput.value = false; // edit feature
+                                        }, // edit feature
+                                        child: Text( // edit feature
+                                          'Cancel', // edit feature
+                                          style: TextStyle( // edit feature
+                                            fontSize: 12, // edit feature
+                                            color: Colors.grey[600], // edit feature
+                                          ), // edit feature
+                                        ), // edit feature
+                                      ), // edit feature
+                                      SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+                                      ElevatedButton( // edit feature
+                                        onPressed: () => _editPost(story['id'] as int), // edit feature
+                                        style: ElevatedButton.styleFrom( // edit feature
+                                          backgroundColor: const Color(0xFF2196F3), // edit feature
+                                          padding: ResponsiveHelper.padding( // edit feature
+                                            context, // edit feature
+                                            horizontal: 16, // edit feature
+                                            vertical: 8, // edit feature
+                                          ), // edit feature
+                                        ), // edit feature
+                                        child: Obx(() => isEditingPost.value // edit feature
+                                            ? SizedBox( // edit feature
+                                                width: 16, // edit feature
+                                                height: 16, // edit feature
+                                                child: CircularProgressIndicator( // edit feature
+                                                  strokeWidth: 2, // edit feature
+                                                  color: Colors.white, // edit feature
+                                                ), // edit feature
+                                              ) // edit feature
+                                            : Text( // edit feature
+                                                'Save', // edit feature
+                                                style: TextStyle( // edit feature
+                                                  fontSize: 12, // edit feature
+                                                  color: Colors.white, // edit feature
+                                                ), // edit feature
+                                              )), // edit feature
+                                      ), // edit feature
+                                    ], // edit feature
+                                  ), // edit feature
+                                ], // edit feature
+                              ), // edit feature
+                            ) : const SizedBox.shrink()), // edit feature
                                       ],
                                     ),
                                   ),
@@ -1704,13 +2196,6 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                         ),
                                         color: Colors.grey[600],
                                       ),
-                                      prefixIcon: IconButton(
-                                        icon: const Icon(
-                                          Icons.emoji_emotions_outlined,
-                                          color: Color(0xFF8B4513),
-                                        ),
-                                        onPressed: () => _showEmojiPicker(context, story['id'] as int),
-                                      ),
                                       border: InputBorder.none,
                                 contentPadding: EdgeInsets.symmetric(
                                   horizontal: ResponsiveHelper.spacing(context, 16),
@@ -1730,6 +2215,15 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                     onSubmitted: (_) => _addComment(story['id'] as int, parentCommentId: null),
                                   ),
                                 ),
+                              ),
+
+                              SizedBox(
+                                width: ResponsiveHelper.spacing(context, 8),
+                              ),
+
+                              // Emoji button (reusable widget from blog_details_screen)
+                              EmojiButton(
+                                onTap: () => _showEmojiPicker(context, story['id'] as int, commentController),
                               ),
 
                               SizedBox(
@@ -1964,7 +2458,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                 ),
                               ),
                               Text(
-                                _getTimeAgo(comment['created_at'] as String?),
+                                TimeHelper.getTimeAgo(comment['created_at'] as String?),
                                 style: ResponsiveHelper.textStyle(
                                   context,
                                   fontSize: ResponsiveHelper.fontSize(
@@ -2006,6 +2500,18 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                               height: 1.5,
                     ),
                   ),
+                  // edit feature: Show "edited" label if comment was edited
+                  if (comment['is_edited'] == true || comment['is_edited'] == 1) ...[
+                    SizedBox(height: ResponsiveHelper.spacing(context, 6)),
+                    Text(
+                      'edited',
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 11),
+                        color: Colors.grey[500],
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
                 ],
                       ),
                     ),
@@ -2056,7 +2562,11 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                           InkWell(
                             onTap: () {
                               setState(() {
-                                showReplyInput[commentId] = !(showReplyInput[commentId] ?? false);
+                                // Close all other reply inputs first
+                                showReplyInput.clear();
+
+                                // Toggle current reply input
+                                showReplyInput[commentId] = true;
                               });
                             },
                             child: Row(
@@ -2083,6 +2593,8 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                               ],
                             ),
                           ),
+                          // edit feature: Edit Button - Show for all comments within 15 minutes
+                          _buildEditButton(context, comment, storyId),
                           // View replies button (if replies exist)
                           if (replies.isNotEmpty) ...[
                             SizedBox(width: ResponsiveHelper.spacing(context, 16)),
@@ -2132,6 +2644,15 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                           top: ResponsiveHelper.spacing(context, 12),
                         ),
                         child: _buildReplyInput(context, commentId, storyId),
+                      ),
+                    
+                    // edit feature: Edit Input
+                    if (showEditInput[commentId] ?? false)
+                      Padding(
+                        padding: EdgeInsets.only(
+                          top: ResponsiveHelper.spacing(context, 12),
+                        ),
+                        child: _buildEditInput(context, commentId, storyId, 'story'),
                       ),
 
                     // Nested Replies
@@ -2384,6 +2905,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                             context,
                             emojiData,
                             size: ResponsiveHelper.isMobile(context) ? 44 : 48,
+                            userEmail: userEmail,
                           ),
                         ),
                       ),
@@ -2394,7 +2916,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
               Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: () => _showEmojiPicker(context, storyId),
+                  onTap: () => _showEmojiPicker(context, storyId, commentController),
                   borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 40 : 44),
                   child: Padding(
                     padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 4)),
@@ -2555,7 +3077,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                     SizedBox(
                                       width: 32,
                                       height: 32,
-                                      child: HomeScreen.buildEmojiDisplay(context, fruitEmoji!, size: 32),
+                                      child: HomeScreen.buildEmojiDisplay(context, fruitEmoji!, size: 32, userEmail: userEmail),
                                     ),
                                   SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                                   Text(
@@ -2578,7 +3100,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                                                 (user['profile_photo'] as String).startsWith('http://') ||
                                                 (user['profile_photo'] as String).startsWith('https://')
                                                   ? user['profile_photo'] as String
-                                                  : 'https://fruitofthespirit.templateforwebsites.com/${user['profile_photo']}'
+                                                  : 'http://admin.fosmessenger.com/${user['profile_photo']}'
                                               )
                                             : null,
                                         child: user['profile_photo'] == null ? const Icon(Icons.person) : null,
@@ -2611,6 +3133,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                             context,
                             fruitEmoji,
                             size: 28,
+                            userEmail: userEmail,
                           ),
                         )
                       else
@@ -2648,103 +3171,116 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
     );
   }
 
-  /// Show Emoji Picker Dialog
-  void _showEmojiPicker(BuildContext context, int storyId) {
-    showModalBottomSheet(
+  /// Show Emoji+Sticker Picker for Comment Text - sends emoji directly without showing in input field
+  void _showCommentEmojiPicker(BuildContext context, TextEditingController textController) {
+    showEmojiStickerPicker(
       context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.6,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Choose an Emoji',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF5F4628)),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: (){
-                    // Close the bottom sheet
-                    if (context.mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: availableEmojis.isEmpty
-                  ? const Center(child: CircularProgressIndicator())
-                  : GridView.builder(
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 4,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 1,
-                      ),
-                      itemCount: availableEmojis.length,
-                      itemBuilder: (gridContext, index) {
-                        final emojiData = availableEmojis[index];
-                        String? emoji = emojiData['emoji_char'] as String?;
-                        if (emoji == null || emoji.trim().isEmpty) {
-                          emoji = emojiData['code'] as String?;
-                        }
-                        if (emoji == null || emoji.trim().isEmpty) {
-                          final name = emojiData['name'] as String? ?? '';
-                          if (name.isNotEmpty) {
-                            String baseName = name.toLowerCase();
-                            if (baseName.contains(':')) {
-                              final parts = baseName.split(':');
-                              if (parts.length > 1) baseName = parts[1].trim();
-                            }
-                            if (baseName.contains(' ')) {
-                              baseName = baseName.split(' ')[0].trim();
-                            }
-                            emoji = baseName;
-                          }
-                        }
+      onEmojiSelected: (emoji) async {
+        // Send emoji directly as comment - no preview in text field!
+        final story = this.story;
+        if (story != null) {
+          await _sendEmojiDirectly(story['id'] as int, emoji);
+        }
+      },
+      height: 350,
+    );
+  }
 
-                        final isValidEmoji = emoji != null && emoji.trim().isNotEmpty;
+  /// Send emoji/sticker directly as comment without showing in input field
+  Future<void> _sendEmojiDirectly(int storyId, String emoji, {int? parentCommentId}) async {
+    if (emoji.isEmpty || userId == 0) return;
 
-                        return Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: isValidEmoji ? () async {
-                              // Close the bottom sheet
-                              if (context.mounted) {
-                                Navigator.of(context).pop();
-                              }
-                              await _addEmojiReaction(storyId, emoji!);
-                            } : null,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.grey[50],
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Center(
-                                child: HomeScreen.buildEmojiDisplay(context, emojiData, size: 48),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+    FocusScope.of(context).unfocus();
+
+    isSubmittingComment.value = true;
+
+    try {
+      await CommentsService.addComment(
+        userId: userId,
+        postType: 'story',
+        postId: storyId,
+        content: emoji,
+        parentCommentId: parentCommentId,
+      );
+
+      // Clear and reload
+      commentController.clear();
+      await _loadComments(storyId);
+
+      // Scroll to bottom
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOut,
+        );
+      }
+      _showCustomSnackbar(context, 'Success', 'Comment added successfully');
+    } catch (e) {
+      print('Error sending emoji comment: $e');
+      _showCustomSnackbar(context, 'Error', 'Failed to send emoji. Please try again.', isError: true);
+    } finally {
+      isSubmittingComment.value = false;
+    }
+  }
+
+  /// Build rich text input that can display both text and sticker messages (from blog_details_screen)
+  Widget _buildRichTextInput() {
+    return Container(
+      padding: ResponsiveHelper.padding(context, horizontal: 8, vertical: 8),
+      child: Row(
+        children: [
+          // Display all sticker messages as images
+          ...commentMessages.map((message) => _buildCommentMessage(message)).toList(),
+          // Text input field for regular text
+          Expanded(
+            child: TextField(
+              controller: commentController,
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                hintText: commentMessages.isEmpty ? 'Write a comment...' : '',
+                hintStyle: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: 15,
+                  color: Colors.grey[500],
+                ),
+              ),
+              style: ResponsiveHelper.textStyle(context, fontSize: 15),
+              maxLines: null,
+              onChanged: (value) {
+                setState(() {});
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+  }
+
+  /// Build message widget that properly renders text vs stickers (from blog_details_screen)
+  Widget _buildCommentMessage(CommentMessage message) {
+    if (message.isSticker) {
+      // Return sticker widget
+      return StickerEmojiHelper.buildStickerWidget(message.stickerId ?? '', size: 40);
+    } else {
+      // Return text widget
+      return Text(
+        message.text ?? '',
+        style: ResponsiveHelper.textStyle(context, fontSize: 15),
+      );
+    }
+  }
+
+  /// Show emoji picker for story comments - sends emoji directly without showing in input field
+  void _showEmojiPicker(BuildContext context, int storyId, TextEditingController controller, {int? parentCommentId}) {
+    showEmojiStickerPicker(
+      context: context,
+      onEmojiSelected: (emoji) async {
+        // Send emoji directly as comment - no preview in text field!
+        await _sendEmojiDirectly(storyId, emoji, parentCommentId: parentCommentId);
+      },
+      height: 350,
     );
   }
 

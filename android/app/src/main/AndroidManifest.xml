@@ -16,6 +16,16 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" android:minSdkVersion="33"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="com.android.vending.BILLING"/>
+    
+    <!-- Advertising ID permission required for Android 13+ (API 33+) -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
+    
+    <!-- Foreground Service for Live Streaming (Agora) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
 
     <application
         android:label="FOS Messenger"
@@ -58,7 +68,7 @@
                 
                 <data android:scheme="http" />
                 <data android:scheme="https" />
-                <data android:host="fruitofthespirit.templateforwebsites.com" />
+                <data android:host="admin.fosmessenger.com" />
                 <data android:pathPrefix="/share" />
                 <data android:pathPrefix="/api/share" />
                 <data android:pathPrefix="/api/share_redirect.php" />
@@ -71,11 +81,11 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 
                 <data android:scheme="https" />
-                <data android:host="fruitofthespirit.templateforwebsites.com" />
+                <data android:host="admin.fosmessenger.com" />
                 <data android:path="/prayer" />
                 <data android:path="/blog" />
                 <data android:path="/video" />
-                <data android:host="fruitofthespirit.templateforwebsites.com" />
+                <data android:host="admin.fosmessenger.com" />
             </intent-filter>
 
             <!-- Custom Scheme Intent Filter (Failsafe) -->
@@ -95,16 +105,23 @@
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme.NoActionBar"/>
         
+        <!-- Google Sign In Configuration -->
+        <meta-data
+            android:name="com.google.android.gms.auth.api.signin.GoogleSignInOptions"
+            android:value="@string/default_web_client_id" />
+        
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
         
-        <!-- Google Sign In Configuration -->
+        
+        <!-- Google Maps API Key -->
+        <!-- TODO: Replace "YOUR_API_KEY_HERE" with your actual Google Maps API Key -->
         <meta-data
-            android:name="com.google.android.gms.auth.api.signin.GoogleSignInOptions"
-            android:value="@string/default_web_client_id" />
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyBl1p7TbiGAoBfqVY7m48xX8Ybbs0RQ07Y"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

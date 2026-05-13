@@ -13,14 +13,17 @@ import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart' show ApprovalPendingException, ApiException, NetworkException, RoleMismatchException;
 import 'package:fruitsofspirit/services/intro_service.dart';
 import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/banners_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/controllers/profile_controller.dart';
-import 'package:fruitsofspirit/controllers/fruits_controller.dart';
-import 'package:fruitsofspirit/controllers/blogs_controller.dart';
+import 'package:fruitsofspirit/controllers/fruit_controller.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+import 'package:fruitsofspirit/services/iap_service.dart';
+import 'package:fruitsofspirit/services/christian_calendar_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -38,10 +41,85 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   String? _loginError; // Store login error message
 
-  void _reinitializeControllers() {
-    // Re-initialize core controllers to load new user data
-    // These were deleted during logout to prevent data leak
-    InitialBinding().dependencies();
+  // Check if running on iOS Simulator
+  Future<bool> _isRunningOnSimulator() async {
+    try {
+      final deviceInfo = await DeviceInfoPlugin().iosInfo;
+      return !deviceInfo.isPhysicalDevice;
+    } catch (e) {
+      print('🍎 Apple Sign In: Error checking simulator: $e');
+      return true; // Assume simulator if error
+    }
+  }
+
+  // Show simulator alert
+  void _showSimulatorAlert() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Apple Sign In Not Available',
+            style: ResponsiveHelper.textStyle(
+              context,
+              fontSize: ResponsiveHelper.isMobile(context) ? 18 : 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'Apple Sign In requires a physical iOS device. This feature is not available on iOS Simulator.\n\nPlease test on a real iPhone/iPad device.',
+            style: ResponsiveHelper.textStyle(
+              context,
+              fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                'OK',
+                style: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
+                  color: const Color(0xFFC79211),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _reinitializeControllers() async {
+    // Clear any existing state and reinitialize controllers
+    try {
+      // Clear any cached data before reinitializing
+      if (Get.isRegistered<HomeController>()) {
+        final homeController = Get.find<HomeController>();
+        homeController.isInitialLoading.value = true;
+      }
+      
+      // Re-initialize core controllers to load new user data
+      InitialBinding().dependencies();
+      
+      // Force refresh of critical controllers
+      if (Get.isRegistered<BannersController>()) {
+        final bannersController = Get.find<BannersController>();
+        bannersController.loadBanners();
+      }
+      
+      if (Get.isRegistered<HomeController>()) {
+        final homeController = Get.find<HomeController>();
+        homeController.refreshData();
+      }
+    } catch (e) {
+      print('Error reinitializing controllers: $e');
+      // Fallback: just reinitialize bindings
+      InitialBinding().dependencies();
+    }
   }
 
   @override
@@ -89,10 +167,21 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user data in SharedPreferences
       await UserStorage.saveUser(user);
 
+      // Update premium status from login response
+      final iapService = Get.find<IAPService>();
+      await iapService.updatePremiumStatusFromLogin(user);
+
+      // Test Christian calendar API and print response
+      await ChristianCalendarService.testCalendarAPI();
+
       // Re-initialize controllers to load new user data
-      _reinitializeControllers();
+      await _reinitializeControllers();
+
+      // Add a small delay to ensure all controllers are properly initialized
+      await Future.delayed(const Duration(milliseconds: 500));
 
       if (mounted) {
+        // Use offAllNamed to clear all navigation stack and start fresh
         Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {
@@ -157,7 +246,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextButton(
                   onPressed: () async {
                     Navigator.of(context).pop(); // Close dialog
-                    
+
                     // Automatically login as User
                     if (mounted) {
                       setState(() {
@@ -165,11 +254,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         _isLoading = true;
                         _loginError = null;
                       });
-                      
+
                       try {
                         final input = _emailController.text.trim();
                         final isEmail = input.contains('@');
-                        
+
                         Map<String, dynamic> user;
                         if (isEmail) {
                           user = await AuthService.login(
@@ -184,10 +273,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             role: 'User', // Force User role
                           );
                         }
-                        
+
                         // Save user data
                         await UserStorage.saveUser(user);
-                        
+
                         // Re-initialize controllers
                         _reinitializeControllers();
 
@@ -199,16 +288,16 @@ class _LoginScreenState extends State<LoginScreen> {
                           setState(() {
                             _isLoading = false;
                           });
-                          
+
                           // Show error if login fails
                           if (loginError is ApiException) {
                             final errorLower = loginError.message.toLowerCase();
                             String errorMessage = 'Email and password wrong';
-                            
+
                             if (errorLower.contains('invalid credentials') || errorLower.contains('invalid credential')) {
                               errorMessage = 'Email and password wrong';
                             }
-                            
+
                             setState(() {
                               _loginError = errorMessage;
                             });
@@ -334,23 +423,19 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signInWithApple() async {
-    // Check if Sign in with Apple is available (iOS 13+)
-    if (!Platform.isIOS) {
-      Get.showSnackbar(
-        GetSnackBar(
-          title: 'Not Available',
-          message: 'Sign in with Apple is only available on iOS devices.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: AppTheme.iconscolor,
-          duration: const Duration(seconds: 3),
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-          mainButton: TextButton(
-            onPressed: () => Get.back(),
-            child: const Text('OK', style: TextStyle(color: Colors.black)),
-          ),
-        ),
-      );
+    print('🍎 Apple Sign In: Starting process...');
+    
+    // Check if Sign in with Apple is available
+    if (!await SignInWithApple.isAvailable()) {
+      print('🍎 Apple Sign In: Not available on this device');
+      _showAppleSignInNotAvailableDialog();
+      return;
+    }
+
+    // Check if running on iOS Simulator
+    if (Platform.isIOS && await _isRunningOnSimulator()) {
+      print('🍎 Apple Sign In: Running on iOS Simulator');
+      _showSimulatorAlert();
       return;
     }
 
@@ -359,15 +444,13 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // Request Apple Sign In
-      final appleCredential = await SignInWithApple.getAppleIDCredential(
-        scopes: [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
-        ],
-      );
+      print('🍎 Apple Sign In: Requesting credential...');
+      
+      // Add retry mechanism for iOS 26.4.2 compatibility
+      final appleCredential = await _getAppleCredentialWithRetry();
+      print('🍎 Apple Sign In: Credential received: ${appleCredential.userIdentifier}');
 
-      // Extract user information
+      // Extract user information with better null handling
       final appleId = appleCredential.userIdentifier ?? '';
       final email = appleCredential.email;
       final givenName = appleCredential.givenName;
@@ -379,150 +462,62 @@ class _LoginScreenState extends State<LoginScreen> {
       final identityToken = appleCredential.identityToken;
       final authorizationCode = appleCredential.authorizationCode;
 
+      print('🍎 Apple Sign In: Extracted data - ID: $appleId, Email: $email, Name: $fullName');
+      print('🍎 Apple Sign In: IdentityToken: ${identityToken?.substring(0, 20)}...');
+      print('🍎 Apple Sign In: AuthorizationCode: ${authorizationCode?.substring(0, 20)}...');
+
       if (appleId.isEmpty) {
+        print('🍎 Apple Sign In: ERROR - No user ID received');
         throw ApiException('Apple authentication failed: No user ID received');
       }
 
-      // Authenticate with backend
+      // Authenticate with backend with timeout
+      print('🍎 Apple Sign In: Calling backend...');
       final user = await AuthService.appleAuth(
         appleId: appleId,
         email: email,
         name: fullName.isNotEmpty ? fullName : null,
         identityToken: identityToken,
         authorizationCode: authorizationCode,
-      );
+      ).timeout(const Duration(seconds: 30));
+      print('🍎 Apple Sign In: Backend response: $user');
 
       // Save user data
       await UserStorage.saveUser(user);
 
-      // Re-initialize controllers
-      _reinitializeControllers();
+      // Re-initialize controllers to load new user data
+      await _reinitializeControllers();
+
+      // Add a small delay to ensure all controllers are properly initialized
+      await Future.delayed(const Duration(milliseconds: 500));
 
       if (mounted) {
+        // Use offAllNamed to clear all navigation stack and start fresh
         Get.offAllNamed(Routes.DASHBOARD);
       }
     } on SignInWithAppleAuthorizationException catch (e) {
-      // Handle Apple Sign In specific errors
+      // Handle Apple Sign In specific errors with better error messages
+      print('🍎 Apple Sign In: AuthorizationException - Code: ${e.code}, Message: ${e.message}');
       if (mounted) {
-        String errorMessage = 'Sign in with Apple was cancelled.';
-        if (e.code == AuthorizationErrorCode.canceled) {
-          errorMessage = 'Sign in with Apple was cancelled.';
-        } else if (e.code == AuthorizationErrorCode.failed) {
-          errorMessage = 'Sign in with Apple failed. Please try again.';
-        } else if (e.code == AuthorizationErrorCode.invalidResponse) {
-          errorMessage = 'Invalid response from Apple. Please try again.';
-        } else if (e.code == AuthorizationErrorCode.notHandled) {
-          errorMessage = 'Sign in with Apple is not available.';
-        } else if (e.code == AuthorizationErrorCode.unknown) {
-          errorMessage = 'An unknown error occurred. Please try again.';
-        }
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Get.snackbar(
-              'Sign in with Apple',
-              errorMessage,
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: AppTheme.iconscolor,
-              colorText: Colors.black,
-              duration: const Duration(seconds: 3),
-            );
-          }
-        });
+        String errorMessage = _getAppleSignInErrorMessage(e.code);
+        _showErrorSnackbar('Sign in with Apple', errorMessage);
       }
     } on ApprovalPendingException catch (e) {
       if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Text(
-                'Account Approval Pending',
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.isMobile(context) ? 18 : 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: Text(
-                e.message,
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(
-                    'OK',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
-                      color: const Color(0xFFC79211),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
+        _showApprovalPendingDialog(e);
       }
     } on ApiException catch (e) {
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Get.snackbar(
-              'Authentication Failed',
-              e.message,
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.red.withOpacity(0.9),
-              colorText: Colors.white,
-              duration: const Duration(seconds: 4),
-            );
-          }
-        });
+        _showErrorSnackbar('Authentication Failed', e.message);
       }
     } on NetworkException catch (e) {
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Get.snackbar(
-              'Connection Error',
-              'No internet connection. Please check your network settings and try again.',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.orange.withOpacity(0.9),
-              colorText: Colors.white,
-            );
-          }
-        });
+        _showErrorSnackbar('Connection Error', 'No internet connection. Please check your network settings and try again.');
       }
     } catch (e) {
+      print('🍎 Apple Sign In: Final Catch Block - Error: $e');
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Get.snackbar(
-              'Unexpected Error',
-              'An unexpected error occurred. Please try again. If the problem persists, contact support.',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.red.withOpacity(0.9),
-              colorText: Colors.white,
-              duration: const Duration(seconds: 4),
-              margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-              borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-              icon: Icon(
-                Icons.warning_amber_rounded,
-                color: Colors.white,
-                size: ResponsiveHelper.iconSize(context, mobile: 24),
-              ),
-              shouldIconPulse: true,
-              isDismissible: true,
-              dismissDirection: DismissDirection.horizontal,
-            );
-          }
-        });
+        _showErrorSnackbar('Unexpected Error', 'An unexpected error occurred. Please try again. If the problem persists, contact support.');
       }
     } finally {
       if (mounted) {
@@ -531,6 +526,158 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     }
+  }
+
+  // Helper method to get Apple credential with retry mechanism
+  Future<AuthorizationCredentialAppleID> _getAppleCredentialWithRetry() async {
+    try {
+      return await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+    } catch (e) {
+      print('🍎 Apple Sign In: First attempt failed, retrying... Error: $e');
+      // Wait a moment and retry for iOS 26.4.2 compatibility
+      await Future.delayed(const Duration(milliseconds: 500));
+      return await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+    }
+  }
+
+  // Helper method to get appropriate error message for Apple Sign In
+  String _getAppleSignInErrorMessage(AuthorizationErrorCode code) {
+    switch (code) {
+      case AuthorizationErrorCode.canceled:
+        return 'Sign in with Apple was cancelled.';
+      case AuthorizationErrorCode.failed:
+        return 'Sign in with Apple failed. Please try again.';
+      case AuthorizationErrorCode.invalidResponse:
+        return 'Invalid response from Apple. Please try again.';
+      case AuthorizationErrorCode.notHandled:
+        return 'Sign in with Apple is not available on this device.';
+      case AuthorizationErrorCode.unknown:
+        return 'An unknown error occurred. Please try again.';
+      default:
+        return 'Sign in with Apple failed. Please try again.';
+    }
+  }
+
+  // Helper method to show Apple Sign In not available dialog
+  void _showAppleSignInNotAvailableDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Sign in with Apple Not Available',
+            style: ResponsiveHelper.textStyle(
+              context,
+              fontSize: ResponsiveHelper.isMobile(context) ? 18 : 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            Platform.isIOS 
+                ? 'Sign in with Apple requires iOS 13 or later. Please update your device software or use another sign-in method.'
+                : 'Sign in with Apple is only available on iOS devices.',
+            style: ResponsiveHelper.textStyle(
+              context,
+              fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                'OK',
+                style: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
+                  color: const Color(0xFFC79211),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Helper method to show approval pending dialog
+  void _showApprovalPendingDialog(ApprovalPendingException e) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Account Approval Pending',
+            style: ResponsiveHelper.textStyle(
+              context,
+              fontSize: ResponsiveHelper.isMobile(context) ? 18 : 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            e.message,
+            style: ResponsiveHelper.textStyle(
+              context,
+              fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                'OK',
+                style: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
+                  color: const Color(0xFFC79211),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Helper method to show error snackbar
+  void _showErrorSnackbar(String title, String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Get.snackbar(
+          title,
+          message,
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: title == 'Connection Error' 
+              ? Colors.orange.withOpacity(0.9) 
+              : Colors.red.withOpacity(0.9),
+          colorText: Colors.white,
+          duration: const Duration(seconds: 4),
+          margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+          borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
+          icon: Icon(
+            title == 'Connection Error' ? Icons.wifi_off : Icons.warning_amber_rounded,
+            color: Colors.white,
+            size: ResponsiveHelper.iconSize(context, mobile: 24),
+          ),
+          shouldIconPulse: true,
+          isDismissible: true,
+          dismissDirection: DismissDirection.horizontal,
+        );
+      }
+    });
   }
 
   Future<void> _signInWithGoogle() async {
@@ -546,33 +693,24 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      print('📱 Initializing Google Sign In...');
-      
-      // Web Client ID - Used for backend authentication (idToken)
-      // Get this from Google Cloud Console -> Credentials -> Web Client ID
-      const String webClientId = '502290384332-79ibsfgk52dd7d9lhvfv9fspn3k26u83.apps.googleusercontent.com';
-      
-      // Initialize Google Sign In with serverClientId for proper idToken generation
+      // Initialize Google Sign In with serverClientId for proper authentication
       final GoogleSignIn googleSignIn = GoogleSignIn(
         scopes: ['email', 'profile'],
-        serverClientId: webClientId, // Web Client ID for backend authentication
+        serverClientId: '55853574935-qcg38dj6gnhac02l0gm8v1gqgvv5uiu2.apps.googleusercontent.com', // Web Client ID from Google Cloud Console
         // Android OAuth Client ID is automatically matched by package name + SHA-1
         // iOS OAuth Client ID is configured in Info.plist
       );
 
       // Clear any existing sign-in before attempting new sign-in (prevents cached session issues)
-      print('🔵 Clearing any existing Google Sign-In session...');
       try {
         await googleSignIn.signOut();
         await Future.delayed(const Duration(milliseconds: 300));
       } catch (e) {
-        print('⚠️ Sign out warning (continuing): $e');
+        // Continue even if sign out fails
       }
 
-      print('🔐 Calling googleSignIn.signIn()...');
       // Sign in - will show account picker
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
-      print('✅ Google Sign In response received: ${googleUser != null ? "User selected" : "User cancelled"}');
       
       if (googleUser == null) {
         // User cancelled
@@ -615,10 +753,14 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user data
       await UserStorage.saveUser(user);
 
-      // Re-initialize controllers
-      _reinitializeControllers();
+      // Re-initialize controllers to load new user data
+      await _reinitializeControllers();
+
+      // Add a small delay to ensure all controllers are properly initialized
+      await Future.delayed(const Duration(milliseconds: 500));
 
       if (mounted) {
+        // Use offAllNamed to clear all navigation stack and start fresh
         Get.offAllNamed(Routes.DASHBOARD);
       }
     } on ApprovalPendingException catch (e) {

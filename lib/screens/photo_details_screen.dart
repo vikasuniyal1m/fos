@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 
 import 'package:flutter/scheduler.dart';
 import 'package:get/get.dart';
@@ -16,6 +17,12 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/report_utils.dart';
+import 'package:fruitsofspirit/utils/sticker_emoji_helper.dart';
+import 'package:fruitsofspirit/widgets/emoji_sticker_picker.dart';
+import 'package:fruitsofspirit/widgets/emoji_button.dart';
+import 'package:fruitsofspirit/services/gallery_service.dart'; // edit feature
+import 'package:fruitsofspirit/services/comments_service.dart'; // edit feature
+import 'package:fruitsofspirit/screens/report_content_screen.dart';
 
 /// Photo Details Screen
 /// Shows single photo with full comment system (like blog/prayer details)
@@ -26,19 +33,44 @@ class PhotoDetailsScreen extends StatefulWidget {
   State<PhotoDetailsScreen> createState() => _PhotoDetailsScreenState();
 }
 
+// Message model for proper text/sticker separation (reusable from blog_details_screen)
+class CommentMessage {
+  final String? text;
+  final String? stickerId;
+  final bool isSticker;
+
+  CommentMessage({this.text, this.stickerId, required this.isSticker});
+}
+
 class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
-  final GalleryController controller = Get.find<GalleryController>();
+  late final GalleryController controller;
   final replyControllers = <int, TextEditingController>{};
+  final replyFocusNodes = <int, FocusNode>{}; // Focus nodes for replies
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
+  final _sendingReplies = <int>{}; // Track which replies are being sent
   final commentController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _commentFocusNode = FocusNode();
+  // Rich text input messages (text + stickers) like blog_details_screen
+  final List<CommentMessage> commentMessages = [];
   int? currentUserId;
+  String? userEmail;
   double _photoHeight = 350.0; // Initial photo height
   double _minPhotoHeight = 100.0; // Minimum collapsed height
   double _maxPhotoHeight = 350.0; // Maximum expanded height
   bool _isSendingComment = false; // Track comment sending state
+  // edit feature: Comment edit state
+  final editControllers = <int, TextEditingController>{}; // edit feature
+  final showEditInput = <int, bool>{}; // edit feature
+  var isEditingComment = false.obs; // edit feature
+  var isSubmittingComment = false.obs; // Track comment submission state
+  // edit feature: Post edit state
+  final postEditTitleController = TextEditingController(); // edit feature
+  final postEditDescriptionController = TextEditingController(); // edit feature
+  final postEditCategoryController = TextEditingController(); // edit feature
+  var showPostEditInput = false.obs; // edit feature
+  var isEditingPost = false.obs; // edit feature
 
   /// Show a custom snackbar using ScaffoldMessenger
   void _showCustomSnackbar(String title, String message, {bool isError = false}) {
@@ -81,41 +113,21 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    // Lazily initialize controller if not already registered
+    controller = Get.isRegistered<GalleryController>()
+        ? Get.find<GalleryController>()
+        : Get.put(GalleryController(), permanent: true);
     _loadCurrentUserId();
-
-    // Listen to comment focus changes - scroll to bottom when keyboard opens
-    _commentFocusNode.addListener(() {
-      if (_commentFocusNode.hasFocus) {
-        // Keyboard is opening, scroll to bottom after a short delay
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (_scrollController.hasClients && mounted) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-            );
-          }
-        });
-      }
-    });
-
-    // Use native argument extraction
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        final photoId = ModalRoute.of(context)?.settings.arguments as int? ?? 0;
-        if (photoId > 0) {
-          // Only load if not already loading and (empty or mismatch)
-          // This prevents double-loading since GalleryScreen triggers load before navigation
-          if (!controller.isLoading.value && (controller.selectedPhoto.isEmpty || controller.selectedPhoto['id'] != photoId)) {
-            controller.loadPhotoDetails(photoId);
-          }
-
-          // Always ensure emojis are loaded (these operations are cheap/safe to repeat)
-          controller.loadAvailableEmojis();
-          controller.loadQuickEmojis();
-        }
-      }
-    });
+    _loadUserEmail();
+    final photoId = Get.arguments as int? ?? 0;
+    if (photoId > 0 && (controller.selectedPhoto.isEmpty || controller.selectedPhoto['id'] != photoId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.loadPhotoDetails(photoId);
+        // Load emojis for reactions
+        controller.loadAvailableEmojis();
+        controller.loadQuickEmojis();
+      });
+    }
     
     // Initialize photo heights based on screen size
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -132,7 +144,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     // Listen to scroll changes
     _scrollController.addListener(_onScroll);
   }
-  
+
   void _onScroll() {
     if (!mounted) return;
     
@@ -157,8 +169,15 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   Future<void> _loadCurrentUserId() async {
     final user = await UserStorage.getUser();
     if (user != null) {
-      currentUserId = user['id'] as int?;
+      final id = user['id'];
+      if (id is int) {
+        currentUserId = id;
+      }
     }
+  }
+
+  Future<void> _loadUserEmail() async {
+    userEmail = await UserStorage.getUserEmail();
   }
 
   /// Show Full Screen Image Preview
@@ -180,56 +199,379 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     _scrollController.dispose();
     _commentFocusNode.dispose();
     commentController.dispose();
+    // edit feature: Dispose comment edit controllers
+    for (var controller in editControllers.values) { // edit feature
+      controller.dispose(); // edit feature
+    } // edit feature
+    // edit feature: Dispose post edit controllers
+    postEditTitleController.dispose(); // edit feature
+    postEditDescriptionController.dispose(); // edit feature
+    postEditCategoryController.dispose(); // edit feature
     for (var controller in replyControllers.values) {
       controller.dispose();
+    }
+    for (var focusNode in replyFocusNodes.values) {
+      focusNode.dispose();
     }
     super.dispose();
   }
 
-  /// Format time ago
-  String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return 'Just now';
-    
+  /// Get India time (IST) from timestamp
+  String _getIndiaTime(String? dateString) {
+    if (dateString == null || dateString.isEmpty) return '';
+
     try {
-      // Assume backend sends UTC time if 'Z' is missing.
       DateTime date;
-      if (!dateString.endsWith('Z')) {
-        date = DateTime.parse('${dateString}Z').toLocal();
+      // Handle different timestamp formats
+      if (dateString.contains('T')) {
+        // ISO 8601 format
+        date = DateTime.parse(dateString);
       } else {
-        date = DateTime.parse(dateString).toLocal();
-      }
-      
-      final now = DateTime.now();
-      // Only adjust if date is significantly in the future (more than 1 minute)
-      // to allow for small clock skews
-      if (date.isAfter(now.add(const Duration(minutes: 1)))) {
-        date = now;
-      } else if (date.isAfter(now)) {
-        // If slightly in future, just cap at now
-        date = now;
+        // Try parsing as standard MySQL datetime format
+        date = DateTime.parse('${dateString}Z');
       }
 
-      final difference = now.difference(date);
-      
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
+      // Convert to India time (IST = UTC+5:30)
+      final indiaTimeZone = Duration(hours: 5, minutes: 30);
+      final indiaTime = date.toUtc().add(indiaTimeZone);
+
+      // Format as HH:MM AM/PM
+      final hour = indiaTime.hour;
+      final minute = indiaTime.minute;
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+      final displayMinute = minute.toString().padLeft(2, '0');
+
+      return '$displayHour:$displayMinute $period IST';
     } catch (e) {
-      return 'Just now';
+      return '';
     }
   }
+
+  // edit feature: Configurable edit time window in minutes
+  static const int _editTimeWindowMinutes = 15; // edit feature
+
+
+  // edit feature: Configurable time zone offset in minutes (default India UTC+5:30 = 330 minutes)
+  // Change this value to manually control the time zone for testing
+  // Examples: UTC = 0, India = 330, US Eastern = -300, US Pacific = -480
+  static const int _timeZoneOffsetMinutes = 0; // edit feature: UTC (for testing)
+
+  // edit feature: Get current time with configured time zone offset
+  DateTime _getCurrentTime() { // edit feature
+    final utcNow = DateTime.now().toUtc(); // edit feature
+    return utcNow.add(Duration(minutes: _timeZoneOffsetMinutes)); // edit feature
+  } // edit feature
+
+  // edit feature: Check if photo can be edited (always allow editing)
+  bool _canEditPost(Map<String, dynamic> photo) { // edit feature
+    print('🔍 Edit check - always allowing editing'); // debug
+    return true; // edit feature: Always allow editing
+  } // edit feature
+
+  // edit feature: Check if comment can be edited (within 15 minutes only)
+  bool _canEditComment(Map<String, dynamic> comment) { // edit feature
+    print('🔍 Edit check - created_at: ${comment['created_at']}'); // debug
+    
+    // Check if user is logged in
+    if (currentUserId == null || currentUserId == 0) { // edit feature
+      print('❌ Edit blocked: user not logged in'); // debug
+      return false; // edit feature
+    } // edit feature
+    
+    // Check if comment belongs to current user
+    final commentUserId = comment['user_id']; // edit feature
+    if (commentUserId == null || commentUserId.toString() != currentUserId.toString()) { // edit feature
+      print('❌ Edit blocked: comment belongs to user $commentUserId, current user is $currentUserId'); // debug
+      return false; // edit feature
+    } // edit feature
+    
+    if (comment['created_at'] == null) { // edit feature
+      print('❌ Edit blocked: created_at is null'); // debug
+      return false; // edit feature
+    } // edit feature
+    try { // edit feature
+      DateTime backendTime;
+      // Handle different timestamp formats - use UTC logic like TimeHelper
+      if (comment['created_at'].toString().contains('T')) {
+        // ISO 8601 format
+        if (comment['created_at'].toString().endsWith('Z')) {
+          backendTime = DateTime.parse(comment['created_at'] as String);
+        } else {
+          backendTime = DateTime.parse('${comment['created_at']}Z');
+        }
+      } else {
+        // MySQL datetime format - treat as UTC
+        backendTime = DateTime.parse(comment['created_at'].toString()).toUtc();
+      }
+
+      // CRITICAL FIX: Use device's current timezone for accurate time calculation
+      final nowDevice = DateTime.now(); // This is LOCAL device time
+      final backendTimeLocal = backendTime.toLocal(); // Convert backend time to local
+      final difference = nowDevice.difference(backendTimeLocal);
+      final canEdit = difference.inMinutes < _editTimeWindowMinutes; // edit feature: Check 15-minute window
+      print('🕐 Time check (LOCAL): ${difference.inMinutes} minutes, canEdit: $canEdit'); // debug
+      print('🌍 Device timezone: ${nowDevice.timeZoneName} (${nowDevice.timeZoneOffset})'); // debug
+      return canEdit; // edit feature
+    } catch (e) { // edit feature
+      print('❌ Edit blocked: date parsing error - $e'); // debug
+      return false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Build edit button widget
+  Widget _buildEditButton(BuildContext context, Map<String, dynamic> comment, int photoId) { // edit feature
+    if (!_canEditComment(comment)) return const SizedBox.shrink(); // edit feature
+    final commentId = comment['id'] as int; // edit feature
+
+    return InkWell( // edit feature
+      onTap: () { // edit feature
+        setState(() { // edit feature
+          if (!editControllers.containsKey(commentId)) { // edit feature
+            editControllers[commentId] = TextEditingController( // edit feature
+              text: (comment['comment'] as String? ?? comment['content'] as String? ?? '').trim(), // edit feature
+            ); // edit feature
+          } // edit feature
+          showEditInput[commentId] = !(showEditInput[commentId] ?? false); // edit feature
+        }); // edit feature
+      }, // edit feature
+      child: Row( // edit feature
+        children: [ // edit feature
+          Icon( // edit feature
+            Icons.edit, // edit feature
+            size: ResponsiveHelper.iconSize(context, mobile: 18), // edit feature
+            color: Colors.orange, // edit feature: Orange like reply button
+          ), // edit feature
+          SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+          Text( // edit feature
+            'Edit', // edit feature
+            style: TextStyle( // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 11), // edit feature
+              color: Colors.orange, // edit feature: Orange like reply button
+            ), // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Build edit input widget
+  Widget _buildEditInput(BuildContext context, int commentId, int photoId, String postType) { // edit feature
+    if (!editControllers.containsKey(commentId)) { // edit feature
+      editControllers[commentId] = TextEditingController(); // edit feature
+    } // edit feature
+    final editController = editControllers[commentId]!; // edit feature
+
+    return Container( // edit feature
+      padding: ResponsiveHelper.padding(context, all: 12), // edit feature
+      decoration: BoxDecoration( // edit feature
+        color: const Color(0xFFE3F2FD), // edit feature
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+        border: Border.all( // edit feature
+          color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+          width: 1.5, // edit feature
+        ), // edit feature
+      ), // edit feature
+      child: Column( // edit feature
+        crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+        children: [ // edit feature
+          Text( // edit feature
+            'Edit Comment', // edit feature
+            style: ResponsiveHelper.textStyle( // edit feature
+              context, // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 14), // edit feature
+              fontWeight: FontWeight.bold, // edit feature
+              color: const Color(0xFF1565C0), // edit feature
+            ), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          TextField( // edit feature
+            controller: editController, // edit feature
+            maxLines: 3, // edit feature
+            decoration: InputDecoration( // edit feature
+              border: OutlineInputBorder( // edit feature
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+              ), // edit feature
+              contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8), // edit feature
+            ), // edit feature
+            style: TextStyle(fontSize: 13), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          Row( // edit feature
+            mainAxisAlignment: MainAxisAlignment.end, // edit feature
+            children: [ // edit feature
+              TextButton( // edit feature
+                onPressed: () { // edit feature
+                  setState(() { // edit feature
+                    showEditInput[commentId] = false; // edit feature
+                  }); // edit feature
+                }, // edit feature
+                child: Text( // edit feature
+                  'Cancel', // edit feature
+                  style: ResponsiveHelper.textStyle( // edit feature
+                    context, // edit feature
+                    fontSize: 12, // edit feature
+                    color: Colors.grey[600], // edit feature
+                  ), // edit feature
+                ), // edit feature
+              ), // edit feature
+              SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+              ElevatedButton( // edit feature
+                onPressed: () => _editComment(commentId, photoId, postType), // edit feature
+                style: ElevatedButton.styleFrom( // edit feature
+                  backgroundColor: const Color(0xFF2196F3), // edit feature
+                  padding: ResponsiveHelper.padding( // edit feature
+                    context, // edit feature
+                    horizontal: 16, // edit feature
+                    vertical: 8, // edit feature
+                  ), // edit feature
+                ), // edit feature
+                child: Obx(() => isEditingComment.value // edit feature
+                    ? SizedBox( // edit feature
+                        width: 16, // edit feature
+                        height: 16, // edit feature
+                        child: CircularProgressIndicator( // edit feature
+                          strokeWidth: 2, // edit feature
+                          color: Colors.white, // edit feature
+                        ), // edit feature
+                      ) // edit feature
+                    : Text( // edit feature
+                        'Save', // edit feature
+                        style: TextStyle(fontSize: 12, color: Colors.white), // edit feature
+                      )), // edit feature
+              ), // edit feature
+            ], // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Edit comment method
+  Future<void> _editComment(int commentId, int photoId, String postType) async { // edit feature
+    final editController = editControllers[commentId]; // edit feature
+    if (editController == null) return; // edit feature
+
+    final content = editController.text.trim(); // edit feature
+    if (content.isEmpty) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Comment cannot be empty', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (currentUserId == null || currentUserId == 0) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Please login first', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    isEditingComment.value = true; // edit feature
+    try { // edit feature
+      // Use GalleryService for photo comments
+      await GalleryService.editComment( // edit feature
+        userId: currentUserId!, // edit feature
+        commentId: commentId, // edit feature
+        photoId: photoId, // edit feature
+        content: content, // edit feature
+      ); // edit feature
+
+      setState(() { // edit feature
+        showEditInput[commentId] = false; // edit feature
+      }); // edit feature
+
+      await controller.loadPhotoComments(photoId); // edit feature
+
+      Get.snackbar( // edit feature
+        'Success', // edit feature
+        'Comment edited successfully', // edit feature
+        backgroundColor: Colors.green, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } catch (e) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Failed to edit comment', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingComment.value = false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Edit photo method
+  Future<void> _editPost(int mediaId) async { // edit feature
+    final title = postEditTitleController.text.trim(); // edit feature
+    final description = postEditDescriptionController.text.trim(); // edit feature
+    final category = postEditCategoryController.text.trim(); // edit feature
+
+    if (title.isEmpty && description.isEmpty && category.isEmpty) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'At least one field must be filled', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (currentUserId == null || currentUserId == 0) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Please login first', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    isEditingPost.value = true; // edit feature
+    try { // edit feature
+      await GalleryService.editPhoto( // edit feature
+        userId: currentUserId!, // edit feature
+        mediaId: mediaId, // edit feature
+        title: title.isEmpty ? null : title, // edit feature
+        description: description.isEmpty ? null : description, // edit feature
+        category: category.isEmpty ? null : category, // edit feature
+      ); // edit feature
+
+      showPostEditInput.value = false; // edit feature
+      final photoId = Get.arguments as int? ?? 0; // edit feature
+      await controller.loadPhotoDetails(photoId); // edit feature
+
+      Get.snackbar( // edit feature
+        'Success', // edit feature
+        'Photo edited successfully', // edit feature
+        backgroundColor: Colors.green, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } catch (e) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        e.toString().replaceAll('Exception: ', ''), // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingPost.value = false; // edit feature
+    } // edit feature
+  } // edit feature
 
   /// Get image provider for profile photo
   ImageProvider? _getImageProvider(String? photoUrl) {
@@ -250,7 +592,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     }
     
     // If it's a relative path, construct full URL
-    return NetworkImage('https://fruitofthespirit.templateforwebsites.com/$photoPath');
+    return NetworkImage('http://admin.fosmessenger.com/$photoPath');
   }
 
   @override
@@ -305,7 +647,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         final photo = controller.selectedPhoto;
         final isPending = photo['status'] == 'Pending';
         final photoId = photo['id'] as int;
-        final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+        final baseUrl = 'http://admin.fosmessenger.com/';
         final filePath = photo['file_path'] as String? ?? '';
         final imageUrl = filePath.isNotEmpty ? baseUrl + filePath : null;
         final testimony = photo['testimony'] as String? ?? '';
@@ -587,7 +929,22 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                                             .iconscolor,
                                                       ),
                                                     ),
-                                                  ],
+                                                    ///TEST EDIT
+                                                    // edit feature: Show "edited" label if photo was edited
+                                                    if (photo['is_edited'] == true || photo['is_edited'] == 1) ...[ // edit feature
+                                                      SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+                                                      Text( // edit feature
+                                                        'edited', // edit feature
+                                                        style: TextStyle( // edit feature
+                                                          fontSize: 10, // edit feature
+                                                          color: Colors.grey[500], // edit feature
+                                                          fontStyle: FontStyle.italic, // edit feature
+                                                        ), // edit feature
+                                                      ), // edit feature
+                                                    ], // edit feature
+
+
+                                                  ]
                                                 ),
                                                 SizedBox(
                                                     height: ResponsiveHelper
@@ -611,6 +968,163 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                         return const SizedBox.shrink();
                                       },
                                     ),
+                                    // edit feature: Edit button for own photos within 15 minutes
+                                    if (_canEditPost(photo)) ...[ // edit feature
+                                      SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+                                      GestureDetector( // edit feature
+                                        onTap: () { // edit feature
+                                          setState(() { // edit feature
+                                            postEditTitleController.text = photo['title'] as String? ?? ''; // edit feature
+                                            postEditDescriptionController.text = photo['testimony'] as String? ?? ''; // edit feature
+                                            postEditCategoryController.text = photo['category'] as String? ?? ''; // edit feature
+                                            showPostEditInput.value = !showPostEditInput.value; // edit feature
+                                          }); // edit feature
+                                        }, // edit feature
+                                        child: Container( // edit feature
+                                          padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 6), // edit feature
+                                          decoration: BoxDecoration( // edit feature
+                                            color: Colors.grey[200], // edit feature
+                                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+                                          ), // edit feature
+                                          child: Row( // edit feature
+                                            mainAxisSize: MainAxisSize.min, // edit feature
+                                            children: [ // edit feature
+                                              Icon( // edit feature
+                                                Icons.edit, // edit feature
+                                                size: 14, // edit feature
+                                                color: Colors.grey[700], // edit feature
+                                              ), // edit feature
+                                              SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+                                              Text( // edit feature
+                                                'Edit Photo', // edit feature
+                                                style: TextStyle( // edit feature
+                                                  fontSize: 11, // edit feature
+                                                  color: Colors.grey[700], // edit feature
+                                                ), // edit feature
+                                              ), // edit feature
+                                            ], // edit feature
+                                          ), // edit feature
+                                        ), // edit feature
+                                      ), // edit feature
+                                    ],
+                                    //OBXTEST
+                                    // edit feature: Post edit input UI
+                                    Obx(() => showPostEditInput.value ? Container( // edit feature
+                                      margin: EdgeInsets.only(top: ResponsiveHelper.spacing(context, 16)), // edit feature
+                                      padding: ResponsiveHelper.padding(context, all: 16), // edit feature
+                                      decoration: BoxDecoration( // edit feature
+                                        color: const Color(0xFFE3F2FD), // edit feature
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+                                        border: Border.all( // edit feature
+                                          color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+                                          width: 1.5, // edit feature
+                                        ), // edit feature
+                                      ), // edit feature
+                                      child: Column( // edit feature
+                                        crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+                                        children: [ // edit feature
+                                          Text( // edit feature
+                                            'Edit Photo', // edit feature
+                                            style: ResponsiveHelper.textStyle( // edit feature
+                                              context, // edit feature
+                                              fontSize: ResponsiveHelper.fontSize(context, mobile: 14), // edit feature
+                                              fontWeight: FontWeight.bold, // edit feature
+                                              color: const Color(0xFF1976D2), // edit feature
+                                            ), // edit feature
+                                          ), // edit feature
+                                          SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                          TextField( // edit feature
+                                            controller: postEditTitleController, // edit feature
+                                            decoration: InputDecoration( // edit feature
+                                              labelText: 'Title (optional)', // edit feature
+                                              border: OutlineInputBorder( // edit feature
+                                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                              ), // edit feature
+                                              contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                            ), // edit feature
+                                            maxLines: 2, // edit feature
+                                            style: TextStyle( // edit feature
+                                              fontSize: 13, // edit feature
+                                            ), // edit feature
+                                          ), // edit feature
+                                          SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                          TextField( // edit feature
+                                            controller: postEditDescriptionController, // edit feature
+                                            decoration: InputDecoration( // edit feature
+                                              labelText: 'Testimony', // edit feature
+                                              border: OutlineInputBorder( // edit feature
+                                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                              ), // edit feature
+                                              contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                            ), // edit feature
+                                            maxLines: 5, // edit feature
+                                            style: TextStyle( // edit feature
+                                              fontSize: 13, // edit feature
+                                            ), // edit feature
+                                          ), // edit feature
+                                          SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                          TextField( // edit feature
+                                            controller: postEditCategoryController, // edit feature
+                                            decoration: InputDecoration( // edit feature
+                                              labelText: 'Category (optional)', // edit feature
+                                              border: OutlineInputBorder( // edit feature
+                                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                              ), // edit feature
+                                              contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                            ), // edit feature
+                                            style: TextStyle( // edit feature
+                                              fontSize: 13, // edit feature
+                                            ), // edit feature
+                                          ), // edit feature
+                                          SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                          Row( // edit feature
+                                            mainAxisAlignment: MainAxisAlignment.end, // edit feature
+                                            children: [ // edit feature
+                                              TextButton( // edit feature
+                                                onPressed: () { // edit feature
+                                                  showPostEditInput.value = false; // edit feature
+                                                }, // edit feature
+                                                child: Text( // edit feature
+                                                  'Cancel', // edit feature
+                                                  style: TextStyle( // edit feature
+                                                    fontSize: 12, // edit feature
+                                                    color: Colors.grey[600], // edit feature
+                                                  ), // edit feature
+                                                ), // edit feature
+                                              ), // edit feature
+                                              SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+                                              ElevatedButton( // edit feature
+                                                onPressed: () => _editPost(photo['id'] as int), // edit feature
+                                                style: ElevatedButton.styleFrom( // edit feature
+                                                  backgroundColor: const Color(0xFF2196F3), // edit feature
+                                                  padding: ResponsiveHelper.padding( // edit feature
+                                                    context, // edit feature
+                                                    horizontal: 16, // edit feature
+                                                    vertical: 8, // edit feature
+                                                  ), // edit feature
+                                                ), // edit feature
+                                                child: Obx(() => isEditingPost.value // edit feature
+                                                    ? SizedBox( // edit feature
+                                                  width: 16, // edit feature
+                                                  height: 16, // edit feature
+                                                  child: CircularProgressIndicator( // edit feature
+                                                    strokeWidth: 2, // edit feature
+                                                    color: Colors.white, // edit feature
+                                                  ), // edit feature
+                                                ) // edit feature
+                                                    : Text( // edit feature
+                                                  'Save', // edit feature
+                                                  style: TextStyle( // edit feature
+                                                    fontSize: 12, // edit feature
+                                                    color: Colors.white, // edit feature
+                                                  ), // edit feature
+                                                )), // edit feature
+                                              ), // edit feature
+                                            ], // edit feature
+                                          ), // edit feature
+                                        ], // edit feature
+                                      ), // edit feature
+                                    ) : const SizedBox.shrink()), // edit feature
                                     SizedBox(height: ResponsiveHelper.spacing(
                                         context, 16)),
 
@@ -875,7 +1389,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                             onTap: () {
                                               final photo = controller
                                                   .selectedPhoto;
-                                              final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+                                              final baseUrl = 'http://admin.fosmessenger.com/';
                                               final filePath = photo['file_path'] as String? ??
                                                   '';
                                               final photoUrl = filePath
@@ -1215,7 +1729,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             ),
                           ),
 
-                          // Comment Input Section
+                          // Comment Input Section (same as prayer_details_screen)
                           Container(
                             padding: ResponsiveHelper.padding(context, all: 16),
                             decoration: BoxDecoration(
@@ -1231,31 +1745,29 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             child: Row(
                               children: [
                                 Expanded(
-                                  child: TextField(
-                                    controller: commentController,
-                                    decoration: InputDecoration(
-                                      prefixIcon: IconButton(
-                                        icon: const Icon(
-                                          Icons.emoji_emotions_outlined,
-                                          color: Color(0xFF8B4513),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[100],
+                                      borderRadius: BorderRadius.circular(25),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.emoji_emotions_outlined,
+                                            color: Color(0xFF8B4513),
+                                          ),
+                                          onPressed: () => _showEmojiPicker(context, photoId, commentController),
                                         ),
-                                        onPressed: () =>
-                                            _showEmojiPicker(
-                                                context, photoId, controller),
-                                      ),
-                                      filled: true,
-                                      fillColor: Colors.grey.shade100,
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: ResponsiveHelper.spacing(
-                                            context, 16),
-                                        vertical: ResponsiveHelper.spacing(
-                                            context, 12),
-                                      ),
+                                        Expanded(
+                                          child: _buildRichTextInput(),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
                                 SizedBox(width: ResponsiveHelper.spacing(
-                                    context, 8)),
+                                    context, 12)),
                                 Container(
                                   decoration: BoxDecoration(
                                     color: AppTheme.iconscolor,
@@ -1382,12 +1894,15 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     final likeCount = int.tryParse((comment['like_count'] ?? 0).toString()) ?? 0;
     final commentId = comment['id'] as int;
     final content = comment['content'] as String? ?? '';
-    final timeAgo = _getTimeAgo(comment['created_at'] as String?);
+    final timeAgo = TimeHelper.getTimeAgo(comment['created_at'] as String?);
     
     // Initialize reply controller if not exists
     if (!replyControllers.containsKey(commentId)) {
       replyControllers[commentId] = TextEditingController();
     }
+    
+    // NOTE: Don't filter emoji comments - display them as regular comments
+    // Emoji comments should be shown in the comment list, not just in reactions
 
     return Container(
       margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 16)),
@@ -1478,6 +1993,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                         color: Colors.black87,
                         height: 1.5,
                       ),
+                      userEmail: userEmail,
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 12)),
                     // Action Buttons: Like, Reply, Report
@@ -1529,7 +2045,11 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                         InkWell(
                           onTap: () {
                             setState(() {
-                              showReplyInput[commentId] = !(showReplyInput[commentId] ?? false);
+                              // Close all other reply inputs first
+                              showReplyInput.clear();
+
+                              // Toggle current reply input
+                              showReplyInput[commentId] = true;
                             });
                           },
                           child: Row(
@@ -1561,6 +2081,8 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             ],
                           ),
                         ),
+                        // edit feature: Edit Button
+                        _buildEditButton(context, comment, photoId),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
                         // Report Button - Only show for other users' comments
                         if (currentUserId != null && (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()))
@@ -1597,6 +2119,11 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
             _buildReplyInput(context, commentId, photoId),
           ],
+          // edit feature: Edit Input (if shown)
+          if (showEditInput[commentId] == true) ...[ // edit feature
+            SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+            _buildEditInput(context, commentId, photoId, 'photo'), // edit feature
+          ], // edit feature
           // Expand/Collapse button for top-level comment replies
           if (comment['replies'] != null && (comment['replies'] as List).isNotEmpty) ...[
             SizedBox(height: ResponsiveHelper.spacing(context, 8)),
@@ -1643,12 +2170,18 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     );
   }
 
-  /// Build reply input widget
+  /// Build reply input widget (same as prayer_details_screen)
   Widget _buildReplyInput(BuildContext context, int parentCommentId, int photoId) {
     if (!replyControllers.containsKey(parentCommentId)) {
       replyControllers[parentCommentId] = TextEditingController();
     }
+    // Initialize focus node if not exists
+    if (!replyFocusNodes.containsKey(parentCommentId)) {
+      replyFocusNodes[parentCommentId] = FocusNode();
+    }
     final replyController = replyControllers[parentCommentId]!;
+    final replyFocusNode = replyFocusNodes[parentCommentId]!;
+    final isSending = _sendingReplies.contains(parentCommentId);
     
     return Container(
       padding: ResponsiveHelper.padding(context, all: 12),
@@ -1665,6 +2198,8 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
           Expanded(
             child: TextField(
               controller: replyController,
+              focusNode: replyFocusNode,
+              enabled: !isSending,
               decoration: InputDecoration(
                 hintText: 'Write a reply...',
                 hintStyle: ResponsiveHelper.textStyle(
@@ -1678,70 +2213,43 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                   horizontal: 12,
                   vertical: 8,
                 ),
+                prefixIcon: IconButton(
+                  icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFF8B4513)),
+                  onPressed: () => _showEmojiPicker(context, photoId, replyController, parentCommentId: parentCommentId),
+                ),
               ),
               maxLines: null,
-              textInputAction: TextInputAction.newline,
-              style: ResponsiveHelper.textStyle(
-                context, 
-                fontSize: 13,
-              ),
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _handleSendReply(photoId, parentCommentId, replyController),
+              style: ResponsiveHelper.textStyle(context, fontSize: 13),
             ),
           ),
           SizedBox(width: ResponsiveHelper.spacing(context, 8)),
           Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: () async {
-                if (replyController.text.trim().isEmpty) return;
-                
-                // FIX: Dismiss keyboard immediately
-                FocusScope.of(context).unfocus();
-
-                final success = await controller.addComment(
-                  photoId,
-                  replyController.text.trim(),
-                  parentCommentId: parentCommentId,
-                );
-                
-                if (success) {
-                  replyController.clear();
-                  setState(() {
-                    showReplyInput[parentCommentId] = false;
-                    // Auto-expand parent to show the new reply
-                    expandedReplies.add(parentCommentId);
-                  });
-                  
-                  await controller.loadPhotoComments(photoId);
-                  setState(() {}); // Refresh UI
-                  
-                  if (mounted) {
-                    _showCustomSnackbar(
-                      'Success',
-                      'Reply added successfully',
-                    );
-                  }
-                } else {
-                  if (mounted) {
-                    _showCustomSnackbar(
-                      'Error',
-                      controller.message.value,
-                      isError: true,
-                    );
-                  }
-                }
-              },
+              onTap: isSending ? null : () => _handleSendReply(photoId, parentCommentId, replyController),
               borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
               child: Container(
                 padding: ResponsiveHelper.padding(context, all: 8),
                 decoration: BoxDecoration(
-                  color: AppTheme.iconscolor,
+                  color: isSending ? Colors.grey : AppTheme.iconscolor,
                   borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
                 ),
-                child: Icon(
-                  Icons.send,
-                  color: Colors.white,
-                  size: ResponsiveHelper.iconSize(context, mobile: 18),
-                ),
+                child: isSending
+                    ? SizedBox(
+                        width: ResponsiveHelper.iconSize(context, mobile: 18),
+                        height: ResponsiveHelper.iconSize(context, mobile: 18),
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : Icon(
+                        Icons.send,
+                        color: Colors.white,
+                        size: ResponsiveHelper.iconSize(context, mobile: 18),
+                      ),
               ),
             ),
           ),
@@ -1750,10 +2258,61 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     );
   }
 
+  /// Handle sending reply (same as prayer_details_screen)
+  Future<void> _handleSendReply(int photoId, int parentCommentId, TextEditingController replyController) async {
+    if (replyController.text.trim().isEmpty) return;
+    
+    // FIX: Dismiss keyboard immediately
+    FocusScope.of(context).unfocus();
+    
+    setState(() {
+      _sendingReplies.add(parentCommentId);
+    });
+    
+    try {
+      final success = await controller.addComment(
+        photoId,
+        replyController.text.trim(),
+        parentCommentId: parentCommentId,
+      );
+      
+      if (success) {
+        replyController.clear();
+        setState(() {
+          showReplyInput[parentCommentId] = false;
+          // Auto-expand parent to show the new reply
+          expandedReplies.add(parentCommentId);
+        });
+        
+        await controller.loadPhotoComments(photoId);
+        setState(() {}); // Refresh UI
+        
+        if (mounted) {
+          _showCustomSnackbar(
+            'Success',
+            'Reply added successfully',
+          );
+        }
+      } else {
+        if (mounted) {
+          _showCustomSnackbar(
+            'Error',
+            controller.message.value,
+            isError: true,
+          );
+        }
+      }
+    } finally {
+      setState(() {
+        _sendingReplies.remove(parentCommentId);
+      });
+    }
+  }
+
   /// Build reply card widget
   Widget _buildReplyCard(BuildContext context, Map<String, dynamic> reply, int photoId, {int depth = 0, int? parentCommentId}) {
     final content = reply['content'] as String? ?? '';
-    final timeAgo = _getTimeAgo(reply['created_at'] as String?);
+    final timeAgo = TimeHelper.getTimeAgo(reply['created_at'] as String?);
     final replyId = reply['id'] as int;
     final isLiked = reply['is_liked'] == true || reply['is_liked'] == 1;
     final likeCount = int.tryParse((reply['like_count'] ?? 0).toString()) ?? 0;
@@ -1841,7 +2400,8 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             ],
                           ),
                           SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                          Text(
+                          FruitEmojiHelper.buildCommentText(
+                            context,
                             AutoTranslateHelper.getTranslatedTextSync(
                               text: content,
                               sourceLanguage: reply['language'] as String?,
@@ -1918,7 +2478,11 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                               InkWell(
                                 onTap: () {
                                   setState(() {
-                                    showReplyInput[replyId] = !(showReplyInput[replyId] ?? false);
+                                    // Close all other reply inputs first
+                                    showReplyInput.clear();
+
+                                    // Toggle current reply input
+                                    showReplyInput[replyId] = true;
                                   });
                                 },
                                 child: Row(
@@ -2429,32 +2993,11 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             return;
                           }
                           
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📤 Sending emoji to API: $emojiValueToSend');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - This value will be saved in emoji_usage table');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - This value will be used as KEY in photoEmojiReactions map');
-                          final success = await controller.addEmojiReaction(photoId, emojiValueToSend);
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📥 API response: success=$success');
-                          
-                          if (success) {
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Emoji reaction added successfully');
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ⏳ Waiting for UI to update...');
-                            if (mounted) {
-                              _showCustomSnackbar(
-                                'Success',
-                                'Reaction added',
-                              );
-                            }
-                          } else {
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
-                            if (mounted) {
-                              _showCustomSnackbar(
-                                'Error',
-                                controller.message.value,
-                                isError: true,
-                              );
-                            }
-                          }
-                          print('🍎 GALLERY EMOJI: ========== EMOJI SELECTION END ==========');
+                          // Send emoji directly as comment (no text box)
+                          final content = commentController.text;
+                          commentController.text = emojiValueToSend;
+                          await controller.addComment(photoId, emojiValueToSend);
+                          commentController.text = content;
                         } : null,
                         borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 40 : 44),
                         child: Padding(
@@ -2476,7 +3019,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                 Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: () => _showEmojiPicker(context, photoId, controller),
+                    onTap: () => _showEmojiPicker(context, photoId, commentController),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 40 : 44),
                     child: Padding(
                       padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 4)),
@@ -2571,6 +3114,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                               context,
                               fruitEmoji!,
                               size: 20,
+                              userEmail: userEmail,
                             );
                           }
                           return Icon(
@@ -2763,6 +3307,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                               context,
                               fruitEmoji,
                               size: 28,
+                              userEmail: userEmail,
                             ),
                           )
                         else
@@ -2785,6 +3330,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                   context,
                                   fallbackEmojiData,
                                   size: 28,
+                                  userEmail: userEmail,
                                 ),
                               );
                             },
@@ -2916,7 +3462,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                 } else if (!photoPath.startsWith('assets/') && 
                                     !photoPath.startsWith('file://') &&
                                     !photoPath.startsWith('assets/images/')) {
-                                  profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+                                  profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
                                 }
                               }
                               
@@ -3048,7 +3594,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                             ),
                                           ),
                                           Text(
-                                            _getTimeAgo(userData['created_at'] as String?),
+                                            TimeHelper.getTimeAgo(userData['created_at'] as String?),
                                             style: TextStyle(
                                               fontSize: ResponsiveHelper.fontSize(context, mobile: 11),
                                               color: Colors.grey[600],
@@ -3066,6 +3612,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                           context,
                                           fruitEmoji,
                                           size: 24,
+                                          userEmail: userEmail,
                                         ),
                                       )
                                     else
@@ -3154,188 +3701,98 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     });
   }
 
-  /// Show Emoji Picker Dialog
-  void _showEmojiPicker(BuildContext context, int photoId, GalleryController controller) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.6,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Choose an Emoji',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 19, desktop: 20),
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black,
-                  ),
+  /// Build rich text input that can display both text and sticker messages (from blog_details_screen)
+  Widget _buildRichTextInput() {
+    return Container(
+      padding: ResponsiveHelper.padding(context, horizontal: 8, vertical: 8),
+      child: Row(
+        children: [
+          // Display all sticker messages as images
+          ...commentMessages.map((message) => _buildCommentMessage(message)).toList(),
+          // Text input field for regular text
+          Expanded(
+            child: TextField(
+              controller: commentController,
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                hintText: commentMessages.isEmpty ? 'Write a comment...' : '',
+                hintStyle: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: 15,
+                  color: Colors.grey[500],
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: () {
-                    if (context.mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  },
-                ),
-              ],
+              ),
+              style: ResponsiveHelper.textStyle(context, fontSize: 15),
+              maxLines: null,
+              onChanged: (value) {
+                setState(() {});
+              },
             ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: Obx(() {
-                if (controller.availableEmojis.isEmpty) {
-                  return Center(
-                    child: CircularProgressIndicator(
-                      color: AppTheme.iconscolor,
-                    ),
-                  );
-                }
-
-                return GridView.builder(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: ResponsiveHelper.isMobile(context) ? 4 : 5,
-                    crossAxisSpacing: ResponsiveHelper.spacing(context, 12),
-                    mainAxisSpacing: ResponsiveHelper.spacing(context, 12),
-                    childAspectRatio: 1.0,
-                  ),
-                  itemCount: controller.availableEmojis.length,
-                  itemBuilder: (context, index) {
-                    final emojiData = controller.availableEmojis[index];
-                    // Use same priority as story screen: emoji_char -> code -> name
-                    String? emoji = emojiData['emoji_char'] as String?;
-                    if (emoji == null || emoji.trim().isEmpty) {
-                      emoji = emojiData['code'] as String?;
-                    }
-                    if (emoji == null || emoji.trim().isEmpty) {
-                      final name = emojiData['name'] as String? ?? '';
-                      if (name.isNotEmpty) {
-                        String baseName = name.toLowerCase();
-                        if (baseName.contains(':')) {
-                          final parts = baseName.split(':');
-                          if (parts.length > 1) {
-                            baseName = parts[1].trim();
-                          }
-                        }
-                        if (baseName.contains(' ')) {
-                          baseName = baseName.split(' ')[0].trim();
-                        }
-                        emoji = baseName;
-                      }
-                    }
-                    final isValidEmoji = emoji != null && emoji.trim().isNotEmpty;
-                    
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: isValidEmoji ? () async {
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: User tapped emoji in gallery photo details');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - photoId: $photoId');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emoji value: $emoji');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData: name=${emojiData['name']}, id=${emojiData['id']}, code=${emojiData['code']}');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData image_url: ${emojiData['image_url']}');
-                          
-                          // Determine the best emoji value to send to API
-                          // Priority: code > image_url > emoji_char > name
-                          String? emojiValueToSend;
-                          
-                          // Priority 1: Use code if available (best for API matching)
-                          final emojiCode = emojiData['code'] as String?;
-                          if (emojiCode != null && emojiCode.toString().trim().isNotEmpty) {
-                            emojiValueToSend = emojiCode.toString().trim();
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Using emoji code: $emojiValueToSend');
-                          }
-                          // Priority 2: Use image_url if code is not available
-                          else {
-                            final emojiImageUrl = emojiData['image_url'] as String?;
-                            if (emojiImageUrl != null && emojiImageUrl.toString().trim().isNotEmpty) {
-                              emojiValueToSend = emojiImageUrl.toString().trim();
-                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Using emoji image_url: $emojiValueToSend');
-                            }
-                            // Priority 3: Use emoji_char
-                            else if (emoji != null && emoji.trim().isNotEmpty) {
-                              emojiValueToSend = emoji.trim();
-                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Using emoji_char: $emojiValueToSend');
-                            }
-                            // Priority 4: Fallback to name
-                            else {
-                              final emojiName = emojiData['name'] as String?;
-                              if (emojiName != null && emojiName.toString().trim().isNotEmpty) {
-                                emojiValueToSend = emojiName.toString().trim();
-                                if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Using emoji name: $emojiValueToSend');
-                              }
-                            }
-                          }
-                          
-                          if (emojiValueToSend == null || emojiValueToSend.isEmpty) {
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
-                            if (mounted) {
-                              _showCustomSnackbar(
-                                'Error',
-                                'Invalid emoji data. Please try again.',
-                                isError: true,
-                              );
-                            }
-                            return;
-                          }
-                          
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📤 Sending emoji to API: $emojiValueToSend');
-                          if (mounted) {
-                            Navigator.of(context).pop();
-                          }
-                          
-                          final success = await controller.addEmojiReaction(photoId, emojiValueToSend);
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 📥 API response: success=$success');
-                          
-                          if (!success) {
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ Failed to add emoji reaction');
-                            if (mounted) {
-                              _showCustomSnackbar(
-                                'Error',
-                                controller.message.value,
-                                isError: true,
-                              );
-                            }
-                          } else {
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ Emoji reaction added successfully');
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: 🔄 UI should update automatically via Obx');
-                          }
-                        } : null,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey[50],
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Center(
-                            child: HomeScreen.buildEmojiDisplay(
-                              context,
-                              emojiData,
-                              size: 48,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              }),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
+  }
+
+  /// Build message widget that properly renders text vs stickers (from blog_details_screen)
+  Widget _buildCommentMessage(CommentMessage message) {
+    if (message.isSticker) {
+      // Return sticker widget
+      return StickerEmojiHelper.buildStickerWidget(message.stickerId ?? '', size: 40);
+    } else {
+      // Return text widget
+      return Text(
+        message.text ?? '',
+        style: ResponsiveHelper.textStyle(context, fontSize: 15),
+      );
+    }
+  }
+
+  /// Show emoji picker for photo comments - sends emoji directly without showing in input field
+  void _showEmojiPicker(BuildContext context, int photoId, TextEditingController controller, {int? parentCommentId}) {
+    showEmojiStickerPicker(
+      context: context,
+      onEmojiSelected: (emoji) async {
+        // Send emoji directly as comment - no preview in text field!
+        await _sendEmojiDirectly(photoId, emoji, parentCommentId: parentCommentId);
+      },
+      height: 350,
+    );
+  }
+
+  /// Send emoji/sticker directly as comment without showing in input field
+  Future<void> _sendEmojiDirectly(int photoId, String emoji, {int? parentCommentId}) async {
+    if (emoji.isEmpty) return;
+
+    FocusScope.of(context).unfocus();
+
+    isSubmittingComment.value = true;
+
+    try {
+      final success = await controller.addComment(photoId, emoji, parentCommentId: parentCommentId);
+      if (success) {
+        commentController.clear();
+        // Scroll to show new comment
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+        }
+        // Reload photo details to show new comment
+        await controller.loadPhotoDetails(photoId);
+        _showCustomSnackbar('Success', 'Comment added successfully');
+      } else {
+        _showCustomSnackbar('Error', controller.message.value, isError: true);
+      }
+    } catch (e) {
+      print('Error sending emoji comment: $e');
+      _showCustomSnackbar('Error', 'Failed to send emoji. Please try again.', isError: true);
+    } finally {
+      isSubmittingComment.value = false;
+    }
   }
 
   /// Show Reaction Users Dialog
@@ -3366,6 +3823,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                         context,
                         fruitEmoji,
                         size: 32,
+                        userEmail: userEmail,
                       ),
                     ),
                   SizedBox(width: ResponsiveHelper.spacing(context, 8)),
@@ -3405,7 +3863,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       } else if (!photoPath.startsWith('assets/') && 
                           !photoPath.startsWith('file://') &&
                           !photoPath.startsWith('assets/images/')) {
-                        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+                        profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
                       }
                     }
                     

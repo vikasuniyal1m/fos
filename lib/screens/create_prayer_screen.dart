@@ -6,6 +6,7 @@ import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/users_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/services/prayer_types_service.dart';
 
 import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
@@ -29,13 +30,18 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   late final GroupsController groupsController;
   
   final TextEditingController contentController = TextEditingController();
-  
+  final TextEditingController customPrayerTypeController = TextEditingController();
+
   // State variables
-  String prayerFor = 'Me'; // 'Me', 'Someone else', 'Group'
+  String prayerFor = 'Me'; // 'Me', 'Someone else', 'Group', 'All'
   String selectedPrayerType = 'Healing'; // Single selection only
   bool allowEncouragement = true;
   bool isAnonymous = true;
   List<int> sharedWithUserIds = [];
+  
+  // Custom category for 'Others' option
+  final TextEditingController customCategoryController = TextEditingController();
+  bool isCustomCategory = false;
   
   // Tagging variables
   int? taggedUserId; // For "Someone else"
@@ -50,15 +56,29 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
   bool _isSubmitting = false; // Loading state for prayer submission
   String? _moderationMessage; // Real-time moderation message
   
-  // Available prayer types
-  final List<String> prayerTypes = [
+  // Available prayer types - will be loaded from backend
+  // Available prayer types - will be loaded from backend
+  List<String> prayerTypes = [
     'Healing',
     'Peace & Anxiety',
     'Work & Provision',
     'Relationships',
     'Guidance',
+    'Strength',
+    'Protection',
+    'Wisdom',
+    'Forgiveness',
+    'Financial',
+    'Family',
+    'Addiction',
+    'Grief',
+    'Faith',
+    'Thanksgiving',
+    'Deliverance',
+    'other'
   ];
-  
+  bool isLoadingPrayerTypes = false;
+
   @override
   void initState() {
     super.initState();
@@ -78,9 +98,32 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     }
 
     _loadGroupMembers();
-    
+    _loadPrayerTypes();
+
     // Add real-time moderation check
     contentController.addListener(_checkModeration);
+  }
+
+  Future<void> _loadPrayerTypes() async {
+    setState(() {
+      isLoadingPrayerTypes = true;
+    });
+
+    try {
+      final types = await PrayerTypesService.getPrayerTypes();
+      if (types.isNotEmpty) {
+        setState(() {
+          prayerTypes = types;
+        });
+      }
+    } catch (e) {
+      print('Error loading prayer types: $e');
+      // Keep default types if loading fails
+    } finally {
+      setState(() {
+        isLoadingPrayerTypes = false;
+      });
+    }
   }
 
   void _checkModeration() {
@@ -121,6 +164,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     contentController.removeListener(_checkModeration);
     contentController.dispose();
     userSearchController.dispose();
+    customPrayerTypeController.dispose();
     super.dispose();
   }
   
@@ -250,8 +294,26 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       return;
     }
 
-    // Use the selected prayer type
-    final category = selectedPrayerType;
+    // Handle custom prayer type
+    String category = selectedPrayerType;
+    if (selectedPrayerType == 'other') {
+      if (customPrayerTypeController.text.trim().isEmpty) {
+        _showCustomSnackbar('Error', 'Please enter custom prayer type', isError: true);
+        return;
+      }
+      category = customPrayerTypeController.text.trim();
+
+      // Save custom prayer type to backend
+      try {
+        final userId = await UserStorage.getUserId();
+        if (userId != null) {
+          await PrayerTypesService.addPrayerType(typeName: category, userId: userId);
+        }
+      } catch (e) {
+        print('Error saving custom prayer type: $e');
+        // Continue with submission even if saving type fails
+      }
+    }
     
     // Validate tagging
     if (prayerFor == 'Someone else' && taggedUserId == null) {
@@ -473,6 +535,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
             // Who is this for ?? Section
             _buildSectionTitle('Who is this for ??'),
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+            // First row: Me, Someone else
             Row(
               children: [
                 Expanded(
@@ -500,7 +563,12 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                     }),
                   ),
                 ),
-                SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+              ],
+            ),
+            SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+            // Second row: Group, All
+            Row(
+              children: [
                 Expanded(
                   child: _buildSelectionButton(
                     'Group',
@@ -509,6 +577,22 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                       prayerFor = 'Group';
                       taggedUserId = null;
                       selectedUser = null;
+                      userSearchController.clear();
+                      searchUsers = [];
+                    }),
+                  ),
+                ),
+                SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                Expanded(
+                  child: _buildSelectionButton(
+                    'All',
+                    prayerFor == 'All',
+                    onTap: () => setState(() {
+                      prayerFor = 'All';
+                      taggedUserId = null;
+                      taggedGroupId = null;
+                      selectedUser = null;
+                      selectedGroup = null;
                       userSearchController.clear();
                       searchUsers = [];
                     }),
@@ -549,6 +633,50 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                 return _buildPrayerTypeButton(type, isSelected);
               }).toList(),
             ),
+            // Custom prayer type field when "other" is selected
+            if (selectedPrayerType == 'other')
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+                  Text(
+                    'Add Custom Prayer Type',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                      border: Border.all(
+                        color: Colors.grey.withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: TextField(
+                      controller: customPrayerTypeController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter custom prayer type...',
+                        hintStyle: TextStyle(
+                          color: Colors.grey[400],
+                          fontSize: 14,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(16),
+                      ),
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: 14,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               SizedBox(height: ResponsiveHelper.spacing(context, 24)),
             
             // Details Section
@@ -653,63 +781,83 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
               }
               
               return SizedBox(
-                height: 60,
+                height: 80,
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   itemCount: groupsController.groupMembers.length,
                   itemBuilder: (context, index) {
                     final member = groupsController.groupMembers[index];
                     final userId = member['user_id'] ?? member['id'];
+                    final userName = member['name'] ?? 'User';
                     final isSelected = sharedWithUserIds.contains(userId);
                     
                     return GestureDetector(
                       onTap: () => _toggleShareWith(userId),
                       child: Container(
                         margin: const EdgeInsets.only(right: 12),
-                        child: Stack(
+                        child: Column(
                           children: [
-                            CircleAvatar(
-                              radius: 30,
-                              backgroundColor: isSelected
-                                  ? AppTheme.iconscolor.withOpacity(0.3)
-                                  : Colors.grey[200],
-                              child: CircleAvatar(
-                                radius: 28,
-                                backgroundColor: Colors.white,
-                                child: CachedImage(
-                                  imageUrl: member['profile_photo'] ?? '',
-                                  width: 56,
-                                  height: 56,
-                                  fit: BoxFit.cover,
-                                  errorWidget: Icon(
-                                    Icons.person,
-                                    size: 30,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (isSelected)
-                              Positioned(
-                                bottom: 0,
-                                right: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.iconscolor,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 2,
+                            Stack(
+                              children: [
+                                CircleAvatar(
+                                  radius: 30,
+                                  backgroundColor: isSelected
+                                      ? AppTheme.iconscolor.withOpacity(0.3)
+                                      : Colors.grey[200],
+                                  child: CircleAvatar(
+                                    radius: 28,
+                                    backgroundColor: Colors.white,
+                                    child: CachedImage(
+                                      imageUrl: member['profile_photo'] ?? '',
+                                      width: 56,
+                                      height: 56,
+                                      fit: BoxFit.cover,
+                                      errorWidget: Icon(
+                                        Icons.person,
+                                        size: 30,
+                                        color: Colors.grey[600],
+                                      ),
                                     ),
                                   ),
-                                  child: Icon(
-                                    Icons.check,
-                                    size: 14,
-                          color: Colors.white,
-                        ),
-                      ),
-              ),
+                                ),
+                                if (isSelected)
+                                  Positioned(
+                                    bottom: 0,
+                                    right: 0,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.iconscolor,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        Icons.check,
+                                        size: 14,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            SizedBox(height: 4),
+                            SizedBox(
+                              width: 60,
+                              child: Text(
+                                userName,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey[700],
+                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1019,7 +1167,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                             (selectedUser!['profile_photo'] as String).startsWith('http://') || 
                             (selectedUser!['profile_photo'] as String).startsWith('https://')
                               ? selectedUser!['profile_photo'] as String
-                              : 'https://fruitofthespirit.templateforwebsites.com/${selectedUser!['profile_photo']}'
+                              : 'http://admin.fosmessenger.com/${selectedUser!['profile_photo']}'
                           )
                         : null,
                     child: selectedUser!['profile_photo'] == null
@@ -1088,7 +1236,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                               (user['profile_photo'] as String).startsWith('http://') || 
                               (user['profile_photo'] as String).startsWith('https://')
                                 ? user['profile_photo'] as String
-                                : 'https://fruitofthespirit.templateforwebsites.com/${user['profile_photo']}'
+                                : 'http://admin.fosmessenger.com/${user['profile_photo']}'
                             )
                           : null,
                       child: user['profile_photo'] == null
@@ -1199,7 +1347,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(8),
                               child: CachedImage(
-                                imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${selectedGroup!['image']}',
+                                imageUrl: 'http://admin.fosmessenger.com/${selectedGroup!['image']}',
                                 width: 40,
                                 height: 40,
                                 fit: BoxFit.cover,
@@ -1269,7 +1417,7 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
                                 child: CachedImage(
-                                  imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${group['image']}',
+                                  imageUrl: 'http://admin.fosmessenger.com/${group['image']}',
                                   width: 40,
                                   height: 40,
                                   fit: BoxFit.cover,

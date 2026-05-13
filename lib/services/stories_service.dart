@@ -117,5 +117,45 @@ class StoriesService {
       throw ApiException(response['message'] ?? 'Failed to create story');
     }
   }
+
+  // edit feature: Edit Story (15-minute window)
+  /// Edit Story (15-minute window)
+  ///
+  /// Parameters:
+  /// - userId: User ID (must be the story owner)
+  /// - storyId: Story ID to edit
+  /// - title: New title (optional)
+  /// - content: New content (optional)
+  /// - category: New category (optional)
+  ///
+  /// Returns: Success status
+  static Future<Map<String, dynamic>> editStory({ // edit feature
+    required int userId, // edit feature
+    required int storyId, // edit feature
+    String? title, // edit feature
+    String? content, // edit feature
+    String? category, // edit feature
+  }) async { // edit feature
+    final body = <String, String>{ // edit feature
+      'action': 'edit', // edit feature
+      'user_id': userId.toString(), // edit feature
+      'story_id': storyId.toString(), // edit feature
+    }; // edit feature
+
+    if (title != null) body['title'] = title; // edit feature
+    if (content != null) body['content'] = content; // edit feature
+    if (category != null) body['category'] = category; // edit feature
+
+    final response = await ApiService.post( // edit feature
+      ApiConfig.stories, // edit feature
+      body: body, // edit feature
+    ); // edit feature
+
+    if (response['success'] == true) { // edit feature
+      return response; // edit feature
+    } else { // edit feature
+      throw ApiException(response['message'] ?? 'Failed to edit story'); // edit feature
+    } // edit feature
+  } // edit feature
 }
 

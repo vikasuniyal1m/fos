@@ -257,7 +257,7 @@ class GroupsController extends GetxController {
   Future<bool> createGroup({
     required String name,
     String? description,
-    String category = 'Prayer',
+    String? category,
     File? groupImage,
   }) async {
     if (userId.value == 0) {

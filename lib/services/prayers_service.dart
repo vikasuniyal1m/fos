@@ -135,5 +135,42 @@ class PrayersService {
       throw ApiException(response['message'] ?? 'Failed to create prayer request');
     }
   }
+
+  // edit feature: Edit Prayer Request (15-minute window)
+  /// Edit Prayer Request (15-minute window)
+  ///
+  /// Parameters:
+  /// - userId: User ID (must be the prayer owner)
+  /// - prayerId: Prayer ID to edit
+  /// - content: New prayer content (optional)
+  /// - category: New category (optional)
+  ///
+  /// Returns: Success status
+  static Future<Map<String, dynamic>> editPrayer({ // edit feature
+    required int userId, // edit feature
+    required int prayerId, // edit feature
+    String? content, // edit feature
+    String? category, // edit feature
+  }) async { // edit feature
+    final body = <String, String>{ // edit feature
+      'action': 'edit', // edit feature
+      'user_id': userId.toString(), // edit feature
+      'prayer_id': prayerId.toString(), // edit feature
+    }; // edit feature
+
+    if (content != null) body['content'] = content; // edit feature
+    if (category != null) body['category'] = category; // edit feature
+
+    final response = await ApiService.post( // edit feature
+      ApiConfig.prayers, // edit feature
+      body: body, // edit feature
+    ); // edit feature
+
+    if (response['success'] == true) { // edit feature
+      return response; // edit feature
+    } else { // edit feature
+      throw ApiException(response['message'] ?? 'Failed to edit prayer'); // edit feature
+    } // edit feature
+  } // edit feature
 }
 

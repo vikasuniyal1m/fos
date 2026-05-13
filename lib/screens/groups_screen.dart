@@ -3,17 +3,33 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
 import '../utils/app_theme.dart';
-import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Groups Screen
 /// Displays list of groups
-class GroupsScreen extends GetView<GroupsController> {
+class GroupsScreen extends StatefulWidget {
   const GroupsScreen({Key? key}) : super(key: key);
+
+  @override
+  State<GroupsScreen> createState() => _GroupsScreenState();
+}
+
+class _GroupsScreenState extends State<GroupsScreen> {
+  // Track loading state for group buttons
+  final Map<int, bool> _loadingButtons = {};
+  late final GroupsController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = Get.find<GroupsController>();
+  }
   
   /// Show a simple snackbar using ScaffoldMessenger
   void _showCustomSnackbar(BuildContext context, String message, {bool isError = false}) {
@@ -273,7 +289,7 @@ class GroupsScreen extends GetView<GroupsController> {
   }
 
   Widget _buildGroupCard(BuildContext context, Map<String, dynamic> group, GroupsController controller) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     String? imageUrl;
     if (group['group_image'] != null && group['group_image'].toString().isNotEmpty) {
       final imagePath = group['group_image'].toString();
@@ -285,7 +301,7 @@ class GroupsScreen extends GetView<GroupsController> {
     }
     final isMember = controller.isMember(group['id'] as int);
     final memberCount = int.tryParse((group['member_count'] ?? 0).toString()) ?? 0;
-    final category = group['category'] as String? ?? 'General';
+    final category = group['category'] as String? ?? '';
     final description = group['description'] as String? ?? '';
     
     return Container(
@@ -369,58 +385,60 @@ class GroupsScreen extends GetView<GroupsController> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 5 : 6)),
-                          // Category Badge
-                          Container(
-                            padding: ResponsiveHelper.padding(
-                              context,
-                              horizontal: ResponsiveHelper.isMobile(context) ? 8 : 10,
-                              vertical: ResponsiveHelper.isMobile(context) ? 3 : 4,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  AppTheme.iconscolor,
-                                  AppTheme.iconscolor.withOpacity(0.8),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                            ),
-                            child: Text(
-                              category,
-                              style: ResponsiveHelper.textStyle(
+                          // Category Badge - only show if category exists
+                          if (category.isNotEmpty) ...[
+                            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 5 : 6)),
+                            Container(
+                              padding: ResponsiveHelper.padding(
                                 context,
-                                fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                horizontal: ResponsiveHelper.isMobile(context) ? 8 : 10,
+                                vertical: ResponsiveHelper.isMobile(context) ? 3 : 4,
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    AppTheme.iconscolor,
+                                    AppTheme.iconscolor.withOpacity(0.8),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                              ),
+                              child: Text(
+                                category,
+                                style: ResponsiveHelper.textStyle(
+                                  context,
+                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
-                    // Member Count
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.people_outline,
-                          size: ResponsiveHelper.iconSize(context, mobile: 14, tablet: 16, desktop: 18),
-                          color: Colors.grey[600],
-                        ),
-                        SizedBox(width: ResponsiveHelper.spacing(context, 4)),
-                        Text(
-                          '$memberCount',
-                          style: ResponsiveHelper.textStyle(
-                            context,
-                            fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+                  ],
+                ),
+                // Member Count
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.people_outline,
+                      size: ResponsiveHelper.iconSize(context, mobile: 14, tablet: 16, desktop: 18),
+                      color: Colors.grey[600],
+                    ),
+                    SizedBox(width: ResponsiveHelper.spacing(context, 4)),
+                    Text(
+                      '$memberCount',
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),
@@ -448,64 +466,83 @@ class GroupsScreen extends GetView<GroupsController> {
                     // Join/Chat Button
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () async {
+                        onPressed: _loadingButtons[group['id'] as int] == true ? null : () async {
+                          final groupId = group['id'] as int;
+                          
                           if (!isMember) {
-                            final success = await controller.joinGroup(group['id'] as int);
-                            if (success) {
-                              // Show success message
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                final messageText = controller.message.value.isNotEmpty 
-                                    ? controller.message.value 
-                                    : 'Joined group successfully';
-                                _showCustomSnackbar(context, messageText, isError: false);
+                            setState(() {
+                              _loadingButtons[groupId] = true;
+                            });
+
+                            try {
+                              // Payment gate before joining
+                              await PaymentGate.navigateToFeature(Routes.GROUP_CHAT, arguments: groupId);
+                              
+                              // If payment successful, join the group
+                              final success = await controller.joinGroup(groupId);
+                              
+                              if (success) {
+                                // Show success message
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  final messageText = controller.message.value.isNotEmpty 
+                                      ? controller.message.value 
+                                      : 'Joined group successfully';
+                                  _showCustomSnackbar(context, messageText, isError: false);
+                                });
+                                controller.refresh();
+                              }
+                            } catch (e) {
+                              print('Error in payment/join flow: $e');
+                            } finally {
+                              setState(() {
+                                _loadingButtons[groupId] = false;
                               });
-                              controller.refresh();
                             }
                           } else {
-                              // Show loading indicator
-                              Get.dialog(
-                                const Center(
-                                  child: CircularProgressIndicator(),
-                                ),
-                                barrierDismissible: false,
-                              );
+                            setState(() {
+                              _loadingButtons[groupId] = true;
+                            });
 
-                              try {
-                                // Load group details
-                                await controller.loadGroupDetails(group['id'] as int);
+                            try {
+                              // Load group details
+                              await controller.loadGroupDetails(groupId);
 
-                                // Dismiss loading indicator BEFORE navigating
-                                if (Get.isDialogOpen ?? false) {
-                                  Get.back();
-                                }
-
-                                if (controller.selectedGroup.value != null) {
-                                  // Get category and play jingle before navigation
-                                  final category = group['category'] as String? ?? '';
-                                  print('🔊 Group category: $category');
-                                  if (category.isNotEmpty) {
-                                  final jingleService = Get.find<JingleService>();
-                                    // Pre-load the jingle specifically for this category
-                                    jingleService.startJingle(category);
-                                  }
-                                  // Navigation to Group Chat (payment gate)
-                                  await PaymentGate.navigateToFeature(Routes.GROUP_CHAT, arguments: group['id']);
-                                }
-                              } catch (e) {
-                                // Dismiss loading indicator in case of error
-                                if (Get.isDialogOpen ?? false) {
-                                  Get.back();
-                                }
+                              if (controller.selectedGroup.value != null) {
+                                // Get category and play jingle before navigation
+                                final category = group['category'] as String? ?? '';
+                                final groupName = group['name'] as String? ?? '';
+                                print('🔊 Group category: $category, Group name: $groupName');
+                                // Play jingle for the group category
+                                final jingleService = Get.find<JingleService>();
+                                await jingleService.startJingle(category, groupName: groupName);
+                                // Direct navigation to Group Chat (no payment gate for members)
+                                await Get.toNamed(Routes.GROUP_CHAT, arguments: groupId);
                               }
+                            } catch (e) {
+                              print('Error loading group: $e');
+                            } finally {
+                              setState(() {
+                                _loadingButtons[groupId] = false;
+                              });
+                            }
                           }
                         },
-                        icon: Icon(
-                          isMember ? Icons.chat_bubble_outline : Icons.person_add,
-                          size: ResponsiveHelper.iconSize(context, mobile: 14, tablet: 16, desktop: 18),
-                          color: Colors.white,
-                        ),
+                        icon: _loadingButtons[group['id'] as int] == true
+                            ? SizedBox(
+                                width: ResponsiveHelper.iconSize(context, mobile: 14, tablet: 16, desktop: 18),
+                                height: ResponsiveHelper.iconSize(context, mobile: 14, tablet: 16, desktop: 18),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : Icon(
+                                isMember ? Icons.chat_bubble_outline : Icons.person_add,
+                                size: ResponsiveHelper.iconSize(context, mobile: 14, tablet: 16, desktop: 18),
+                                color: Colors.white,
+                              ),
                         label: Text(
-                          isMember ? 'Chat' : 'Join',
+                          _loadingButtons[group['id'] as int] == true ? 'Loading...' : (isMember ? 'Chat' : 'Join'),
                           style: ResponsiveHelper.textStyle(
                             context,
                             fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
@@ -547,7 +584,7 @@ class GroupsScreen extends GetView<GroupsController> {
                               Get.back();
                             }
                             // Navigate to details page (payment gate)
-                            await PaymentGate.navigateToFeature(Routes.GROUP_DETAILS, arguments: group['id']);
+                            await Get.toNamed(Routes.GROUP_DETAILS, arguments: group['id']);
                           } catch (e) {
                             // Dismiss loading indicator in case of error
                             if (Get.isDialogOpen ?? false) {
@@ -602,4 +639,3 @@ class GroupsScreen extends GetView<GroupsController> {
     );
   }
 }
-

@@ -15,8 +15,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "97C146ED1CF9000F007C117D"
-               BuildableName = "Runner.app"
-               BlueprintName = "Runner"
+               BuildableName = "FOS Messenger.app"
+               BlueprintName = "FOS Messenger"
                ReferencedContainer = "container:Runner.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -32,8 +32,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "97C146ED1CF9000F007C117D"
-            BuildableName = "Runner.app"
-            BlueprintName = "Runner"
+            BuildableName = "FOS Messenger.app"
+            BlueprintName = "FOS Messenger"
             ReferencedContainer = "container:Runner.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
@@ -69,14 +69,11 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "97C146ED1CF9000F007C117D"
-            BuildableName = "Runner.app"
-            BlueprintName = "Runner"
+            BuildableName = "FOS Messenger.app"
+            BlueprintName = "FOS Messenger"
             ReferencedContainer = "container:Runner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <StoreKitConfigurationFileReference
-         identifier = "../FruitsOfSpirit_Products.storekit">
-      </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Profile"
@@ -89,8 +86,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "97C146ED1CF9000F007C117D"
-            BuildableName = "Runner.app"
-            BlueprintName = "Runner"
+            BuildableName = "FOS Messenger.app"
+            BlueprintName = "FOS Messenger"
             ReferencedContainer = "container:Runner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -100,6 +97,7 @@
    </AnalyzeAction>
    <ArchiveAction
       buildConfiguration = "Release"
+      customArchiveName = "FOS Messenger"
       revealArchiveInOrganizer = "YES">
    </ArchiveAction>
 </Scheme>

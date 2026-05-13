@@ -156,5 +156,45 @@ class VideosService {
       throw ApiException(response['message'] ?? 'Failed to fetch live videos');
     }
   }
+
+  // edit feature: Edit Video (15-minute window)
+  /// Edit Video (15-minute window)
+  ///
+  /// Parameters:
+  /// - userId: User ID (must be the video owner)
+  /// - videoId: Video ID to edit
+  /// - title: New title (optional)
+  /// - description: New description (optional)
+  /// - category: New category (optional)
+  ///
+  /// Returns: Success status
+  static Future<Map<String, dynamic>> editVideo({ // edit feature
+    required int userId, // edit feature
+    required int videoId, // edit feature
+    String? title, // edit feature
+    String? description, // edit feature
+    String? category, // edit feature
+  }) async { // edit feature
+    final body = <String, String>{ // edit feature
+      'action': 'edit', // edit feature
+      'user_id': userId.toString(), // edit feature
+      'video_id': videoId.toString(), // edit feature
+    }; // edit feature
+
+    if (title != null) body['title'] = title; // edit feature
+    if (description != null) body['description'] = description; // edit feature
+    if (category != null) body['category'] = category; // edit feature
+
+    final response = await ApiService.post( // edit feature
+      ApiConfig.videos, // edit feature
+      body: body, // edit feature
+    ); // edit feature
+
+    if (response['success'] == true) { // edit feature
+      return response; // edit feature
+    } else { // edit feature
+      throw ApiException(response['message'] ?? 'Failed to edit video'); // edit feature
+    } // edit feature
+  } // edit feature
 }
 

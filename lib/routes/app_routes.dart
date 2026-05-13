@@ -19,7 +19,7 @@ abstract class Routes {
 
 
   // Feature Routes
-  static const FRUITS = _Paths.FRUITS;
+  static const FRUIT = _Paths.FRUIT;
   static const PRAYER_REQUESTS = _Paths.PRAYER_REQUESTS;
   static const CREATE_PRAYER = _Paths.CREATE_PRAYER;
   static const PRAYER_DETAILS = _Paths.PRAYER_DETAILS;
@@ -47,12 +47,14 @@ abstract class Routes {
   static const SAVED_CONTENT = _Paths.SAVED_CONTENT;
   static const TERMS = _Paths.TERMS;
   static const FRUIT_DETAILS = _Paths.FRUIT_DETAILS;
-  static const FRUITS_VARIANT_01 = _Paths.FRUITS_VARIANT_01;
+  static const FRUIT_VARIANT_01 = _Paths.FRUIT_VARIANT_01;
   static const PRAYER_REMINDERS = _Paths.PRAYER_REMINDERS;
   static const LIVE = _Paths.LIVE;
   static const LIVE_STREAM_VIEWER = _Paths.LIVE_STREAM_VIEWER;
   static const LIVE_AGORA = _Paths.LIVE_AGORA;
   static const PAYMENT = _Paths.PAYMENT;
+  static const DENOMINATIONS = _Paths.DENOMINATIONS;
+  static const CHURCH_LOCATOR = _Paths.CHURCH_LOCATOR;
 }
 
 abstract class _Paths {
@@ -70,7 +72,7 @@ abstract class _Paths {
 
 
   // Feature Paths
-  static const FRUITS = '/fruits';
+  static const FRUIT = '/fruit';
   static const PRAYER_REQUESTS = '/prayer-requests';
   static const CREATE_PRAYER = '/create-prayer';
   static const PRAYER_DETAILS = '/prayer-details';
@@ -98,10 +100,12 @@ abstract class _Paths {
   static const SAVED_CONTENT = '/saved-content';
   static const TERMS = '/terms';
   static const FRUIT_DETAILS = '/fruit-details';
-  static const FRUITS_VARIANT_01 = '/fruits-variant-01';
+  static const FRUIT_VARIANT_01 = '/fruit-variant-01';
   static const PRAYER_REMINDERS = '/prayer-reminders';
   static const LIVE = '/live';
   static const LIVE_STREAM_VIEWER = '/live-stream-viewer';
   static const LIVE_AGORA = '/live-agora';
   static const PAYMENT = '/payment';
+  static const DENOMINATIONS = '/denominations';
+  static const CHURCH_LOCATOR = '/church-locator';
 }

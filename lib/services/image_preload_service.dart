@@ -124,7 +124,7 @@ class ImagePreloadService {
             // Construct full URL if needed
             String fullUrl = url;
             if (!url.startsWith('http')) {
-              fullUrl = 'https://fruitofthespirit.templateforwebsites.com/$url';
+              fullUrl = 'http://admin.fosmessenger.com/$url';
             }
             urls.add(fullUrl);
             break; // Only add one image per item

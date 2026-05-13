@@ -11,7 +11,12 @@ class AgoraService {
 
   /// Initialize with appId from PHP token response (required for SDK).
   static Future<RtcEngine> initEngineWithAppId(String appId) async {
-    if (_engine != null) return _engine!;
+    // Always reinitialize to ensure clean state for rejoining
+    if (_engine != null) {
+      await _engine!.leaveChannel();
+      await _engine!.release();
+      _engine = null;
+    }
 
     await [Permission.microphone, Permission.camera].request();
 
@@ -20,6 +25,16 @@ class AgoraService {
       appId: appId,
       channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
     ));
+
+    // Set video parameters for smoother streaming
+    await _engine!.setVideoEncoderConfiguration(
+      const VideoEncoderConfiguration(
+        dimensions: VideoDimensions(width: 720, height: 1280),
+        frameRate: 30,
+        bitrate: 2000,
+        orientationMode: OrientationMode.orientationModeAdaptive,
+      ),
+    );
 
     return _engine!;
   }

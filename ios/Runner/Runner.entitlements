@@ -6,8 +6,9 @@
 	<array>
 		<string>Default</string>
 	</array>
-	<!-- Add this section for In-App Purchase -->
-    <key>com.apple.developer.in-app-payments</key>
-    <array/>
+	<key>com.apple.developer.in-app-payments</key>
+	<array>
+		<string>merchant.com.fruitsofspirit.ios</string>
+	</array>
 </dict>
 </plist>

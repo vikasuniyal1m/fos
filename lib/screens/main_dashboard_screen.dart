@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/main_dashboard_controller.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
-import 'package:fruitsofspirit/screens/fruits_screen.dart';
+import 'package:fruitsofspirit/screens/fruit_screen.dart';
 import 'package:fruitsofspirit/screens/prayer_requests_screen.dart';
 import 'package:fruitsofspirit/screens/videos_screen.dart';
 import 'package:fruitsofspirit/screens/gallery_screen.dart';
@@ -86,7 +86,7 @@ class MainDashboardScreen extends GetView<MainDashboardController> {
                       index: controller.currentIndex.value,
                       children: const [
                         HomeScreen(),
-                        FruitsScreen(isRootTab: true),
+                        FruitScreen(isRootTab: true),
                         PrayerRequestsScreen(),
                         VideosScreen(),
                         GalleryScreen(),
