@@ -31,8 +31,9 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
   final ImageCropper _cropper = ImageCropper();
   
   File? selectedImage;
-  String selectedCategory = 'Spiritual';
+  String selectedCategory = 'Others';  // Changed from 'Spiritual' to 'Others' as default
   String selectedLanguage = 'en';
+  final TextEditingController customCategoryController = TextEditingController();  // For custom 'Others' category
   
   @override
   void initState() {
@@ -47,6 +48,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
   void dispose() {
     titleController.dispose();
     bodyController.dispose();
+    customCategoryController.dispose();  // Dispose custom category controller
     super.dispose();
   }
 
@@ -174,10 +176,27 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
       return;
     }
 
+    // Validate custom category when 'Others' is selected
+    if (selectedCategory == 'Others' && customCategoryController.text.trim().isEmpty) {
+      _showCustomSnackbar(
+        context,
+        'Required',
+        'Please enter a custom category or select a different category.',
+        backgroundColor: Colors.orange.shade300,
+        textColor: Colors.black,
+      );
+      return;
+    }
+
+    // Use custom category if 'Others' is selected and custom text is entered
+    final String categoryToSubmit = (selectedCategory == 'Others' && customCategoryController.text.trim().isNotEmpty)
+        ? customCategoryController.text.trim()
+        : selectedCategory;
+    
     final success = await controller.createBlog(
       title: titleController.text.trim(),
       body: bodyController.text.trim(),
-      category: selectedCategory,
+      category: categoryToSubmit,
       language: selectedLanguage,
       image: selectedImage,
     );
@@ -534,7 +553,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                               fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 17, desktop: 18),
                               color: AppTheme.textPrimary,
                             ),
-                            items: ['Spiritual', 'Encouragement', 'Testimony', 'Teaching', 'Other']
+                            items: ['Spiritual', 'Encouragement', 'Testimony', 'Teaching', 'Others']
                                 .map((cat) => DropdownMenuItem(
                                       value: cat,
                                       child: Text(cat),
@@ -547,6 +566,38 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                             },
                           ),
                         ),
+                        // Show custom category text field when 'Others' is selected
+                        if (selectedCategory == 'Others') ...[
+                          SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                              border: Border.all(
+                                color: Colors.grey.withOpacity(0.3),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: TextField(
+                              controller: customCategoryController,
+                              decoration: InputDecoration(
+                                hintText: 'Enter custom category',
+                                hintStyle: ResponsiveHelper.textStyle(
+                                  context,
+                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 17, desktop: 18),
+                                  color: Colors.grey,
+                                ),
+                                border: InputBorder.none,
+                                contentPadding: ResponsiveHelper.padding(context, horizontal: 16, vertical: 12),
+                              ),
+                              style: ResponsiveHelper.textStyle(
+                                context,
+                                fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 17, desktop: 18),
+                                color: AppTheme.textPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

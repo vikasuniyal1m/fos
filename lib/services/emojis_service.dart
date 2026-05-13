@@ -12,7 +12,7 @@ class EmojisService {
   /// - limit: Limit number of results (optional)
   /// - sortBy: Sort by field (optional: 'usage_count', 'name')
   /// - order: Sort order (optional: 'DESC', 'ASC', default: 'DESC')
-  /// - mainFruitsOnly: If true, returns only main fruit emojis (8-9 main fruits, not subcategories)
+  /// - mainFruitOnly: If true, returns only main fruit emojis (8-9 main fruits, not subcategories)
   /// - fromFolder: If true, reads emojis directly from uploads/emojis folder instead of database
   /// 
   /// Returns: List of emojis
@@ -22,8 +22,9 @@ class EmojisService {
     int? limit,
     String? sortBy,
     String order = 'DESC',
-    bool mainFruitsOnly = false,
+    bool mainFruitOnly = false,
     bool fromFolder = false,
+    String? userEmail,
   }) async {
     final queryParams = <String, String>{
       'status': status,
@@ -38,8 +39,8 @@ class EmojisService {
       queryParams['category'] = category;
     }
     
-    if (mainFruitsOnly) {
-      queryParams['main_fruits_only'] = 'true';
+    if (mainFruitOnly) {
+      queryParams['main_fruit_only'] = 'true';
     }
     
     if (limit != null) {
@@ -49,6 +50,10 @@ class EmojisService {
     if (sortBy != null) {
       queryParams['sort_by'] = sortBy;
       queryParams['order'] = order;
+    }
+
+    if (userEmail != null && userEmail.isNotEmpty) {
+      queryParams['user_email'] = userEmail;
     }
 
     print('📡 ========== EMOJIS API CALL START ==========');
@@ -75,7 +80,7 @@ class EmojisService {
         print('⚠️ WARNING: API returned success but emojis list is empty!');
         print('⚠️ This might mean:');
         print('   1. Database is empty (run add-fruit-emojis.php script)');
-        print('   2. Filter is too restrictive (main_fruits_only might be filtering out all emojis)');
+        print('   2. Filter is too restrictive (main_fruit_only might be filtering out all emojis)');
         print('   3. Status filter is excluding all emojis');
       }
       if (emojisList.isNotEmpty) {

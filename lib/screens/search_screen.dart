@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/search_service.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
@@ -563,7 +564,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       context,
                       photo,
                       'Photo',
-                      () => PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']),
+                      () => Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']),
                     ),
                   );
                 },
@@ -595,7 +596,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildResultCard(BuildContext context, Map<String, dynamic> item, String type, VoidCallback onTap) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     String? imageUrl;
     
     if (type == 'Blog') {
@@ -709,7 +710,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (photoPath.startsWith('http://') || photoPath.startsWith('https://')) {
           profilePhotoUrl = photoPath;
         } else if (!photoPath.startsWith('assets/') && !photoPath.startsWith('file://') && !photoPath.startsWith('assets/images/')) {
-          profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+          profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
         }
       }
       final prayerContent = AutoTranslateHelper.getTranslatedTextSync(
@@ -1102,7 +1103,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Padding(
                       padding: ResponsiveHelper.padding(context, top: 4),
                       child: Text(
-                        _getTimeAgo(createdAt),
+                        TimeHelper.getTimeAgo(createdAt),
                         style: ResponsiveHelper.textStyle(context, fontSize: 12, color: Colors.grey[600]),
                       ),
                     ),
@@ -1366,7 +1367,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (video['thumbnail_path'] != null && (video['thumbnail_path'] as String).isNotEmpty) {
       final thumbnailPath = video['thumbnail_path'] as String;
       if (!thumbnailPath.startsWith('http')) {
-        return 'https://fruitofthespirit.templateforwebsites.com/$thumbnailPath';
+        return 'http://admin.fosmessenger.com/$thumbnailPath';
       }
       return thumbnailPath;
     }
@@ -1375,7 +1376,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (video['thumbnail'] != null && (video['thumbnail'] as String).isNotEmpty) {
       final thumbnail = video['thumbnail'] as String;
       if (!thumbnail.startsWith('http')) {
-        return 'https://fruitofthespirit.templateforwebsites.com/$thumbnail';
+        return 'http://admin.fosmessenger.com/$thumbnail';
       }
       return thumbnail;
     }
@@ -1390,7 +1391,7 @@ class _SearchScreenState extends State<SearchScreen> {
           !lowerPath.endsWith('.webm') &&
           !lowerPath.endsWith('.mkv')) {
         if (!filePath.startsWith('http')) {
-          return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
+          return 'http://admin.fosmessenger.com/$filePath';
         }
         return filePath;
       }
@@ -1415,48 +1416,12 @@ class _SearchScreenState extends State<SearchScreen> {
           if (filePath.startsWith('http')) {
             return filePath;
           }
-          return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
+          return 'http://admin.fosmessenger.com/$filePath';
         }
       }
     }
     return null;
   }
 
-  String _getTimeAgo(String? dateTimeString) {
-    if (dateTimeString == null || dateTimeString.isEmpty) return 'Just now';
-    try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      DateTime date;
-      if (!dateTimeString.endsWith('Z')) {
-        date = DateTime.parse('${dateTimeString}Z').toLocal();
-      } else {
-        date = DateTime.parse(dateTimeString).toLocal();
-      }
-      
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
-
-      final difference = now.difference(date);
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
-    } catch (e) {
-      return 'Just now';
-    }
-  }
 }
 

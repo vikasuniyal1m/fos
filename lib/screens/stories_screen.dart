@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/stories_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/gallery_service.dart';
@@ -25,19 +26,21 @@ class _StoriesScreenState extends State<StoriesScreen> {
   var isLoading = false;
   var stories = <Map<String, dynamic>>[];
   var userId = 0;
+  String? userEmail;
   String? selectedFruitTag;
   int currentPage = 0;
   final int itemsPerPage = 20;
   
   // Fruit emojis for filtering
   var fruitEmojis = <Map<String, dynamic>>[];
-  var isLoadingFruits = true;
+  var isLoadingFruit = true;
   int? selectedFruitId; // Track selected fruit by ID
 
   @override
   void initState() {
     super.initState();
     _loadUserId();
+    _loadUserEmail();
     _loadFruitEmojis();
     _loadStories();
   }
@@ -51,11 +54,15 @@ class _StoriesScreenState extends State<StoriesScreen> {
     }
   }
 
+  Future<void> _loadUserEmail() async {
+    userEmail = await UserStorage.getUserEmail();
+  }
+
   /// Load fruit emojis for filtering (same as fruits_screen)
   Future<void> _loadFruitEmojis() async {
     try {
       setState(() {
-        isLoadingFruits = true;
+        isLoadingFruit = true;
       });
 
       // Load all emojis from database
@@ -93,8 +100,8 @@ class _StoriesScreenState extends State<StoriesScreen> {
         return parts.isNotEmpty ? parts[0].trim() : name;
       }
       
-      // Get unique fruits (one per base fruit name) - prefer variant 1
-      final uniqueFruits = <String, Map<String, dynamic>>{};
+      // Get unique fruit (one per base fruit name) - prefer variant 1
+      final uniqueFruit = <String, Map<String, dynamic>>{};
       for (var emoji in emojis) {
         final name = (emoji['name'] as String? ?? '').trim();
         final code = (emoji['code'] as String? ?? '').toLowerCase();
@@ -102,11 +109,11 @@ class _StoriesScreenState extends State<StoriesScreen> {
         
         if (baseName.isEmpty) continue;
         
-        if (!uniqueFruits.containsKey(baseName)) {
-          uniqueFruits[baseName] = emoji;
+        if (!uniqueFruit.containsKey(baseName)) {
+          uniqueFruit[baseName] = emoji;
         } else {
-          final currentName = (uniqueFruits[baseName]!['name'] as String? ?? '').toLowerCase();
-          final currentCode = (uniqueFruits[baseName]!['code'] as String? ?? '').toLowerCase();
+          final currentName = (uniqueFruit[baseName]!['name'] as String? ?? '').toLowerCase();
+          final currentCode = (uniqueFruit[baseName]!['code'] as String? ?? '').toLowerCase();
           
           final isNewVariant1 = name.toLowerCase().contains(' 1') || 
                                name.toLowerCase().endsWith(' 1') ||
@@ -119,41 +126,41 @@ class _StoriesScreenState extends State<StoriesScreen> {
                                     currentCode.contains('_1');
           
           if (isNewVariant1 && !isCurrentVariant1) {
-            uniqueFruits[baseName] = emoji;
+            uniqueFruit[baseName] = emoji;
           }
         }
       }
       
       // Update display names
-      for (var key in uniqueFruits.keys) {
-        final emoji = uniqueFruits[key]!;
+      for (var key in uniqueFruit.keys) {
+        final emoji = uniqueFruit[key]!;
         final baseName = extractBaseFruitName(emoji['name'] as String? ?? '');
         emoji['display_name'] = baseName;
       }
       
       // Convert to list and deduplicate by ID
-      final fruitEmojisList = uniqueFruits.values.toList();
+      final fruitEmojisList = uniqueFruit.values.toList();
       final seenIds = <int>{};
-      final deduplicatedFruits = <Map<String, dynamic>>[];
+      final deduplicatedFruit = <Map<String, dynamic>>[];
       
       for (var fruit in fruitEmojisList) {
         final id = fruit['id'] as int?;
         if (id != null && !seenIds.contains(id)) {
           seenIds.add(id);
-          deduplicatedFruits.add(fruit);
+          deduplicatedFruit.add(fruit);
         }
       }
       
       setState(() {
-        fruitEmojis = deduplicatedFruits;
-        isLoadingFruits = false;
+        fruitEmojis = deduplicatedFruit;
+        isLoadingFruit = false;
       });
       
-      print('✅ Loaded ${fruitEmojis.length} unique fruits for Stories screen');
+      print('✅ Loaded ${fruitEmojis.length} unique fruit for Stories screen');
     } catch (e) {
       print('❌ Error loading fruit emojis: $e');
       setState(() {
-        isLoadingFruits = false;
+        isLoadingFruit = false;
         fruitEmojis = [];
       });
     }
@@ -353,7 +360,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () async => await PaymentGate.navigateToFeature(Routes.CREATE_STORY),
+                          onTap: () async => await Get.toNamed(Routes.CREATE_STORY),
                           borderRadius: BorderRadius.circular(30),
                           child: Container(
                             width: ResponsiveHelper.isMobile(context) ? 40.0 : ResponsiveHelper.isTablet(context) ? 44.0 : 48.0,
@@ -440,7 +447,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
           Container(
             height: ResponsiveHelper.isMobile(context) ? 100 : ResponsiveHelper.isTablet(context) ? 110 : 120,
             color: Colors.white,
-            child: isLoadingFruits
+            child: isLoadingFruit
                 ? Center(
                     child: Padding(
                       padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 20)),
@@ -612,6 +619,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
                       context,
                       fruit, // Pass the actual fruit emoji data from fruitEmojis list
                       size: ResponsiveHelper.isMobile(context) ? 45 : ResponsiveHelper.isTablet(context) ? 50 : 55,
+                      userEmail: userEmail,
                     )
                   : Icon(
                       Icons.apps_rounded,
@@ -625,47 +633,9 @@ class _StoriesScreenState extends State<StoriesScreen> {
     );
   }
 
-  String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return 'Just now';
-    
-    try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      DateTime date;
-      if (!dateString.endsWith('Z')) {
-        date = DateTime.parse('${dateString}Z').toLocal();
-      } else {
-        date = DateTime.parse(dateString).toLocal();
-      }
-      
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
-
-      final difference = now.difference(date);
-      
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
-    } catch (e) {
-      return 'Just now';
-    }
-  }
 
   Widget _buildStoryCard(BuildContext context, Map<String, dynamic> story) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     // Handle both stories table (image_url) and gallery photos (file_path/thumbnail_path)
     String? imageUrl;
     if (story['image_url'] != null) {
@@ -789,7 +759,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
                       children: [
                         // Time
                         Text(
-                          _getTimeAgo(story['created_at'] as String?),
+                          TimeHelper.getTimeAgo(story['created_at'] as String?),
                           style: ResponsiveHelper.textStyle(
                             context,
                             fontSize: ResponsiveHelper.fontSize(context, mobile: 12),

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:get/get.dart';
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/blogs_service.dart';
@@ -8,6 +9,8 @@ import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/content_moderation_service.dart';
 import 'package:fruitsofspirit/services/profile_service.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
+
+import '../services/emojis_service.dart';
 
 /// Blogs Controller
 /// Manages blogs data and operations
@@ -33,7 +36,7 @@ class BlogsController extends GetxController {
   var selectedLanguage = ''.obs;
   var filterUserId = 0.obs; // Filter by specific user ID (0 = all users)
   var currentPage = 0.obs;
-  final int itemsPerPage = 20;
+  int get itemsPerPage => 100; // Load 100 blogs at a time to see all
   
   // Performance: Store all blogs for instant client-side filtering
   var _allBlogs = <Map<String, dynamic>>[];
@@ -53,14 +56,15 @@ class BlogsController extends GetxController {
   @override
   void onReady() {
     super.onReady();
-    // Performance: Only load if data is not already loaded and filter is not set
-    // If filter is set, it means we're coming from profile, so loadBlogs will be called after navigation
-    // Don't reload if data already exists
-    if (!_isDataLoaded && filterUserId.value == 0 && !_isLoading && blogs.isEmpty && _allBlogs.isEmpty) {
-      loadBlogs();
-    } else if (_allBlogs.isNotEmpty) {
-      // Apply filter from cached data if available
+    // Performance: Show cached data instantly, then load fresh data from API
+    if (_allBlogs.isNotEmpty) {
+      // Apply filter from cached data for instant display
       _applyClientSideFilter();
+    }
+    
+    // Always load fresh data from API to get latest blogs and roles
+    if (filterUserId.value == 0 && !_isLoading) {
+      loadBlogs(refresh: true);
     }
   }
 
@@ -68,7 +72,10 @@ class BlogsController extends GetxController {
   Future<void> _loadUserData() async {
     final user = await UserStorage.getUser();
     if (user != null) {
-      userId.value = user['id'] as int;
+      final id = user['id'];
+      if (id is int) {
+        userId.value = id;
+      }
       userRole.value = user['role'] as String? ?? 'User';
       userStatus.value = user['status'] as String? ?? 'Active';
       // Also update isBloggerRequestPending from local storage data
@@ -162,8 +169,31 @@ class BlogsController extends GetxController {
     try {
       // Performance: Always load ALL blogs (no filters) to populate cache
       // Then apply client-side filtering for instant updates
+      // Show current user's pending posts until they become blogger
+      String statusFilter;
+      if (filterUserId.value > 0) {
+        // Viewing specific user's profile - show both pending and approved
+        statusFilter = 'Pending,Approved';
+      } else if (userId.value > 0 && (userRole.value == 'Admin' || userRole.value == 'admin')) {
+        // Admin user - show ALL posts (pending, approved, rejected, etc.)
+        statusFilter = 'Pending,Approved,Rejected,Inactive';
+      } else if (userId.value > 0 && (userRole.value == 'PendingBlogger' || isBloggerRequestPending.value)) {
+        // Current user is pending blogger - show their pending posts plus all approved posts
+        statusFilter = 'Pending,Approved';
+      } else {
+        // Regular view - only show approved posts
+        statusFilter = 'Approved';
+      }
+      
+      print('🔍 [BlogsController] Loading blogs with:');
+      print('  - statusFilter: $statusFilter');
+      print('  - filterUserId: ${filterUserId.value}');
+      print('  - userId: ${userId.value}');
+      print('  - userRole: ${userRole.value}');
+      print('  - isBloggerRequestPending: ${isBloggerRequestPending.value}');
+      
       final blogsList = await BlogsService.getBlogs(
-        status: filterUserId.value > 0 ? 'Pending,Approved' : 'Approved',        category: null, // Always load all blogs for cache
+        status: statusFilter,
         language: null, // Always load all blogs for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
         currentUserId: userId.value > 0 ? userId.value : null,
@@ -171,23 +201,68 @@ class BlogsController extends GetxController {
         offset: currentPage.value * itemsPerPage,
       );
 
+      print('🔍 [BlogsController] API returned ${blogsList.length} blogs');
+      print('📊 [BlogsController] === BLOGS DETAILS ===');
+      print('📊 Total blogs fetched: ${blogsList.length}');
+      
+      // Count blogs by role
+      int adminCount = 0;
+      int bloggerCount = 0;
+      int userCount = 0;
+      int otherCount = 0;
+      
+      for (int i = 0; i < blogsList.length; i++) {
+        final blog = blogsList[i];
+        final role = blog['user_role'] ?? 'Unknown';
+        final name = blog['user_name'] ?? 'Anonymous';
+        final title = blog['title'] ?? 'No Title';
+        final status = blog['status'] ?? 'Unknown';
+        
+        print('📝 Blog #${i+1}:');
+        print('   - Title: $title');
+        print('   - Author: $name');
+        print('   - Role: $role');
+        print('   - Status: $status');
+        
+        // Count by role
+        if (role == 'Admin' || role == 'admin') {
+          adminCount++;
+        } else if (role == 'Blogger') {
+          bloggerCount++;
+        } else if (role == 'User') {
+          userCount++;
+        } else {
+          otherCount++;
+        }
+      }
+      
+      print('📊 [BlogsController] === ROLE WISE COUNT ===');
+      print('📊 Admin Blogs: $adminCount');
+      print('📊 Blogger Blogs: $bloggerCount');
+      print('📊 User Blogs: $userCount');
+      print('📊 Other/Unknown: $otherCount');
+      print('📊 [BlogsController] =========================');
+      
       if (refresh || currentPage.value == 0) {
         // Performance: Store ALL blogs in cache (no filters)
         _allBlogs = List<Map<String, dynamic>>.from(blogsList);
         // Apply current filter to display
         _applyClientSideFilter();
+        print('🔍 [BlogsController] Stored ${_allBlogs.length} blogs in cache');
+        print('🔍 [BlogsController] Displayed ${blogs.length} blogs after filtering');
       } else {
         // Performance: Add to all blogs cache
         _allBlogs.addAll(blogsList);
         // Apply current filter to display
         _applyClientSideFilter();
+        print('🔍 [BlogsController] Added ${blogsList.length} blogs to cache, total: ${_allBlogs.length}');
       }
       
       // Performance: Mark as loaded
       _isDataLoaded = true;
     } catch (e) {
       message.value = 'Error loading blogs: ${e.toString().replaceAll('Exception: ', '')}';
-      print('Error loading blogs: $e');
+      print('❌ [BlogsController] Error loading blogs: $e');
       if (refresh || currentPage.value == 0) {
         blogs.value = [];
         _isDataLoaded = false;
@@ -295,30 +370,36 @@ class BlogsController extends GetxController {
           emojiKey = trimmed;
           print('✅ Found emoji reaction (code): $emojiKey');
         }
-        // Strategy 4: Check if it's an image URL
-        else if (trimmed.contains('uploads/emojis/') || trimmed.contains('emojis/') || 
-                 trimmed.contains('.png') || trimmed.contains('.jpg')) {
+        // Strategy 4: Check if it's an image URL - BUT only if it's NOT a full HTTP URL
+        // Full HTTP URLs should be treated as text comments (will be rendered as images by buildCommentText)
+        else if ((trimmed.contains('uploads/emojis/') || trimmed.contains('emojis/')) &&
+                 !trimmed.startsWith('http')) {
           isEmojiReaction = true;
           emojiKey = trimmed;
-          print('✅ Found emoji reaction (image URL): $emojiKey');
+          print('✅ Found emoji reaction (relative image path): $emojiKey');
         }
         
-        if (isEmojiReaction && emojiKey != null) {
-          // It's an emoji reaction
-          if (!emojiReactions.containsKey(emojiKey)) {
-            emojiReactions[emojiKey] = [];
-          }
-          emojiReactions[emojiKey]!.add({
-            'user_id': comment['user_id'],
-            'user_name': comment['user_name'] ?? 'Anonymous',
-            'profile_photo': comment['profile_photo'],
-            'created_at': comment['created_at'],
-          });
-        } else {
-          // It's a text comment
-          final parentId = comment['parent_comment_id'];
-          if (parentId == null || parentId == 0) {
-            textComments.add(comment);
+        // FIX: Add ALL top-level comments to textComments (including emoji comments)
+        // Emoji reactions and emoji comments are both stored in comments table
+        // The UI (FruitEmojiHelper.buildCommentText) will render emoji URLs as images
+        final parentId = comment['parent_comment_id'];
+        if (parentId == null || parentId == 0) {
+          // ✅ ADD TO COMMENTS LIST (including emoji comments)
+          textComments.add(comment);
+          print('✅ Added to blogComments: id=${comment['id']}, isEmoji=$isEmojiReaction, content="${trimmed.substring(0, trimmed.length > 30 ? 30 : trimmed.length)}..."');
+          
+          // Also track emoji reactions separately for the reactions bar (if it's an emoji)
+          if (isEmojiReaction && emojiKey != null) {
+            if (!emojiReactions.containsKey(emojiKey)) {
+              emojiReactions[emojiKey] = [];
+            }
+            emojiReactions[emojiKey]!.add({
+              'user_id': comment['user_id'],
+              'user_name': comment['user_name'] ?? 'Anonymous',
+              'profile_photo': comment['profile_photo'],
+              'created_at': comment['created_at'],
+            });
+            print('✅ Also added to emojiReactions: $emojiKey by ${comment['user_name']}');
           }
         }
       }
@@ -326,7 +407,7 @@ class BlogsController extends GetxController {
       print('⏱️ [BlogsController] Emoji parsing took: ${emojiParsingEndTime.difference(emojiParsingStartTime).inMilliseconds}ms');
       blogComments.value = textComments;
       blogEmojiReactions.value = emojiReactions;
-      print('✅ Loaded ${textComments.length} text comments and ${emojiReactions.length} emoji reaction types');
+      print('✅ Loaded ${textComments.length} total comments (including ${emojiReactions.length} emoji types)');
     } catch (e) {
       print('❌ Error loading blog comments: $e');
       blogComments.value = [];
@@ -506,6 +587,9 @@ class BlogsController extends GetxController {
       // Reload comments
       await loadBlogComments(blogId);
       
+      // Force immediate UI update
+      update();
+      
       return true;
     } catch (e) {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
@@ -588,6 +672,51 @@ class BlogsController extends GetxController {
   /// Set initial data from cache
   void setInitialData(List<Map<String, dynamic>> data) {
     if (data.isNotEmpty) {
+      print('📦 [BlogsController] Loading from CACHED blogs:');
+      print('📦 Total cached blogs: ${data.length}');
+      
+      // Count blogs by role
+      int adminCount = 0;
+      int bloggerCount = 0;
+      int userCount = 0;
+      int otherCount = 0;
+      int noRoleCount = 0;
+      
+      for (int i = 0; i < data.length; i++) {
+        final blog = data[i];
+        final role = blog['user_role'] ?? 'NO ROLE FIELD';
+        final name = blog['user_name'] ?? 'Anonymous';
+        final title = blog['title'] ?? 'No Title';
+        final status = blog['status'] ?? 'Unknown';
+        
+        print('📦 Cached Blog #${i+1}:');
+        print('   - Title: $title');
+        print('   - Author: $name');
+        print('   - Role: $role');
+        print('   - Status: $status');
+        
+        // Count by role
+        if (role == 'Admin' || role == 'admin') {
+          adminCount++;
+        } else if (role == 'Blogger') {
+          bloggerCount++;
+        } else if (role == 'User') {
+          userCount++;
+        } else if (role == 'NO ROLE FIELD') {
+          noRoleCount++;
+        } else {
+          otherCount++;
+        }
+      }
+      
+      print('📦 [BlogsController] === CACHED ROLE WISE COUNT ===');
+      print('📦 Admin Blogs: $adminCount');
+      print('📦 Blogger Blogs: $bloggerCount');
+      print('📦 User Blogs: $userCount');
+      print('📦 No Role Field (old cache): $noRoleCount');
+      print('📦 Other/Unknown: $otherCount');
+      print('📦 [BlogsController] ==============================');
+      
       _allBlogs = List<Map<String, dynamic>>.from(data);
       _isDataLoaded = true;
       _applyClientSideFilter();
@@ -735,5 +864,15 @@ class BlogsController extends GetxController {
         ),
       );
     }
+  }
+
+  @override
+  void onClose() {
+    blogs.clear();
+    _allBlogs.clear();
+    blogComments.clear();
+    blogEmojiReactions.clear();
+    _isDataLoaded = false;
+    super.onClose();
   }
 }

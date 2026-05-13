@@ -5,6 +5,7 @@ import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/analytics_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
+import 'package:fruitsofspirit/routes/app_pages.dart';
 
 /// Deep Link Service
 /// Handles app deep linking
@@ -180,21 +181,21 @@ class DeepLinkService {
 
     switch (type) {
       case 'prayer':
-        Get.toNamed(Routes.PRAYER_DETAILS, arguments: id);
+        PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: id);
         break;
       case 'blog':
-        Get.toNamed(Routes.BLOG_DETAILS, arguments: id);
+        PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: id);
         break;
       case 'video':
-        Get.toNamed(Routes.VIDEO_DETAILS, arguments: id);
+        PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: id);
         break;
       case 'story':
       case 'testimony':
-        Get.toNamed(Routes.STORY_DETAILS, arguments: id);
+        PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: id);
         break;
       case 'photo':
         // Check if photo details route exists, if not redirect to gallery
-        Get.toNamed(Routes.PHOTO_DETAILS, arguments: id);
+        PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: id);
         break;
       case 'group':
         PaymentGate.navigateToFeature(Routes.GROUP_DETAILS, arguments: id);
@@ -204,7 +205,7 @@ class DeepLinkService {
 
   /// Generate deep link URL
   static String generateLink(String type, {int? id}) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com';
+    final baseUrl = 'http://admin.fosmessenger.com';
     if (id != null) {
       // Using a direct file in api folder as requested
       return '$baseUrl/api/share_redirect.php?type=${type.toLowerCase()}&id=$id';

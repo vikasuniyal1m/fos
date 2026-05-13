@@ -11,14 +11,16 @@ import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 import 'package:fruitsofspirit/controllers/home_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
-import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/fruit_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
+import 'package:fruitsofspirit/controllers/banners_controller.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/cache_service.dart';
+import 'package:fruitsofspirit/services/translate_service.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/permission_manager.dart';
@@ -52,7 +54,7 @@ class ProfileScreen extends GetView<ProfileController> {
     }
     
     // If it's a relative path, construct full URL
-    return NetworkImage('https://fruitofthespirit.templateforwebsites.com/$photoUrl');
+    return NetworkImage('http://admin.fosmessenger.com/$photoUrl');
   }
 
   @override
@@ -112,8 +114,8 @@ class ProfileScreen extends GetView<ProfileController> {
 
         final profile = controller.profile;
         final stats = profile['stats'] as Map<String, dynamic>? ?? {};
-        final fruits = profile['fruits'] as List<dynamic>? ?? [];
-        final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+        final fruitList = profile['fruit'] as List<dynamic>? ?? [];
+        final baseUrl = 'http://admin.fosmessenger.com/';
         final profilePhoto = profile['profile_photo'] != null
             ? ((profile['profile_photo'] as String).startsWith('http://') || (profile['profile_photo'] as String).startsWith('https://'))
                 ? (profile['profile_photo'] as String)
@@ -347,7 +349,7 @@ class ProfileScreen extends GetView<ProfileController> {
                             if (profile['fruit_category'] != null)
                               _buildInfoRow(
                                 context,
-                                Icons.apple,
+                                Icons.favorite,
                                 'Primary Fruit',
                                 profile['fruit_category'] as String,
                               ),
@@ -355,9 +357,9 @@ class ProfileScreen extends GetView<ProfileController> {
                         ),
                         SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                         
-                        // Selected Fruits Card
-                        if (fruits.isNotEmpty)
-                          _buildFruitsCard(context, fruits),
+                        // Selected Fruit Card
+                        if (fruitList.isNotEmpty)
+                          _buildFruitCard(context, fruitList),
                         
                         SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                         
@@ -528,7 +530,7 @@ class ProfileScreen extends GetView<ProfileController> {
     );
   }
 
-  Widget _buildFruitsCard(BuildContext context, List<dynamic> fruits) {
+  Widget _buildFruitCard(BuildContext context, List<dynamic> fruitList) {
     return Container(
       width: double.infinity,
       padding: ResponsiveHelper.padding(
@@ -550,7 +552,7 @@ class ProfileScreen extends GetView<ProfileController> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Selected Fruits',
+            'Selected Fruit',
             style: ResponsiveHelper.textStyle(
               context,
               fontSize: ResponsiveHelper.fontSize(context, mobile: 17, tablet: 18, desktop: 20),
@@ -562,7 +564,7 @@ class ProfileScreen extends GetView<ProfileController> {
           Wrap(
             spacing: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
             runSpacing: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
-            children: fruits.map((fruit) {
+            children: fruitList.map((fruit) {
               final fruitName = fruit['name'] as String? ?? 'Unknown';
               return Container(
                 padding: ResponsiveHelper.padding(
@@ -588,10 +590,11 @@ class ProfileScreen extends GetView<ProfileController> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.apple,
-                      size: ResponsiveHelper.iconSize(context, mobile: 15, tablet: 16, desktop: 17),
-                      color: AppTheme.iconscolor,
+                    Image.asset(
+                      'assets/orange.png',
+                      width: ResponsiveHelper.iconSize(context, mobile: 15, tablet: 16, desktop: 17),
+                      height: ResponsiveHelper.iconSize(context, mobile: 15, tablet: 16, desktop: 17),
+                      fit: BoxFit.contain,
                     ),
                     SizedBox(width: ResponsiveHelper.spacing(context, 6)),
                     Flexible(
@@ -859,25 +862,98 @@ class ProfileScreen extends GetView<ProfileController> {
         barrierDismissible: false,
       );
 
-      // Clear user data
+      // Clear user data from storage
       await UserStorage.clearUser();
 
-      // Clear cache
+      // Clear all cache
       await CacheService.clearAllCache();
 
-      // Delete permanent controllers to prevent data leak between users
+      // Clear profile controller data before deleting
+      if (Get.isRegistered<ProfileController>()) {
+        final profileController = Get.find<ProfileController>();
+        profileController.profile.clear();
+        profileController.userId.value = 0;
+      }
+
+      // Clear ALL controller data and reset to initial state
       try {
-        Get.delete<HomeController>(force: true);
-        Get.delete<PrayersController>(force: true);
-        Get.delete<GroupsController>(force: true);
-        Get.delete<NotificationsController>(force: true);
-        Get.delete<ProfileController>(force: true);
-        Get.delete<FruitsController>(force: true);
-        Get.delete<BlogsController>(force: true);
-        Get.delete<VideosController>(force: true);
-        Get.delete<GalleryController>(force: true);
+        // Clear HomeController data
+        if (Get.isRegistered<HomeController>()) {
+          final homeController = Get.find<HomeController>();
+          homeController.fruit.clear();
+          homeController.prayers.clear();
+          homeController.blogs.clear();
+          homeController.videos.clear();
+          homeController.liveVideos.clear();
+          homeController.galleryPhotos.clear();
+          homeController.stories.clear();
+          homeController.groups.clear();
+          homeController.emojis.clear();
+          homeController.allEmojis.clear();
+          homeController.oppositeEmojis.clear();
+          homeController.emotionEmojis.clear();
+          homeController.userId.value = 0;
+          homeController.userFeeling.value = null;
+          homeController.userName.value = '';
+          homeController.isInitialLoading.value = true;
+          homeController.isLoading.value = false;
+          homeController.message.value = '';
+        }
+
+        // Clear BannersController data
+        if (Get.isRegistered<BannersController>()) {
+          final bannersController = Get.find<BannersController>();
+          bannersController.activeBanners.clear();
+          bannersController.upcomingBanners.clear();
+          bannersController.countdownData.clear();
+          bannersController.isLoading.value = false;
+        }
+
+        // Clear other controllers
+        if (Get.isRegistered<PrayersController>()) {
+          final prayersController = Get.find<PrayersController>();
+          prayersController.prayers.clear();
+        }
+        if (Get.isRegistered<GroupsController>()) {
+          final groupsController = Get.find<GroupsController>();
+          groupsController.groups.clear();
+        }
+        if (Get.isRegistered<NotificationsController>()) {
+          final notificationsController = Get.find<NotificationsController>();
+          notificationsController.notifications.clear();
+        }
+        if (Get.isRegistered<ProfileController>()) {
+          final profileController = Get.find<ProfileController>();
+          profileController.profile.clear();
+          profileController.userId.value = 0;
+        }
+        if (Get.isRegistered<FruitController>()) {
+          final fruitController = Get.find<FruitController>();
+          fruitController.allFruit.clear();
+        }
+        if (Get.isRegistered<BlogsController>()) {
+          final blogsController = Get.find<BlogsController>();
+          blogsController.blogs.clear();
+        }
+        if (Get.isRegistered<VideosController>()) {
+          final videosController = Get.find<VideosController>();
+          videosController.videos.clear();
+        }
+        if (Get.isRegistered<GalleryController>()) {
+          final galleryController = Get.find<GalleryController>();
+          galleryController.photos.clear();
+        }
+
+        // Clear translation cache
+        TranslateService.clearTranslationCache();
+
+        // Reset any GetX dialog/snackbar state
+        if (Get.isDialogOpen ?? false) {
+          Get.back();
+        }
+
       } catch (e) {
-        print('Error deleting controllers: $e');
+        print('Error clearing controller data: $e');
       }
 
       // Close dialog

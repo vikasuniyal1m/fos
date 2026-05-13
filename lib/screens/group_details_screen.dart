@@ -119,7 +119,7 @@ class GroupDetailsScreen extends GetView<GroupsController> {
 
         final group = controller.selectedGroup;
         final isMember = controller.isMember(effectiveGroupId);
-        final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+        final baseUrl = 'http://admin.fosmessenger.com/';
         String? imageUrl;
         if (group['group_image'] != null && group['group_image'].toString().isNotEmpty) {
           final imgPath = group['group_image'].toString();
@@ -363,13 +363,11 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                       // Get category and play jingle before navigation
                       final group = controller.selectedGroup;
                       final category = group['category'] as String? ?? '';
-                      
-                      if (category.isNotEmpty) {
-                        final jingleService = Get.find<JingleService>();
-                        // Start jingle first (non-blocking)
-                        jingleService.startJingle(category);
-                      }
-                      
+                      final groupName = group['name'] as String? ?? '';
+                      print('🔊 Group category: $category, Group name: $groupName');
+                      // Play jingle for the group category
+                      final jingleService = Get.find<JingleService>();
+                      await jingleService.startJingle(category, groupName: groupName);
                       // Navigate to chat (payment gate)
                       await PaymentGate.navigateToFeature(Routes.GROUP_CHAT, arguments: effectiveGroupId);
                     },
@@ -447,7 +445,7 @@ class GroupDetailsScreen extends GetView<GroupsController> {
 }
 
   Widget _buildMemberCard(BuildContext context, Map<String, dynamic> member) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     String? profilePhoto;
     if (member['profile_photo'] != null && member['profile_photo'].toString().isNotEmpty) {
       final photoPath = member['profile_photo'].toString();

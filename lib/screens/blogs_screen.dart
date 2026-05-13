@@ -58,7 +58,7 @@ class BlogsScreen extends GetView<BlogsController> {
         ),
         child: Obx(() => StandardAppBar(
           showBackButton: true,
-          rightActions: controller.userRole.value == 'Blogger'
+          rightActions: (controller.userRole.value == 'Blogger' || controller.userRole.value == 'Admin' || controller.userRole.value == 'admin')
               ? [
                   StandardAppBar.buildActionIcon(
                     context,
@@ -129,13 +129,36 @@ class BlogsScreen extends GetView<BlogsController> {
             child: ResponsiveHelper.constrainedContent(
               context: context,
               maxWidth: maxContentWidthValue,
-              child: ListView.builder(
-            padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-            itemCount: controller.blogs.length,
-            itemBuilder: (context, index) {
-              final blog = controller.blogs[index];
-              return _buildBlogCard(context, blog, controller);
-            },
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (ScrollNotification scrollInfo) {
+                  // Load more when user scrolls near the bottom
+                  if (scrollInfo is ScrollEndNotification) {
+                    if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
+                      controller.loadMore();
+                    }
+                  }
+                  return false;
+                },
+                child: ListView.builder(
+                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+                  itemCount: controller.blogs.length + (controller.isLoading.value ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index == controller.blogs.length) {
+                      // Show loading indicator at the bottom
+                      return Padding(
+                        padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            color: const Color(0xFF8B4513),
+                          ),
+                        ),
+                      );
+                    }
+                    
+                    final blog = controller.blogs[index];
+                    return _buildBlogCard(context, blog, controller);
+                  },
+                ),
               ),
             ),
           ),
@@ -145,7 +168,7 @@ class BlogsScreen extends GetView<BlogsController> {
   }
 
   Widget _buildBlogCard(BuildContext context, Map<String, dynamic> blog, BlogsController controller) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final imageUrl = blog['image'] != null ? baseUrl + (blog['image'] as String) : null;
     
     return Container(
@@ -345,7 +368,7 @@ class BlogsScreen extends GetView<BlogsController> {
                                         (blog['profile_photo'] as String).startsWith('http://') || 
                                         (blog['profile_photo'] as String).startsWith('https://')
                                           ? blog['profile_photo'] as String
-                                          : 'https://fruitofthespirit.templateforwebsites.com/${blog['profile_photo']}'
+                                          : 'http://admin.fosmessenger.com/${blog['profile_photo']}'
                                       )
                                     : null,
                                 child: blog['profile_photo'] == null

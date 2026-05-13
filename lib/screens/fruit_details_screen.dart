@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:fruitsofspirit/services/fruits_service.dart';
+import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/stories_service.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
 import 'package:fruitsofspirit/services/gallery_service.dart';
@@ -35,6 +35,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   var oppositeEmojis = <Map<String, dynamic>>[];
   var emotionEmojis = <Map<String, dynamic>>[];
   var userId = 0;
+  String? userEmail;
   String? fruitName;
 
   /// Show a custom snackbar using ScaffoldMessenger
@@ -79,6 +80,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
     super.initState();
     _tabController = TabController(length: 5, vsync: this); // Updated to 5 tabs
     _loadUserId();
+    _loadUserEmail();
     _loadFruitDetails();
   }
 
@@ -95,6 +97,10 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         userId = id;
       });
     }
+  }
+
+  Future<void> _loadUserEmail() async {
+    userEmail = await UserStorage.getUserEmail();
   }
 
   Future<void> _loadFruitDetails() async {
@@ -444,7 +450,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   }
 
   Widget _buildStoryCard(BuildContext context, Map<String, dynamic> story) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final imageUrl = story['image'] != null ? baseUrl + (story['image'] as String) : null;
     
     return Card(
@@ -558,7 +564,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   }
 
   Widget _buildVideoCard(BuildContext context, Map<String, dynamic> video) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final thumbnailUrl = video['thumbnail_url'] != null 
         ? baseUrl + (video['thumbnail_url'] as String)
         : null;
@@ -659,7 +665,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   }
 
   Widget _buildPhotoCard(BuildContext context, Map<String, dynamic> photo) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final thumbnailPath = photo['thumbnail_path'] as String?;
     final filePath = photo['file_path'] as String? ?? '';
     final imageUrl = thumbnailPath != null 
@@ -916,6 +922,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
                     context,
                     emoji,
                     size: ResponsiveHelper.iconSize(context, mobile: 50),
+                    userEmail: userEmail,
                   ),
                 ),
               ),

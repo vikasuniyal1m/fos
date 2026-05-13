@@ -29,6 +29,7 @@ class GroupChatController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    print('🚀 GroupChatController: onInit() called');
     _loadUserId();
   }
 
@@ -39,19 +40,29 @@ class GroupChatController extends GetxController {
   }
 
   Future<void> _loadUserId() async {
+    print('🔍 GroupChatController: _loadUserId() called');
     final id = await us.UserStorage.getUserId();
+    print('🔍 GroupChatController: Retrieved userId: $id');
     if (id != null) {
       userId.value = id;
+      print('✅ GroupChatController: userId set to: ${userId.value}');
+    } else {
+      print('❌ GroupChatController: userId is null');
     }
   }
 
   /// Load chat messages
   Future<void> loadMessages(int groupId, {bool refresh = false}) async {
+    print('🔄 GroupChatController: loadMessages() called - groupId: $groupId, refresh: $refresh');
+    print('🔄 GroupChatController: Current userId: ${userId.value}');
+    
     if (userId.value == 0) {
+      print('🔄 GroupChatController: userId is 0, loading userId...');
       await _loadUserId();
     }
 
     if (userId.value == 0) {
+      print('❌ GroupChatController: userId is still 0 after loading');
       message.value = 'Please login first';
       return;
     }
@@ -82,6 +93,7 @@ class GroupChatController extends GetxController {
     message.value = '';
 
     try {
+      print('📡 GroupChatController: Calling GroupChatService.getChatMessages...');
       // Always fetch from backend - no local caching
       // Force fresh data by always using refresh=true behavior
       final chatMessages = await GroupChatService.getChatMessages(
@@ -91,6 +103,7 @@ class GroupChatController extends GetxController {
         offset: _currentOffset, // Always start from beginning
         lastMessageId: null, // Always fetch fresh - no pagination
       );
+      print('📡 GroupChatController: Received ${chatMessages.length} messages from service');
 
       // Ensure all messages have the correct group_id and handle null message text
       final filteredMessages = chatMessages.map((msg) {
@@ -129,7 +142,13 @@ class GroupChatController extends GetxController {
         // Create deep copy to ensure GetX detects change
         messages.value = filteredMessages.map((msg) => Map<String, dynamic>.from(msg)).toList();
       } else {
-        messages.insertAll(0, filteredMessages);
+        // Check for duplicates before adding
+        final existingMessageIds = messages.map((m) => m['id'].toString()).toSet();
+        final newMessages = filteredMessages.where((msg) => !existingMessageIds.contains(msg['id'].toString())).toList();
+        if (newMessages.isNotEmpty) {
+          messages.insertAll(0, newMessages);
+          print('🔄 GroupChatController: Added ${newMessages.length} new messages, skipped ${filteredMessages.length - newMessages.length} duplicates');
+        }
       }
       
       _currentOffset += filteredMessages.length;
@@ -159,8 +178,11 @@ class GroupChatController extends GetxController {
         _startPolling(groupId);
       }
     } catch (e) {
+      print('❌ GroupChatController: Error in loadMessages: $e');
+      print('❌ GroupChatController: Stack trace: ${StackTrace.current}');
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
     } finally {
+      print('✅ GroupChatController: loadMessages() completed, isLoading set to false');
       isLoading.value = false;
     }
   }
@@ -260,6 +282,30 @@ class GroupChatController extends GetxController {
         // If message has id, check against existing ids
         if (msgId != null && existingIds.contains(msgId)) {
           return false;
+        }
+        
+        // Additional check: compare message content and timestamp to catch any edge cases
+        final msgContent = msg['message']?.toString() ?? '';
+        final msgTime = msg['created_at']?.toString() ?? '';
+        
+        for (var existingMsg in messages) {
+          final existingContent = existingMsg['message']?.toString() ?? '';
+          final existingTime = existingMsg['created_at']?.toString() ?? '';
+          
+          // If same content and very similar timestamp (within 1 second), consider it duplicate
+          if (msgContent == existingContent && msgTime.isNotEmpty && existingTime.isNotEmpty) {
+            try {
+              final msgDateTime = DateTime.parse(msgTime);
+              final existingDateTime = DateTime.parse(existingTime);
+              final difference = msgDateTime.difference(existingDateTime).inSeconds;
+              
+              if (difference.abs() <= 1) {
+                return false; // Likely duplicate
+              }
+            } catch (e) {
+              // If parsing fails, skip this check
+            }
+          }
         }
         
         // Message is truly new
@@ -470,14 +516,24 @@ class GroupChatController extends GetxController {
         messages.add(flattenedMessage);
         messages.refresh();
         
-        // Update lastMessageId if it's a numeric ID
+        // Update lastMessageId immediately to prevent polling from fetching the same message
         if (sentMessageId != null && sentMessageId > (lastMessageId ?? 0)) {
           lastMessageId = sentMessageId;
         }
       }
       
-      // Check for any other new messages that might have arrived
-      await _checkForNewMessages(groupId);
+      // Don't check for new messages immediately after sending
+      // This prevents the same message from being fetched again and causing duplicates
+      // await _checkForNewMessages(groupId); // REMOVED TO PREVENT DUPLICATES
+      
+      // Temporarily pause polling to prevent race condition
+      _stopPolling();
+      // Restart polling after a short delay to allow the message to be fully processed
+      Future.delayed(const Duration(seconds: 5), () {
+        if (currentGroupId == groupId) {
+          _startPolling(groupId);
+        }
+      });
 
       return true;
     } catch (e) {

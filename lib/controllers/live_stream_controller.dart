@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:get/get.dart';
 import 'package:flutter/material.dart'; // For SnackBar
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
@@ -19,6 +20,8 @@ class LiveStreamController extends GetxController {
   var allLiveStreams = <Map<String, dynamic>>[].obs; // List of all active streams
   var userId = 0.obs;
 
+  Timer? _refreshTimer;
+
   @override
   void onInit() {
     super.onInit();
@@ -30,6 +33,23 @@ class LiveStreamController extends GetxController {
     super.onReady();
     // Load all active live streams when the controller is ready
     getAllLiveStreams();
+    // Start auto-refresh every 10 seconds to show new streams
+    _startAutoRefresh();
+  }
+
+  @override
+  void onClose() {
+    _refreshTimer?.cancel();
+    super.onClose();
+  }
+
+  void _startAutoRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!isLoading.value) {
+        getAllLiveStreams();
+      }
+    });
   }
 
   /// Load user ID from storage
@@ -206,9 +226,13 @@ class LiveStreamController extends GetxController {
     message.value = '';
     try {
       final response = await LiveStreamingService.getAllLiveStreams();
+      // Filter: only show live streams, exclude current user's streams (even if live)
       final onlyLive = response.where((s) {
         final status = (s['status'] ?? '').toString().toLowerCase();
-        return status == 'live';
+        final streamUserId = (s['user_id'] ?? '').toString();
+        final isCurrentUser = streamUserId == userId.value.toString();
+        // Show only live streams that are NOT from current user
+        return status == 'live' && !isCurrentUser;
       }).toList();
       allLiveStreams.value = List<Map<String, dynamic>>.from(onlyLive);
       message.value = 'All live streams loaded successfully.';

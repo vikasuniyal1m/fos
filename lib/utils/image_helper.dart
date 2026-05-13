@@ -28,11 +28,11 @@ class ImageHelper {
     
     // If it's a relative path, construct full URL
     if (photoUrl.startsWith('/')) {
-      return NetworkImage('https://fruitofthespirit.templateforwebsites.com$photoUrl');
+      return NetworkImage('http://admin.fosmessenger.com$photoUrl');
     }
     
     // Default: assume it's a relative path from base URL
-    return NetworkImage('https://fruitofthespirit.templateforwebsites.com/$photoUrl');
+    return NetworkImage('http://admin.fosmessenger.com/$photoUrl');
   }
 
   /// Get profile photo URL string (not ImageProvider)
@@ -60,11 +60,11 @@ class ImageHelper {
     
     // If it's a relative path, construct full URL
     if (photoUrl.startsWith('/')) {
-      return 'https://fruitofthespirit.templateforwebsites.com$photoUrl';
+      return 'http://admin.fosmessenger.com$photoUrl';
     }
     
     // Default: assume it's a relative path from base URL
-    return 'https://fruitofthespirit.templateforwebsites.com/$photoUrl';
+    return 'http://admin.fosmessenger.com/$photoUrl';
   }
   
   /// Check if URL is a local asset

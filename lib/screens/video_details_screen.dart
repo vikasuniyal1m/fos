@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
@@ -21,7 +22,12 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/report_utils.dart';
+import 'package:fruitsofspirit/screens/report_content_screen.dart';
+import 'package:fruitsofspirit/widgets/emoji_sticker_picker.dart';
+import 'package:fruitsofspirit/widgets/emoji_button.dart';
 import 'dart:async';
+// edit feature: Import comments service for edit functionality
+import 'package:fruitsofspirit/services/comments_service.dart';
 
 /// Video Details Screen - Modern Social Media Style
 class VideoDetailsScreen extends StatefulWidget {
@@ -29,6 +35,15 @@ class VideoDetailsScreen extends StatefulWidget {
 
   @override
   State<VideoDetailsScreen> createState() => _VideoDetailsScreenState();
+}
+
+// Message model for proper text/sticker separation (reusable from blog_details_screen)
+class CommentMessage {
+  final String? text;
+  final String? stickerId;
+  final bool isSticker;
+
+  CommentMessage({this.text, this.stickerId, required this.isSticker});
 }
 
 class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTickerProviderStateMixin {
@@ -44,6 +59,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   var _isSendingComment = false;
   final Set<int> _sendingReplies = {};
   var comments = <Map<String, dynamic>>[];
+  String? userEmail;
+  // edit feature: Comment edit state
+  final editControllers = <int, TextEditingController>{}; // edit feature
+  final showEditInput = <int, bool>{}; // edit feature
+  var isEditingComment = false.obs; // edit feature
   
   /// Show a custom snackbar using ScaffoldMessenger
   void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false}) {
@@ -97,7 +117,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     );
   }
 
-  static const String baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+  static const String baseUrl = 'http://admin.fosmessenger.com/';
 
   // Video player state
   VideoPlayerController? _videoController;
@@ -126,6 +146,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     _fadeAnimationController.forward();
     
     _loadUserId();
+    _loadUserEmail();
     final videoId = Get.arguments as int? ?? 0;
     if (videoId > 0 && (controller.selectedVideo.isEmpty || controller.selectedVideo['id'] != videoId)) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -366,6 +387,10 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     for (var focusNode in replyFocusNodes.values) {
       focusNode.dispose();
     }
+    // edit feature: Dispose comment edit controllers
+    for (var controller in editControllers.values) { // edit feature
+      controller.dispose(); // edit feature
+    } // edit feature
     super.dispose();
   }
 
@@ -378,7 +403,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       });
     }
   }
-  
+
+  Future<void> _loadUserEmail() async {
+    userEmail = await UserStorage.getUserEmail();
+  }
+
   Widget _buildVideoPlayer(String videoUrl) {
     // Initialize video if not already initialized
     if (_videoController == null && !_hasVideoError) {
@@ -449,7 +478,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   Widget _buildVideoErrorState(String videoUrl) {
     final video = controller.selectedVideo;
     final thumbnailPath = video['thumbnail_path'] as String?;
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final thumbnailUrl = thumbnailPath != null && thumbnailPath.isNotEmpty
         ? (thumbnailPath.startsWith('http') ? thumbnailPath : baseUrl + (thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath))
         : null;
@@ -862,6 +891,256 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     return comment['is_liked'] == true || comment['is_liked'] == 1;
   }
 
+
+  // edit feature: Configurable edit time window in minutes
+  static const int _editTimeWindowMinutes = 15; // edit feature
+
+  // edit feature: Check if comment can be edited (within 15 minutes only)
+  bool _canEditComment(Map<String, dynamic> comment) { // edit feature
+    print('🔍 Edit check - created_at: ${comment['created_at']}'); // debug
+    if (comment['created_at'] == null) { // edit feature
+      print('❌ Edit blocked: created_at is null'); // debug
+      return false; // edit feature
+    } // edit feature
+    try { // edit feature
+      // CRITICAL FIX: Use same logic as TimeHelper.getTimeAgo for consistency
+      String formattedDate = comment['created_at'].toString();
+      if (!formattedDate.contains('Z') && !formattedDate.contains('+')) {
+        formattedDate = formattedDate.replaceAll(' ', 'T') + 'Z';
+      }
+
+      // Use SAME logic as backend for consistency
+      DateTime serverTimeUtc = DateTime.parse(formattedDate).toUtc();
+      serverTimeUtc = serverTimeUtc.add(const Duration(hours: 4)); // 4-hour fix (same as backend)
+      
+      // Get current UTC time (same as backend)
+      DateTime nowUtc = DateTime.now().toUtc();
+      
+      // Calculate difference in UTC (same as backend)
+      final difference = nowUtc.difference(serverTimeUtc);
+      final canEdit = difference.inMinutes < _editTimeWindowMinutes; // edit feature: Check 15-minute window
+      
+      print('  - Backend UTC time (with 4hr fix): $serverTimeUtc'); // debug
+      print('  - Current UTC time: $nowUtc'); // debug
+      print('  - UTC difference: ${difference.inMinutes} minutes'); // debug
+      print('  - Backend logic applied: UTC difference calculation'); // debug
+      print('🕐 Video Time check (UTC): ${difference.inMinutes} minutes, canEdit: $canEdit'); // debug
+      print('🌍 Video Device timezone: ${DateTime.now().timeZoneName} (${DateTime.now().timeZoneOffset})'); // debug
+      
+      // CRITICAL DEBUG: Show exact frontend calculation to compare with backend
+      print('🔍 VIDEO FRONTEND TIME CALCULATION DEBUG:'); // debug
+      print('   - Raw created_at: ${comment['created_at']}'); // debug
+      print('   - Formatted date: $formattedDate'); // debug
+      print('   - Server time UTC (fixed): $serverTimeUtc'); // debug
+      print('   - Current UTC: $nowUtc'); // debug
+      print('   - Frontend minutes diff: ${difference.inMinutes}'); // debug
+      print('   - Frontend canEdit: $canEdit'); // debug
+      print('🔍 VIDEO FRONTEND DEBUG COMPLETE'); // debug
+      
+      // CRITICAL: If difference is more than 60 minutes, it means backend time is wrong
+      if (difference.inMinutes > 60) {
+        print('⚠️ WARNING: Time difference too large (${difference.inMinutes} minutes), backend timestamp may be incorrect'); // debug
+      }
+      return canEdit; // edit feature
+    } catch (e) { // edit feature
+      print('❌ Edit blocked: date parsing error - $e'); // debug
+      return false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Build edit button widget
+  Widget _buildEditButton(BuildContext context, Map<String, dynamic> comment, int videoId) { // edit feature
+    if (!_canEditComment(comment)) return const SizedBox.shrink(); // edit feature
+    final commentId = comment['id'] as int; // edit feature
+
+    return InkWell( // edit feature
+      onTap: () { // edit feature
+        setState(() { // edit feature
+          if (!editControllers.containsKey(commentId)) { // edit feature
+            editControllers[commentId] = TextEditingController( // edit feature
+              text: (comment['comment'] as String? ?? comment['content'] as String? ?? '').trim(), // edit feature
+            ); // edit feature
+          } // edit feature
+          showEditInput[commentId] = !(showEditInput[commentId] ?? false); // edit feature
+        }); // edit feature
+      }, // edit feature
+      child: Row( // edit feature
+        children: [ // edit feature
+          Icon( // edit feature
+            Icons.edit, // edit feature
+            size: ResponsiveHelper.iconSize(context, mobile: 18), // edit feature
+            color: Colors.orange, // edit feature: Orange like reply button
+          ), // edit feature
+          SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+          Text( // edit feature
+            'Edit', // edit feature
+            style: TextStyle( // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 11), // edit feature
+              color: Colors.orange, // edit feature: Orange like reply button
+            ), // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Build edit input widget
+  Widget _buildEditInput(BuildContext context, int commentId, int videoId, String postType) { // edit feature
+    if (!editControllers.containsKey(commentId)) { // edit feature
+      editControllers[commentId] = TextEditingController(); // edit feature
+    } // edit feature
+    final editController = editControllers[commentId]!; // edit feature
+
+    return Container( // edit feature
+      padding: ResponsiveHelper.padding(context, all: 12), // edit feature
+      decoration: BoxDecoration( // edit feature
+        color: const Color(0xFFE3F2FD), // edit feature
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+        border: Border.all( // edit feature
+          color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+          width: 1.5, // edit feature
+        ), // edit feature
+      ), // edit feature
+      child: Column( // edit feature
+        crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+        children: [ // edit feature
+          Text( // edit feature
+            'Edit Comment', // edit feature
+            style: ResponsiveHelper.textStyle( // edit feature
+              context, // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 14), // edit feature
+              fontWeight: FontWeight.bold, // edit feature
+              color: const Color(0xFF1565C0), // edit feature
+            ), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          TextField( // edit feature
+            controller: editController, // edit feature
+            maxLines: 3, // edit feature
+            decoration: InputDecoration( // edit feature
+              border: OutlineInputBorder( // edit feature
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+              ), // edit feature
+              contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8), // edit feature
+            ), // edit feature
+            style: TextStyle(fontSize: 13), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          Row( // edit feature
+            mainAxisAlignment: MainAxisAlignment.end, // edit feature
+            children: [ // edit feature
+              TextButton( // edit feature
+                onPressed: () { // edit feature
+                  setState(() { // edit feature
+                    showEditInput[commentId] = false; // edit feature
+                  }); // edit feature
+                }, // edit feature
+                child: Text( // edit feature
+                  'Cancel', // edit feature
+                  style: ResponsiveHelper.textStyle( // edit feature
+                    context, // edit feature
+                    fontSize: 12, // edit feature
+                    color: Colors.grey[600], // edit feature
+                  ), // edit feature
+                ), // edit feature
+              ), // edit feature
+              SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+              ElevatedButton( // edit feature
+                onPressed: () => _editComment(context, commentId, videoId, postType), // edit feature
+                style: ElevatedButton.styleFrom( // edit feature
+                  backgroundColor: const Color(0xFF2196F3), // edit feature
+                  padding: ResponsiveHelper.padding( // edit feature
+                    context, // edit feature
+                    horizontal: 16, // edit feature
+                    vertical: 8, // edit feature
+                  ), // edit feature
+                ), // edit feature
+                child: Obx(() => isEditingComment.value // edit feature
+                    ? SizedBox( // edit feature
+                        width: 16, // edit feature
+                        height: 16, // edit feature
+                        child: CircularProgressIndicator( // edit feature
+                          strokeWidth: 2, // edit feature
+                          color: Colors.white, // edit feature
+                        ), // edit feature
+                      ) // edit feature
+                    : Text( // edit feature
+                        'Save', // edit feature
+                        style: TextStyle(fontSize: 12, color: Colors.white), // edit feature
+                      )), // edit feature
+              ), // edit feature
+            ], // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Edit comment method
+  Future<void> _editComment(BuildContext context, int commentId, int videoId, String postType) async { // edit feature
+    final editController = editControllers[commentId]; // edit feature
+    if (editController == null) return; // edit feature
+
+    final content = editController.text.trim(); // edit feature
+    if (content.isEmpty) { // edit feature
+      ScaffoldMessenger.of(context).showSnackBar( // edit feature
+        SnackBar( // edit feature
+          content: Text('Comment cannot be empty'), // edit feature
+          backgroundColor: Colors.red, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (userId == 0) { // edit feature
+      ScaffoldMessenger.of(context).showSnackBar( // edit feature
+        SnackBar( // edit feature
+          content: Text('Please login first'), // edit feature
+          backgroundColor: Colors.red, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    isEditingComment.value = true; // edit feature
+    try { // edit feature
+      await CommentsService.editComment( // edit feature
+        userId: userId, // edit feature
+        commentId: commentId, // edit feature
+        postType: postType, // edit feature
+        postId: videoId, // edit feature
+        content: content, // edit feature
+      ); // edit feature
+
+      setState(() { // edit feature
+        showEditInput[commentId] = false; // edit feature
+      }); // edit feature
+
+      // Reload comments
+      await _loadComments(videoId); // edit feature
+
+      ScaffoldMessenger.of(context).showSnackBar( // edit feature
+        SnackBar( // edit feature
+          content: Text('Comment edited successfully'), // edit feature
+          backgroundColor: Colors.green, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ), // edit feature
+      ); // edit feature
+    } catch (e) { // edit feature
+      ScaffoldMessenger.of(context).showSnackBar( // edit feature
+        SnackBar( // edit feature
+          content: Text('Failed to edit comment'), // edit feature
+          backgroundColor: Colors.red, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingComment.value = false; // edit feature
+    } // edit feature
+  } // edit feature
+
   @override
   Widget build(BuildContext context) {
     final videoId = Get.arguments as int? ?? 0;
@@ -1026,7 +1305,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     return InkWell(
       onTap: () {
         final video = controller.selectedVideo;
-        final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+        final baseUrl = 'http://admin.fosmessenger.com/';
         final thumbnailPath = video['thumbnail_path'] as String? ?? '';
         final filePath = video['file_path'] as String? ?? '';
         final mediaUrl = thumbnailPath.isNotEmpty 
@@ -1109,10 +1388,6 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                   controller: commentController,
                   decoration: InputDecoration(
                     hintText: userId > 0 ? 'Write a comment...' : 'Login to comment',
-                    prefixIcon: IconButton(
-                      icon: const Icon(Icons.emoji_emotions_outlined),
-                      onPressed: () => _showEmojiPicker(context, videoId, controller),
-                    ),
                     border: InputBorder.none,
                   ),
                   enabled: userId > 0 && !_isSendingComment,
@@ -1121,6 +1396,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                   onSubmitted: userId > 0 && !_isSendingComment ? (_) => _addComment(videoId) : null,
                 ),
               ),
+            ),
+            const SizedBox(width: 8),
+            // Emoji button (reusable widget from blog_details_screen)
+            EmojiButton(
+              onTap: () => _showEmojiPicker(context, videoId, commentController),
             ),
             const SizedBox(width: 8),
             _isSendingComment
@@ -1158,7 +1438,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       return false;
     }).toList();
 
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final profilePhoto = comment['profile_photo'] as String?;
     final userName = comment['user_name'] as String? ?? 'Anonymous';
     final content = comment['content'] as String? ?? '';
@@ -1228,15 +1508,39 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // User Name
-                    Text(
-                      userName,
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
+                    // User Name and Time
+                    Row(
+                      children: [
+                        Text(
+                          userName,
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
+                        ),
+                        if (comment['created_at'] != null) ...[
+                          SizedBox(width: ResponsiveHelper.spacing(context, 6)),
+                          Text(
+                            '•',
+                            style: ResponsiveHelper.textStyle(
+                              context,
+                              fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
+                              color: Colors.grey,
+                            ),
+                          ),
+                          SizedBox(width: ResponsiveHelper.spacing(context, 6)),
+                          Text(
+                            TimeHelper.getTimeAgo(comment['created_at'] as String?),
+                            style: ResponsiveHelper.textStyle(
+                              context,
+                              fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     SizedBox(height: ResponsiveHelper.spacing(context, 4)),
                     // Comment Content
@@ -1249,7 +1553,20 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                         color: Colors.black87,
                         height: 1.4,
                       ),
+                      userEmail: userEmail,
                     ),
+                    // edit feature: Show "edited" label if comment was edited
+                    if (comment['is_edited'] == true || comment['is_edited'] == 1) ...[
+                      SizedBox(height: ResponsiveHelper.spacing(context, 6)),
+                      Text(
+                        'edited',
+                        style: TextStyle(
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 11),
+                          color: Colors.grey[500],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1309,25 +1626,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               InkWell(
                 onTap: () {
                   setState(() {
-                    showReplyInput[commentId] = !(showReplyInput[commentId] ?? false);
-                    final shouldShow = showReplyInput[commentId] ?? false;
+                    // Close all other reply inputs first
+                    showReplyInput.clear();
                     
-                    if (shouldShow) {
-                      // Initialize focus node if not exists
-                      if (!replyFocusNodes.containsKey(commentId)) {
-                        replyFocusNodes[commentId] = FocusNode();
-                      }
-                      
-                      // Unfocus any other fields first
-                      FocusScope.of(context).unfocus();
-                       
-                      // Focus on the reply input after a short delay to ensure it's rendered
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted && replyFocusNodes.containsKey(commentId)) {
-                          replyFocusNodes[commentId]!.requestFocus();
-                        }
-                      });
-                    }
+                    // Toggle current reply input
+                    showReplyInput[commentId] = true;
                   });
                 },
                 borderRadius: BorderRadius.circular(
@@ -1395,6 +1698,11 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                   ),
                 ),
               ],
+              // Edit Button (only show for own comments within time window)
+              if (comment['user_id'] == userId) ...[
+                SizedBox(width: ResponsiveHelper.spacing(context, 8)),
+                _buildEditButton(context, comment, videoId),
+              ],
               const Spacer(),
               // Report Button
               InkWell(
@@ -1410,6 +1718,12 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               ),
             ],
           ),
+
+          // Edit Input
+          if (showEditInput[commentId] == true) ...[
+            SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+            _buildEditInput(context, commentId, videoId, 'video'),
+          ],
 
           // Reply Input
           if (showReplyInput[commentId] == true) ...[
@@ -1436,6 +1750,23 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     return Row(
       children: [
         SizedBox(width: ResponsiveHelper.spacing(context, 40)),
+        // Emoji button for reply
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _showEmojiPicker(context, videoId, replyControllers[parentCommentId]!, parentCommentId: parentCommentId),
+            borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 40 : 44),
+            child: Padding(
+              padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 4)),
+              child: Icon(
+                Icons.emoji_emotions_outlined,
+                color: const Color(0xFF8B4513),
+                size: ResponsiveHelper.iconSize(context, mobile: 20),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: ResponsiveHelper.spacing(context, 4)),
         Expanded(
           child: Container(
             decoration: BoxDecoration(
@@ -1467,8 +1798,8 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               maxLines: null,
               enabled: !_sendingReplies.contains(parentCommentId),
               textInputAction: TextInputAction.send,
-              onSubmitted: (_) => !_sendingReplies.contains(parentCommentId) 
-                  ? _addComment(videoId, parentCommentId: parentCommentId) 
+              onSubmitted: (_) => !_sendingReplies.contains(parentCommentId)
+                  ? _addComment(videoId, parentCommentId: parentCommentId)
                   : null,
             ),
           ),
@@ -1623,6 +1954,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                               context,
                               emojiData,
                               size: ResponsiveHelper.iconSize(context, mobile: 40),
+                              userEmail: userEmail,
                             ),
                           ),
                         ),
@@ -1634,7 +1966,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: () => _showEmojiPicker(context, videoId, controller),
+                  onTap: () => _showEmojiPicker(context, videoId, commentController),
                   borderRadius: BorderRadius.circular(40),
                   child: Padding(
                     padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 4)),
@@ -1737,6 +2069,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                             context,
                             fruitEmoji,
                             size: 24,
+                            userEmail: userEmail,
                           ),
                         )
                       else
@@ -1867,7 +2200,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                               } else if (!photoPath.startsWith('assets/') && 
                                   !photoPath.startsWith('file://') &&
                                   !photoPath.startsWith('assets/images/')) {
-                                profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+                                profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
                               }
                             }
                             
@@ -1955,7 +2288,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                                           ),
                                         ),
                                         Text(
-                                          _getTimeAgo(userData['created_at'] as String?),
+                                          TimeHelper.getTimeAgo(userData['created_at'] as String?),
                                           style: TextStyle(
                                             fontSize: ResponsiveHelper.fontSize(context, mobile: 11),
                                             color: Colors.grey[600],
@@ -1973,6 +2306,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                                         context,
                                         fruitEmoji,
                                         size: 24,
+                                        userEmail: userEmail,
                                       ),
                                     )
                                   else
@@ -2086,6 +2420,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                           context,
                           fruitEmoji,
                           size: 40,
+                          userEmail: userEmail,
                         ),
                       ),
                     )
@@ -2148,7 +2483,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                       if (!photoPath.startsWith('assets/') && 
                           !photoPath.startsWith('file://') &&
                           !photoPath.startsWith('assets/images/')) {
-                        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+                        profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
                       }
                     }
                     
@@ -2177,7 +2512,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                         ),
                       ),
                       subtitle: Text(
-                        _getTimeAgo(user['created_at'] as String?),
+                        TimeHelper.getTimeAgo(user['created_at'] as String?),
                         style: ResponsiveHelper.textStyle(
                           context,
                           fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
@@ -2195,172 +2530,55 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     );
   }
 
-  String _getTimeAgo(String? dateTime) {
-    if (dateTime == null || dateTime.isEmpty) return 'Just now';
-    try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      // Appending 'Z' tells Dart to parse this as UTC, then we convert to Local.
-      DateTime date;
-      if (!dateTime.endsWith('Z')) {
-        date = DateTime.parse('${dateTime}Z').toLocal();
-      } else {
-        date = DateTime.parse(dateTime).toLocal();
-      }
-      
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
 
-      final difference = now.difference(date);
-      
-      if (difference.inDays > 365) {
-        return '${(difference.inDays / 365).floor()} year${(difference.inDays / 365).floor() > 1 ? 's' : ''} ago';
-      } else if (difference.inDays > 30) {
-        return '${(difference.inDays / 30).floor()} month${(difference.inDays / 30).floor() > 1 ? 's' : ''} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''} ago';
-      } else {
-        return 'Just now';
-      }
+  /// Show emoji picker for video comments - sends emoji directly without showing in input field
+  void _showEmojiPicker(BuildContext context, int videoId, TextEditingController controller, {int? parentCommentId}) {
+    showEmojiStickerPicker(
+      context: context,
+      onEmojiSelected: (emoji) async {
+        // Send emoji directly as comment - no preview in text field!
+        await _sendEmojiDirectly(videoId, emoji, parentCommentId: parentCommentId);
+      },
+      height: 350,
+    );
+  }
+
+  /// Send emoji/sticker directly as comment without showing in input field
+  Future<void> _sendEmojiDirectly(int videoId, String emoji, {int? parentCommentId}) async {
+    if (emoji.isEmpty || userId == 0) return;
+
+    FocusScope.of(context).unfocus();
+
+    setState(() => _isSendingComment = true);
+
+    try {
+      await CommentsService.addComment(
+        userId: userId,
+        postType: 'video',
+        postId: videoId,
+        content: emoji,
+        parentCommentId: parentCommentId,
+      );
+
+      // Clear and reload
+      commentController.clear();
+      await _loadComments(videoId);
+      _scrollToBottom();
     } catch (e) {
-      return 'Just now';
+      print('Error sending emoji comment: $e');
+    } finally {
+      setState(() => _isSendingComment = false);
     }
   }
 
-  /// Show Emoji Picker Dialog
-  void _showEmojiPicker(BuildContext context, int videoId, VideosController controller) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (sheetContext) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(
-            top: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-          ),
-        ),
-        padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Choose an Emoji',
-              style: ResponsiveHelper.textStyle(
-                context,
-                fontSize: ResponsiveHelper.fontSize(context, mobile: 18),
-                fontWeight: FontWeight.bold,
-                color: AppTheme.iconscolor,
-              ),
-            ),
-            SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-            Obx(() {
-              if (controller.availableEmojis.isEmpty) {
-                return Padding(
-                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 20)),
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      color: AppTheme.iconscolor,
-                    ),
-                  ),
-                );
-              }
-
-              return GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 6,
-                  crossAxisSpacing: ResponsiveHelper.spacing(context, 8),
-                  mainAxisSpacing: ResponsiveHelper.spacing(context, 8),
-                ),
-                itemCount: controller.availableEmojis.length,
-                itemBuilder: (gridContext, index) {
-                  final emoji = controller.availableEmojis[index];
-                  // Try multiple fallbacks: emoji_char -> code -> name (base fruit name)
-                  String? emojiChar = emoji['emoji_char'] as String?;
-                  if (emojiChar == null || emojiChar.trim().isEmpty) {
-                    emojiChar = emoji['code'] as String?;
-                  }
-                  if (emojiChar == null || emojiChar.trim().isEmpty) {
-                    // Try to extract base fruit name from name field
-                    final name = emoji['name'] as String? ?? '';
-                    if (name.isNotEmpty) {
-                      // Extract base fruit name (e.g., "Goodness Banana (1)" -> "goodness")
-                      String baseName = name.toLowerCase();
-                      if (baseName.contains(':')) {
-                        final parts = baseName.split(':');
-                        if (parts.length > 1) {
-                          baseName = parts[1].trim();
-                        }
-                      }
-                      if (baseName.contains(' ')) {
-                        baseName = baseName.split(' ')[0].trim();
-                      }
-                      emojiChar = baseName;
-                    }
-                  }
-                  
-                  // If still empty, skip this emoji (don't make it clickable)
-                  final isValidEmoji = emojiChar != null && emojiChar.trim().isNotEmpty;
-
-                  return InkWell(
-                    onTap: isValidEmoji ? () async {
-                      final dialogContext = Get.overlayContext;
-                      if (dialogContext != null) {
-                        Navigator.of(dialogContext, rootNavigator: true).pop();
-                      } else if (context.mounted) {
-                        Navigator.of(context, rootNavigator: true).pop();
-                      }
-                      final success = await controller.addEmojiReaction(videoId, emojiChar!);
-                      if (success) {
-                        _showCustomSnackbar(
-                          context,
-                          'Success',
-                          'Reaction added',
-                        );
-                      } else {
-                        _showCustomSnackbar(
-                          context,
-                          'Error',
-                          controller.message.value,
-                          isError: true,
-                        );
-                      }
-                    } : null,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F5DC),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Center(
-                        child: SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: HomeScreen.buildEmojiDisplay(
-                            context,
-                            emoji,
-                            size: 32,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              );
-            }),
-            SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-          ],
-        ),
-      ),
-    );
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   void _showReportDialog(BuildContext context, Map<String, dynamic> comment) {

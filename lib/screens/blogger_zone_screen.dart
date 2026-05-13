@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
@@ -11,6 +13,7 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
+import 'package:fruitsofspirit/utils/role_access_helper.dart';
 
 /// Blogger Zone Screen - Social Media Style
 /// Professional, attractive UI with like, comment, and question functionality
@@ -23,20 +26,416 @@ class BloggerZoneScreen extends StatefulWidget {
 
 class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
   late final BlogsController controller;
+  Map<String, dynamic>? _userData;
+  bool _isLoadingUserData = true;
 
   @override
   void initState() {
     super.initState();
     controller = Get.find<BlogsController>();
     
+    // Load user data and check access
+    _loadUserDataAndCheckAccess();
+    
     // Refresh user data from server to get latest role/status
     controller.refreshUserData();
     
-    // Load blogs on init if not already loaded
-    if (controller.blogs.isEmpty && !controller.isLoading.value) {
-      controller.filterUserId.value = 0;
-      controller.loadBlogs(refresh: true);
+    // Start periodic sync to check for role updates
+    _startRoleSyncTimer();
+  }
+
+  Timer? _roleSyncTimer;
+
+  void _startRoleSyncTimer() {
+    // Check for role updates every 10 seconds for pending bloggers
+    _roleSyncTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (_userData != null && RoleAccessHelper.isPendingBlogger(_userData)) {
+        _checkForRoleUpdate();
+      }
+    });
+  }
+
+  Future<void> _checkForRoleUpdate() async {
+    try {
+      final freshUserData = await RoleAccessHelper.getCurrentUserData();
+      
+      // Check if role has changed from pending to approved
+      if (_userData != null && freshUserData != null) {
+        final oldRole = _userData!['role'] ?? '';
+        final oldStatus = _userData!['status'] ?? '';
+        final newRole = freshUserData['role'] ?? '';
+        final newStatus = freshUserData['status'] ?? '';
+        
+        // If user was pending and now is approved
+        if (oldRole == 'Blogger' && oldStatus == 'Pending' && 
+            newRole == 'Blogger' && newStatus == 'Active') {
+          
+          print('🎉 [RoleSync] User approved! Updating UI...');
+          
+          // Update local user data
+          setState(() {
+            _userData = freshUserData;
+          });
+          
+          // Refresh controller data
+          controller.refreshUserData();
+          
+          // Reload blogs with new permissions
+          _loadBlogsBasedOnRole();
+          
+          // Show success message
+          _showCustomSnackbar(
+            'Congratulations!',
+            'Your blogger request has been approved! You now have full blogger access.',
+          );
+          
+          // Stop the timer since user is now approved
+          _roleSyncTimer?.cancel();
+          
+          // Refresh the entire screen
+          if (mounted) {
+            setState(() {});
+          }
+        }
+      }
+    } catch (e) {
+      print('❌ [RoleSync] Error checking role update: $e');
     }
+  }
+
+  @override
+  void dispose() {
+    _roleSyncTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadUserDataAndCheckAccess() async {
+    setState(() {
+      _isLoadingUserData = true;
+    });
+    
+    try {
+      final userData = await RoleAccessHelper.getCurrentUserData();
+      setState(() {
+        _userData = userData;
+        _isLoadingUserData = false;
+      });
+      
+      // Check if user can access blogger zone
+      if (!(await RoleAccessHelper.canAccessBloggerZone())) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _showAccessDeniedDialog();
+          }
+        });
+      } else {
+        // User can access blogger zone (both approved and pending bloggers reach here)
+        _loadBlogsBasedOnRole();
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingUserData = false;
+      });
+    }
+  }
+
+  void _loadBlogsBasedOnRole() {
+    // Load blogs based on user role if not already loading
+    if (controller.blogs.isEmpty && !controller.isLoading.value) {
+      // Set filter based on user role
+      if (_userData != null) {
+        final isPendingBlogger = RoleAccessHelper.isPendingBlogger(_userData);
+        final isBlogger = RoleAccessHelper.isActiveBlogger(_userData);
+        
+        print('🔍 DEBUG: User role check - isPendingBlogger: $isPendingBlogger, isBlogger: $isBlogger');
+        print('🔍 DEBUG: User data: ${_userData}');
+        print('🔍 DEBUG: Controller userId: ${controller.userId.value}');
+        
+        if (isPendingBlogger) {
+          // For pending bloggers, show their own posts (pending + approved)
+          controller.filterUserId.value = controller.userId.value;
+          print('🔍 DEBUG: Setting filterUserId to ${controller.userId.value} (pending blogger)');
+        } else if (isBlogger) {
+          // For approved bloggers, show all approved posts  
+          controller.filterUserId.value = 0;
+          print('🔍 DEBUG: Setting filterUserId to 0 (approved blogger - show all posts)');
+        } else {
+          // For regular users, shouldn't reach here but set to 0
+          controller.filterUserId.value = 0;
+          print('🔍 DEBUG: Setting filterUserId to 0 (regular user fallback)');
+        }
+      } else {
+        controller.filterUserId.value = 0;
+        print('🔍 DEBUG: User data is null, setting filterUserId to 0');
+      }
+      
+      print('🔍 DEBUG: About to call loadBlogs with filterUserId: ${controller.filterUserId.value}');
+      controller.loadBlogs(refresh: true);
+    } else {
+      print('🔍 DEBUG: Not loading blogs - blogs.isEmpty: ${controller.blogs.isEmpty}, isLoading: ${controller.isLoading.value}');
+      print('🔍 DEBUG: Current blogs count: ${controller.blogs.length}');
+    }
+  }
+
+  void _showAccessDeniedDialog() {
+    final isPendingBlogger = RoleAccessHelper.isPendingBlogger(_userData);
+    final hasRequestedBlogger = controller.isBloggerRequestPending.value;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: ResponsiveHelper.padding(context, all: 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Icon Section
+                Container(
+                  width: ResponsiveHelper.spacing(context, 80),
+                  height: ResponsiveHelper.spacing(context, 80),
+                  decoration: BoxDecoration(
+                    color: isPendingBlogger 
+                        ? Colors.orange.withOpacity(0.1)
+                        : AppTheme.iconscolor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isPendingBlogger 
+                        ? Icons.hourglass_top_rounded
+                        : Icons.lock_outline_rounded,
+                    size: ResponsiveHelper.iconSize(context, mobile: 40),
+                    color: isPendingBlogger 
+                        ? Colors.orange
+                        : AppTheme.iconscolor,
+                  ),
+                ),
+                
+                SizedBox(height: ResponsiveHelper.spacing(context, 20)),
+                
+                // Title
+                Text(
+                  isPendingBlogger 
+                      ? '🌱 Blogger Request Pending'
+                      : '🔒 Blogger Access Required',
+                  textAlign: TextAlign.center,
+                  style: ResponsiveHelper.textStyle(
+                    context,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                
+                SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+                
+                // Status Badge
+                Container(
+                  padding: ResponsiveHelper.padding(context, horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isPendingBlogger 
+                        ? Colors.orange.withOpacity(0.15)
+                        : AppTheme.iconscolor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isPendingBlogger 
+                          ? Colors.orange.withOpacity(0.3)
+                          : AppTheme.iconscolor.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    'Status: ${RoleAccessHelper.getRoleDisplayText(_userData)}',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isPendingBlogger 
+                          ? Colors.orange
+                          : AppTheme.iconscolor,
+                    ),
+                  ),
+                ),
+                
+                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                
+                // Description
+                Text(
+                  isPendingBlogger 
+                      ? 'Your blogger request is currently pending admin approval. You can continue using the app as a regular user - view posts, comment, and like content. Full blogger features will be available once approved.'
+                      : 'This section is exclusively for approved bloggers. Request blogger access to create and publish your own blog posts, share your thoughts, and connect with the community.',
+                  textAlign: TextAlign.center,
+                  style: ResponsiveHelper.textStyle(
+                    context,
+                    fontSize: 16,
+                    color: Colors.grey[700],
+                    height: 1.5,
+                  ),
+                ),
+                
+                SizedBox(height: ResponsiveHelper.spacing(context, 24)),
+                
+                // Action Buttons
+                if (isPendingBlogger) ...[
+                  // Pending Blogger - Single button to continue in blogger zone
+                  SizedBox(
+                    width: double.infinity,
+                    height: ResponsiveHelper.buttonHeight(context, mobile: 50),
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        // Don't navigate away - let them stay in blogger zone to view blogs
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        'View Blogs in Blogger Zone',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  // Regular User - Two buttons
+                  Row(
+                    children: [
+                        // Become a Blogger button
+                        Expanded(
+                          child: SizedBox(
+                            height: ResponsiveHelper.buttonHeight(context, mobile: 50),
+                            child: ElevatedButton(
+                              onPressed: hasRequestedBlogger ? null : () async {
+                                Navigator.of(context).pop();
+                                final success = await controller.requestBloggerAccess();
+                                if (success) {
+                                  Get.snackbar(
+                                    'Request Sent',
+                                    'Your blogger request has been sent to admin. You will be notified once approved.',
+                                    backgroundColor: Colors.green,
+                                    colorText: Colors.white,
+                                    duration: const Duration(seconds: 3),
+                                  );
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: hasRequestedBlogger 
+                                    ? Colors.grey[300]
+                                    : AppTheme.iconscolor,
+                                foregroundColor: hasRequestedBlogger 
+                                    ? Colors.grey[600]
+                                    : Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: Text(
+                                hasRequestedBlogger 
+                                    ? 'Request Sent'
+                                    : 'Become a Blogger',
+                                style: ResponsiveHelper.textStyle(
+                                  context,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                        // Go to Dashboard button
+                        Expanded(
+                          child: SizedBox(
+                            height: ResponsiveHelper.buttonHeight(context, mobile: 50),
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                                // Stay in blogger zone - don't navigate away
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.iconscolor,
+                                side: BorderSide(color: AppTheme.iconscolor),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: Text(
+                                'Back',
+                                style: ResponsiveHelper.textStyle(
+                                  context,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.iconscolor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                  if (hasRequestedBlogger) ...[
+                    SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+                    Container(
+                      padding: ResponsiveHelper.padding(context, all: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.blue,
+                            size: 16,
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Please wait for admin approval. You will be notified once your request is reviewed.',
+                              style: ResponsiveHelper.textStyle(
+                                context,
+                                fontSize: 12,
+                                color: Colors.blue[700],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showCustomSnackbar(String title, String message, {bool isError = false}) {
@@ -84,58 +483,32 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
         backgroundColor: Colors.white,
-      appBar: const StandardAppBar(        showBackButton: true,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          onPressed: () {
+            // Navigate back to previous screen or dashboard
+            Get.back();
+          },
+        ),
+        title: Text(
+          'Blogger Zone',
+          style: ResponsiveHelper.textStyle(
+            context,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
+          ),
+        ),
+        centerTitle: true,
       ),
-      body: Obx(() {
-        final isBlogger = controller.userRole.value == 'Blogger';
-        final isActive = controller.userStatus.value == 'Active';
-        final hasPendingRequest = controller.userRole.value == 'PendingBlogger';
-        final isUser = controller.userRole.value == 'User';
-
-        // If user is a regular user or has a pending request, hide the main blog list and show appropriate view
-        if (isUser || hasPendingRequest) {
-          return _buildNonBloggerView(context);
-        }
-
-        // Show blog list for approved bloggers
-        if (isBlogger && isActive) {
-          if (controller.isLoading.value && controller.blogs.isEmpty) {
-            return Center(
-              child: CircularProgressIndicator(
-                color: AppTheme.iconscolor,
-                strokeWidth: ResponsiveHelper.spacing(context, 3),
-              ),
-            );
-          }
-
-          if (controller.blogs.isEmpty) {
-            return _buildEmptyState(context);
-          }
-
-          return RefreshIndicator(
-            onRefresh: () => controller.loadBlogs(refresh: true),
-            color: AppTheme.iconscolor,
-            backgroundColor: Colors.white,
-            child: ListView.builder(
-              padding: ResponsiveHelper.padding(context, vertical: 12),
-              itemCount: controller.blogs.length,
-              itemBuilder: (context, index) {
-                final blog = controller.blogs[index];
-                return _buildSocialMediaBlogCard(context, blog, controller);
-              },
-            ),
-          );
-        }
-        
-        // Default case, should ideally not be reached if all roles are handled
-        return const SizedBox.shrink();
-      }),
+      body: _buildBody(context),
       floatingActionButton: Obx(() {
-        final userRole = controller.userRole.value;
-        final userStatus = controller.userStatus.value;
-
-        // 1. If user is an approved Blogger, show "New Post" button
-        if (userRole == 'Blogger' && userStatus == 'Active') {
+        // Check user role and show appropriate button
+        if (RoleAccessHelper.isActiveBlogger(_userData)) {
+          // Approved blogger - show create blog button
           return FloatingActionButton.extended(
             onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_BLOG),
             backgroundColor: AppTheme.iconscolor,
@@ -165,24 +538,25 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
           );
         }
 
-        // 2. If user has a pending blogger request (including 'PendingBlogger' role), show disabled "Request Sent to Admin" button
-        if (controller.isBloggerRequestPending.value) {
+        // 2. If user is a pending blogger, show disabled "Create Blog (Pending Approval)" button
+        if (RoleAccessHelper.isPendingBlogger(_userData)) {
           return FloatingActionButton.extended(
             onPressed: () {
               _showCustomSnackbar(
-                'Request Sent',
-                'Your blogger request has been sent to admin. You will be a blogger soon!'
+                'Approval Required',
+                'Your blogger request is pending admin approval. You cannot create blogs until approved.',
+                isError: true,
               );
             },
-            backgroundColor: Colors.grey[400],
+            backgroundColor: Colors.orange[400],
             elevation: 4,
             icon: const Icon(
-              Icons.hourglass_empty_rounded,
+              Icons.edit_off_rounded,
               color: Colors.white,
               size: 20,
             ),
             label: const Text(
-              'Request Sent to Admin',
+              'Create Blog (Pending)',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -193,7 +567,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
         }
         
         // 3. If user is a regular 'User', show enabled "Become a Blogger" button
-        if (userRole == 'User') {
+        if (controller.userRole.value == 'User') {
           return FloatingActionButton.extended(
             onPressed: controller.isLoading.value ? null : () async {
               // Request blogger access
@@ -247,7 +621,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
 
   /// Social Media Style Blog Card - Same as home page
   Widget _buildSocialMediaBlogCard(BuildContext context, Map<String, dynamic> blog, BlogsController controller) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final imagePath = blog['image_url'] as String?;
     String? imageUrl;
     if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
@@ -350,7 +724,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
                         if (createdAt != null) ...[
                           const SizedBox(height: 2),
                           Text(
-                            _getTimeAgo(createdAt),
+                            TimeHelper.getTimeAgo(createdAt),
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.grey[600],
@@ -482,44 +856,6 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
     );
   }
   
-  String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return 'Just now';
-    
-    try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      DateTime date;
-      if (!dateString.endsWith('Z')) {
-        date = DateTime.parse('${dateString}Z').toLocal();
-      } else {
-        date = DateTime.parse(dateString).toLocal();
-      }
-      
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
-
-      final difference = now.difference(date);
-      
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
-    } catch (e) {
-      return 'Just now';
-    }
-  }
 
   Widget _buildNonBloggerView(BuildContext context) {
     return Obx(() {
@@ -904,6 +1240,387 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
     );
   }
 
+  Widget _buildBody(BuildContext context) {
+    // Use our new role-based access control
+    if (_isLoadingUserData) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppTheme.iconscolor),
+      );
+    }
+
+    final isBlogger = RoleAccessHelper.isActiveBlogger(_userData);
+    final isPendingBlogger = RoleAccessHelper.isPendingBlogger(_userData);
+    final isRegularUser = RoleAccessHelper.isRegularUser(_userData);
+    
+    print('🔍 [BloggerZone] _buildBody role detection:');
+    print('  - _userData: $_userData');
+    print('  - isBlogger: $isBlogger');
+    print('  - isPendingBlogger: $isPendingBlogger');
+    print('  - isRegularUser: $isRegularUser');
+    print('  - controller.userRole: ${controller.userRole.value}');
+    print('  - controller.blogs.length: ${controller.blogs.length}');
+    print('  - controller.isLoading.value: ${controller.isLoading.value}');
+    
+    // Try to show something regardless of role detection
+    if (controller.blogs.isNotEmpty) {
+      print('🔍 [BloggerZone] Blogs are loaded, showing them regardless of role');
+      return Obx(() {
+        return RefreshIndicator(
+          onRefresh: () => controller.loadBlogs(refresh: true),
+          color: AppTheme.iconscolor,
+          backgroundColor: Colors.white,
+          child: ListView.builder(
+            padding: ResponsiveHelper.padding(context, vertical: 12),
+            itemCount: controller.blogs.length,
+            itemBuilder: (context, index) {
+              final blog = controller.blogs[index];
+              return _buildSocialMediaBlogCard(context, blog, controller);
+            },
+          ),
+        );
+      });
+    }
+
+    // If user is a regular user, show access denied view
+    if (isRegularUser) {
+      return _buildNonBloggerView(context);
+    }
+
+    // If user is a pending blogger, show their pending posts but restrict blog creation
+    if (isPendingBlogger) {
+      return Obx(() {
+        if (controller.isLoading.value && controller.blogs.isEmpty) {
+          return Center(
+            child: CircularProgressIndicator(
+              color: AppTheme.iconscolor,
+              strokeWidth: ResponsiveHelper.spacing(context, 3),
+            ),
+          );
+        }
+
+        if (controller.blogs.isEmpty) {
+          return _buildPendingBloggerEmptyView(context);
+        }
+
+        return Column(
+          children: [
+            // Pending status message
+            Container(
+              width: double.infinity,
+              margin: ResponsiveHelper.padding(context, all: 16),
+              padding: ResponsiveHelper.padding(context, all: 16),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.hourglass_top_rounded,
+                    color: Colors.orange,
+                    size: ResponsiveHelper.iconSize(context, mobile: 24),
+                  ),
+                  SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Blogger Request Pending',
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange,
+                          ),
+                        ),
+                        SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                        Text(
+                          'Your posts are waiting for admin approval. You can view posts but cannot create new ones until approved.',
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: 14,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Blog list
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => controller.loadBlogs(refresh: true),
+                color: AppTheme.iconscolor,
+                backgroundColor: Colors.white,
+                child: ListView.builder(
+                  padding: ResponsiveHelper.padding(context, vertical: 12),
+                  itemCount: controller.blogs.length,
+                  itemBuilder: (context, index) {
+                    final blog = controller.blogs[index];
+                    return _buildSocialMediaBlogCard(context, blog, controller);
+                  },
+                ),
+              ),
+            ),
+          ],
+        );
+      });
+    }
+
+    // Show blog list for approved bloggers - use Obx only where needed
+    if (isBlogger) {
+      return Obx(() {
+        if (controller.isLoading.value && controller.blogs.isEmpty) {
+          return Center(
+            child: CircularProgressIndicator(
+              color: AppTheme.iconscolor,
+              strokeWidth: ResponsiveHelper.spacing(context, 3),
+            ),
+          );
+        }
+
+        if (controller.blogs.isEmpty) {
+          return _buildEmptyState(context);
+        }
+
+        return RefreshIndicator(
+          onRefresh: () => controller.loadBlogs(refresh: true),
+          color: AppTheme.iconscolor,
+          backgroundColor: Colors.white,
+          child: ListView.builder(
+            padding: ResponsiveHelper.padding(context, vertical: 12),
+            itemCount: controller.blogs.length,
+            itemBuilder: (context, index) {
+              final blog = controller.blogs[index];
+              return _buildSocialMediaBlogCard(context, blog, controller);
+            },
+          ),
+        );
+      });
+    }
+
+    // Default case, should ideally not be reached if all roles are handled
+    return const SizedBox.shrink();
+  }
+
+Widget _buildPendingBloggerEmptyView(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: ResponsiveHelper.padding(context, all: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: ResponsiveHelper.padding(context, all: 32),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 25,
+                    spreadRadius: 3,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.hourglass_top_rounded,
+                size: ResponsiveHelper.iconSize(context, mobile: 72, tablet: 80, desktop: 90),
+                color: Colors.orange,
+              ),
+            ),
+            SizedBox(height: ResponsiveHelper.spacing(context, 28)),
+            Text(
+              'No Posts Yet',
+              style: ResponsiveHelper.textStyle(
+                context,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+                letterSpacing: 0.3,
+              ),
+            ),
+            SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+            Text(
+              'Your blogger request is pending approval.\nCreate your first post after admin approval!',
+              textAlign: TextAlign.center,
+              style: ResponsiveHelper.textStyle(
+                context,
+                fontSize: 17,
+                color: Colors.grey[700],
+                height: 1.5,
+              ),
+            ),
+            SizedBox(height: ResponsiveHelper.spacing(context, 32)),
+            Container(
+              padding: ResponsiveHelper.padding(context, all: 24),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+                border: Border.all(
+                  color: Colors.orange.withOpacity(0.2),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 15,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'What you can do while waiting:',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                  _buildFeatureItem('✅', 'View other users\' posts'),
+                  _buildFeatureItem('✅', 'Comment on posts'),
+                  _buildFeatureItem('✅', 'Access all app features'),
+                  _buildFeatureItem('⏳', 'Create posts (after approval)'),
+                  _buildFeatureItem('⏳', 'Publish content (after approval)'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPendingBloggerView(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: ResponsiveHelper.padding(context, horizontal: 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: ResponsiveHelper.spacing(context, 140),
+              height: ResponsiveHelper.spacing(context, 140),
+              decoration: BoxDecoration(
+                color: AppTheme.iconscolor.withOpacity(0.1),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 25,
+                    spreadRadius: 3,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.hourglass_top_rounded,
+                size: ResponsiveHelper.iconSize(context, mobile: 72, tablet: 80, desktop: 90),
+                color: AppTheme.iconscolor,
+              ),
+            ),
+            SizedBox(height: ResponsiveHelper.spacing(context, 28)),
+            Text(
+              'Blogger Request Pending',
+              style: ResponsiveHelper.textStyle(
+                context,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+                letterSpacing: 0.3,
+              ),
+            ),
+            SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+            Text(
+              'Your blogger request is being reviewed by the admin.\nYou will be able to create blogs once approved.',
+              textAlign: TextAlign.center,
+              style: ResponsiveHelper.textStyle(
+                context,
+                fontSize: 17,
+                color: Colors.grey[700],
+                height: 1.5,
+              ),
+            ),
+            SizedBox(height: ResponsiveHelper.spacing(context, 32)),
+            Container(
+              padding: ResponsiveHelper.padding(context, all: 24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
+                border: Border.all(
+                  color: AppTheme.iconscolor.withOpacity(0.2),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 15,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'What you can do while waiting:',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                  _buildFeatureItem('✅', 'Login as Blogger'),
+                  _buildFeatureItem('✅', 'View your profile'),
+                  _buildFeatureItem('✅', 'Access basic app features'),
+                  _buildFeatureItem('⏳', 'Create blogs (after approval)'),
+                  _buildFeatureItem('⏳', 'Publish content (after approval)'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureItem(String icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Text(
+            icon,
+            style: const TextStyle(fontSize: 16),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: ResponsiveHelper.textStyle(
+                context,
+                fontSize: 16,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Blog Content Widget with More/Less functionality
@@ -991,6 +1708,31 @@ class _BlogContentWidgetState extends State<_BlogContentWidget> {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildFeatureItem(String icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Text(
+            icon,
+            style: const TextStyle(fontSize: 16),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: ResponsiveHelper.textStyle(
+                context,
+                fontSize: 14,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

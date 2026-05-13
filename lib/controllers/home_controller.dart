@@ -1,6 +1,6 @@
 import 'package:get/get.dart';
 import 'package:flutter/material.dart';
-import 'package:fruitsofspirit/services/fruits_service.dart';
+import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/prayers_service.dart';
 import 'package:fruitsofspirit/services/blogs_service.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
@@ -16,6 +16,7 @@ import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
+import 'package:fruitsofspirit/services/live_streaming_service.dart';
 
 class HomeController extends GetxController {
   // ScrollController for smooth scrolling
@@ -27,7 +28,7 @@ class HomeController extends GetxController {
   var message = ''.obs;
 
   // Data from database
-  var fruits = <Map<String, dynamic>>[].obs;
+  var fruit = <Map<String, dynamic>>[].obs;
   var prayers = <Map<String, dynamic>>[].obs;
   var blogs = <Map<String, dynamic>>[].obs;
   var videos = <Map<String, dynamic>>[].obs;
@@ -510,7 +511,7 @@ class HomeController extends GetxController {
     print('🏠 HomeController: Setting initial data from external source...');
 
     if (data['fruits'] != null && (data['fruits'] as List).isNotEmpty) {
-      fruits.value = List<Map<String, dynamic>>.from(data['fruits']);
+      fruit.value = List<Map<String, dynamic>>.from(data['fruits']);
     }
     if (data['prayers'] != null && (data['prayers'] as List).isNotEmpty) {
       prayers.value = List<Map<String, dynamic>>.from(data['prayers']);
@@ -537,7 +538,7 @@ class HomeController extends GetxController {
       final emojisList = List<Map<String, dynamic>>.from(data['emojis']);
       
       // Categorize emojis
-      final mainFruitsList = <Map<String, dynamic>>[];
+      final mainFruitList = <Map<String, dynamic>>[];
       final allEmojisList = <Map<String, dynamic>>[];
       final oppositeEmojisList = <Map<String, dynamic>>[];
       final emotionEmojisList = <Map<String, dynamic>>[];
@@ -551,7 +552,7 @@ class HomeController extends GetxController {
         final hasFruitName = fruitNames.any((fruit) => name.contains(fruit));
         
         if (category.toLowerCase().contains('fruit') || category == 'Fruits' || (category.isEmpty && hasFruitName)) {
-          mainFruitsList.add(emoji);
+          mainFruitList.add(emoji);
         } else if (category.toLowerCase().contains('opposite')) {
           oppositeEmojisList.add(emoji);
         } else if (category.toLowerCase().contains('emotion')) {
@@ -559,7 +560,7 @@ class HomeController extends GetxController {
         }
       }
       
-      emojis.value = mainFruitsList;
+      emojis.value = mainFruitList;
       allEmojis.value = allEmojisList;
       oppositeEmojis.value = oppositeEmojisList;
       emotionEmojis.value = emotionEmojisList;
@@ -570,13 +571,13 @@ class HomeController extends GetxController {
     _isDataLoaded = true;
 
     // If we have some data, we can stop initial loading
-    if (fruits.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
+    if (fruit.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
       isInitialLoading.value = false;
       print('✅ HomeController: Initial loading finished (data populated via setInitialData)');
     }
     
     // Refresh UI
-    fruits.refresh();
+    fruit.refresh();
     prayers.refresh();
     blogs.refresh();
   }
@@ -584,7 +585,7 @@ class HomeController extends GetxController {
   /// Initialize data: load from cache first (instant), then refresh in background
   Future<void> _initializeData() async {
     // If data already loaded externally (e.g. from SplashScreen via setInitialData), skip
-    if (_isDataLoaded && (fruits.isNotEmpty || prayers.isNotEmpty)) {
+    if (_isDataLoaded && (fruit.isNotEmpty || prayers.isNotEmpty)) {
       isInitialLoading.value = false;
       print('🏠 HomeController: Data already loaded externally, skipping _initializeData');
       return;
@@ -598,7 +599,7 @@ class HomeController extends GetxController {
       await _loadFromCache();
 
       // If cache has data, hide loading immediately
-      if (fruits.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
+      if (fruit.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
         isInitialLoading.value = false;
         print('✅ Data loaded from cache - showing instantly');
         
@@ -607,6 +608,7 @@ class HomeController extends GetxController {
           print('✅ Background data refresh completed');
         }).catchError((e) {
           print('⚠️ Background refresh error: $e');
+          return null;
         });
       } else {
         // If NO cache, we MUST wait for the API to show something
@@ -626,7 +628,7 @@ class HomeController extends GetxController {
   Future<void> _loadFromCache() async {
     try {
       // Use Hive cache for faster access
-      final cachedFruits = HiveCacheService.getCachedList('home_fruits');
+      final cachedFruit = HiveCacheService.getCachedList('home_fruit');
       final cachedPrayers = HiveCacheService.getCachedList('home_prayers');
       final cachedBlogs = HiveCacheService.getCachedList('home_blogs');
       final cachedVideos = HiveCacheService.getCachedList('home_videos');
@@ -636,8 +638,8 @@ class HomeController extends GetxController {
       final cachedGroups = HiveCacheService.getCachedList('home_groups');
       final cachedEmojis = HiveCacheService.getCachedList('home_emojis');
       
-      if (cachedFruits.isNotEmpty) {
-        fruits.value = cachedFruits;
+      if (cachedFruit.isNotEmpty) {
+        fruit.value = cachedFruit;
       }
       if (cachedPrayers.isNotEmpty) {
         prayers.value = cachedPrayers;
@@ -649,7 +651,12 @@ class HomeController extends GetxController {
         videos.value = cachedVideos;
       }
       if (cachedLiveVideos.isNotEmpty) {
-        liveVideos.value = cachedLiveVideos;
+        // Filter cached data to only show live streams (exclude ended)
+        final onlyLive = cachedLiveVideos.where((s) {
+          final status = (s['status'] ?? '').toString().toLowerCase();
+          return status == 'live';
+        }).toList();
+        liveVideos.value = onlyLive;
       }
       if (cachedGalleryPhotos.isNotEmpty) {
         galleryPhotos.value = cachedGalleryPhotos;
@@ -664,14 +671,14 @@ class HomeController extends GetxController {
         emojis.value = cachedEmojis;
       }
       
-      print('✅ Loaded ${fruits.length} fruits, ${prayers.length} prayers, ${blogs.length} blogs from Hive cache');
+      print('✅ Loaded ${fruit.length} fruit, ${prayers.length} prayers, ${blogs.length} blogs from Hive cache');
     } catch (e) {
       print('⚠️ Error loading from Hive cache: $e');
       // Fallback to old cache service
       try {
       final cachedData = await DataLoadingService.getCachedHomeData();
-      if (cachedData['fruits']?.isNotEmpty == true) {
-        fruits.value = cachedData['fruits'] as List<Map<String, dynamic>>;
+      if (cachedData['fruit']?.isNotEmpty == true) {
+        fruit.value = cachedData['fruit'] as List<Map<String, dynamic>>;
       }
       if (cachedData['prayers']?.isNotEmpty == true) {
         prayers.value = cachedData['prayers'] as List<Map<String, dynamic>>;
@@ -713,7 +720,7 @@ class HomeController extends GetxController {
 
     try {
       // Load all data sequentially instead of parallel to prevent overloading slow servers
-      await loadFruits();
+      await loadFruit();
       await loadPrayers();
       await loadBlogs();
       await loadVideos();
@@ -751,7 +758,7 @@ class HomeController extends GetxController {
   Future<void> _cacheAllData() async {
     try {
       // Use Hive cache for better performance (synchronous, fast)
-      HiveCacheService.cacheList('home_fruits', fruits);
+      HiveCacheService.cacheList('home_fruit', fruit);
       HiveCacheService.cacheList('home_prayers', prayers);
       HiveCacheService.cacheList('home_blogs', blogs);
       HiveCacheService.cacheList('home_videos', videos);
@@ -762,7 +769,7 @@ class HomeController extends GetxController {
       HiveCacheService.cacheList('home_emojis', emojis);
       
       // Also cache in old service for compatibility (async)
-      await CacheService.cacheList('home_fruits', fruits);
+      await CacheService.cacheList('home_fruit', fruit);
       await CacheService.cacheList('home_prayers', prayers);
       await CacheService.cacheList('home_blogs', blogs);
       await CacheService.cacheList('home_videos', videos);
@@ -791,7 +798,7 @@ class HomeController extends GetxController {
       for (int i = 0; i < 3 && i < galleryPhotos.length; i++) {
         final photo = galleryPhotos[i];
         if (photo['file_path'] != null) {
-          criticalUrls.add('https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}');
+          criticalUrls.add('http://admin.fosmessenger.com/${photo['file_path']}');
         }
       }
     }
@@ -801,7 +808,7 @@ class HomeController extends GetxController {
       for (int i = 0; i < 2 && i < blogs.length; i++) {
         final blog = blogs[i];
         if (blog['image_url'] != null) {
-          criticalUrls.add('https://fruitofthespirit.templateforwebsites.com/${blog['image_url']}');
+          criticalUrls.add('http://admin.fosmessenger.com/${blog['image_url']}');
         }
       }
     }
@@ -811,7 +818,7 @@ class HomeController extends GetxController {
       for (int i = 0; i < 2 && i < videos.length; i++) {
         final video = videos[i];
         if (video['file_path'] != null) {
-          criticalUrls.add('https://fruitofthespirit.templateforwebsites.com/${video['file_path']}');
+          criticalUrls.add('http://admin.fosmessenger.com/${video['file_path']}');
         }
       }
     }
@@ -866,22 +873,22 @@ class HomeController extends GetxController {
     );
   }
 
-  /// Load all 9 Fruits of the Spirit from database
-  Future<void> loadFruits() async {
+  /// Load all 9 Fruit of the Spirit from database
+  Future<void> loadFruit() async {
     try {
-      print('🔄 Loading fruits from API...');
-      final fruitsList = await FruitsService.getAllFruits();
-      print('✅ Loaded ${fruitsList.length} fruits from database');
-      for (var i = 0; i < fruitsList.length; i++) {
-        print('   ${i + 1}. ID: ${fruitsList[i]['id']}, Name: ${fruitsList[i]['name']}');
+      print('🔄 Loading fruit from API...');
+      final fruitList = await FruitService.getAllFruit();
+      print('✅ Loaded ${fruitList.length} fruit from database');
+      for (var i = 0; i < fruitList.length; i++) {
+        print('   ${i + 1}. ID: ${fruitList[i]['id']}, Name: ${fruitList[i]['name']}');
       }
-      fruits.value = fruitsList;
-      print('✅ Fruits assigned to controller: ${fruits.length}');
+      fruit.value = fruitList;
+      print('✅ Fruit assigned to controller: ${fruit.length}');
     } catch (e) {
-      print('❌ Error loading fruits: $e');
+      print('❌ Error loading fruit: $e');
       // Keep existing data if available, don't clear on error
-      if (fruits.isEmpty) {
-      fruits.value = [];
+      if (fruit.isEmpty) {
+      fruit.value = [];
       }
     }
   }
@@ -967,11 +974,21 @@ class HomeController extends GetxController {
   /// Load live videos from database
   Future<void> loadLiveVideos() async {
     try {
-      final liveList = await VideosService.getLiveVideos();
-      liveVideos.value = liveList;
-      print('🔴 Live Videos Loaded: ${liveList.length}');
-      for (var video in liveList) {
-        print('   - Live Video: ${video['file_path']}');
+      // Clear cache first to avoid showing old/ended streams
+      await HiveCacheService.clearKey('home_live_videos');
+      await CacheService.clearCache('home_live_videos');
+
+      // Use LiveStreamingService for Agora live streams instead of VideosService
+      final liveList = await LiveStreamingService.getAllLiveStreams();
+      // Filter: only show streams with status 'live' (exclude ended streams)
+      final onlyLive = liveList.where((s) {
+        final status = (s['status'] ?? '').toString().toLowerCase();
+        return status == 'live';
+      }).toList();
+      liveVideos.value = onlyLive;
+      print('🔴 Live Videos Loaded: ${onlyLive.length}');
+      for (var stream in onlyLive) {
+        print('   - Live Stream: ${stream['title']} (${stream['stream_id']})');
       }
     } catch (e) {
       print('Error loading live videos: $e');
@@ -1124,7 +1141,7 @@ class HomeController extends GetxController {
       print('✅ Loaded ${emojisList.length} emojis from database');
       
       // Group emojis by category
-      final mainFruitsList = <Map<String, dynamic>>[];
+      final mainFruitList = <Map<String, dynamic>>[];
       final allEmojisList = <Map<String, dynamic>>[];
       final oppositeEmojisList = <Map<String, dynamic>>[];
       final emotionEmojisList = <Map<String, dynamic>>[];
@@ -1147,17 +1164,17 @@ class HomeController extends GetxController {
         
         // Categorize emojis - check both category and name
         if (category.toLowerCase().contains('fruit') || 
-            category == 'Fruits' || 
+            category == 'Fruit' || 
             (category.isEmpty && hasFruitName)) {
-          mainFruitsList.add(emoji);
+          mainFruitList.add(emoji);
         } else if (category.toLowerCase().contains('opposite')) {
           oppositeEmojisList.add(emoji);
         } else if (category.toLowerCase().contains('emotion')) {
           emotionEmojisList.add(emoji);
         } else if (category.isEmpty) {
-          // Default to main fruits if category is empty and name suggests it's a fruit
+          // Default to main fruit if category is empty and name suggests it's a fruit
           if (hasFruitName) {
-            mainFruitsList.add(emoji);
+            mainFruitList.add(emoji);
           } else {
             // Unknown category - add to all emojis but not to specific categories
             // This prevents empty categories from breaking the UI
@@ -1167,12 +1184,12 @@ class HomeController extends GetxController {
       
       print('📊 Emojis from database:');
       print('   Total emojis: ${emojisList.length}');
-      print('   Main fruits: ${mainFruitsList.length}');
+      print('   Main fruit: ${mainFruitList.length}');
       print('   Opposite emojis: ${oppositeEmojisList.length}');
       print('   Emotion emojis: ${emotionEmojisList.length}');
       
       // Store all emojis
-      emojis.value = mainFruitsList; // Main fruits for carousel
+      emojis.value = mainFruitList; // Main fruit for carousel
       allEmojis.value = allEmojisList; // All emojis for reference
       oppositeEmojis.value = oppositeEmojisList; // Opposite emojis
       emotionEmojis.value = emotionEmojisList; // Emotion emojis
@@ -1199,16 +1216,16 @@ class HomeController extends GetxController {
   /// Create temporary fruit emojis from uploads/emojis folder
   /// This is a fallback when database doesn't have fruit emojis yet
   List<Map<String, dynamic>> _createTemporaryFruitEmojis() {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final emojisBaseUrl = '${baseUrl}uploads/emojis/';
-    
-    // Map of spiritual fruits to physical fruit images from uploads/emojis folder
-    // NOTE: This method is not currently used - fruits are loaded from database via loadEmojis()
+
+    // Map of spiritual fruit to physical fruit images from uploads/emojis folder
+    // NOTE: This method is not currently used - fruit are loaded from database via loadEmojis()
     // All file names should come from database, not hardcoded here
     // IMPORTANT: Only show ONE variant per fruit in carousel to avoid confusion
     // User should see one unique image per fruit, not 3 variants of the same fruit
     final fruitMappings = <Map<String, String>>[];
-    
+
     // Love - Strawberry (using images/Strawberry.png as fallback since strawberry not in emojis folder)
     fruitMappings.add({
       'name': 'Love',
@@ -1217,7 +1234,7 @@ class HomeController extends GetxController {
       'image': '${baseUrl}uploads/images/Strawberry.png',
       'description': 'The strawberry is the fruit of love. Love\'s compatible physical fruit is as sweet as the spiritual fruit. Strawberries, not only look like a fruity heart-shaped valentine, they are filled with unusual phytonutrients that love to promote your health.',
     });
-    
+
     // Joy - Pineapple (from emojis folder - using first available variant)
     fruitMappings.add({
       'name': 'Joy',
@@ -1226,7 +1243,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Kindness_peach_128%20(1).png', // Using available emoji from folder
       'description': 'The pineapple is the fruit of joy. Joy\'s compatible physical fruit is as sweet as the spiritual fruit. Pineapples are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Peace - Watermelon (from emojis folder)
     fruitMappings.add({
       'name': 'Peace',
@@ -1235,7 +1252,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Meekness_grapes_128%20(1).png', // Using available emoji from folder
       'description': 'The watermelon is the fruit of peace. Peace\'s compatible physical fruit is as sweet as the spiritual fruit. Watermelons are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Patience - Lemon (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Patience',
@@ -1244,7 +1261,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Patience_lemon_128%20(1).png', // URL encode space and parentheses
       'description': 'The lemon is the fruit of patience. Patience\'s compatible physical fruit is as sweet as the spiritual fruit. Lemons are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Kindness - Peach (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Kindness',
@@ -1253,7 +1270,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Kindness_peach_128%20(1).png', // URL encode space and parentheses
       'description': 'The peach is the fruit of kindness. Kindness\'s compatible physical fruit is as sweet as the spiritual fruit. Peaches are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Goodness - Load from database (no hardcoded file names)
     // NOTE: This method is not currently used - fruits are loaded from database via loadEmojis()
     // fruitMappings.add({
@@ -1263,7 +1280,7 @@ class HomeController extends GetxController {
     //   'image': '${emojisBaseUrl}Goodness_banana_128%20(1).png', // REMOVED: Hardcoded file name
     //   'description': 'The banana is the fruit of goodness. Goodness\'s compatible physical fruit is as sweet as the spiritual fruit. Bananas are filled with unusual phytonutrients that promote your health.',
     // });
-    
+
     // Faithfulness - Cherry (not available, using goodness banana as fallback)
     fruitMappings.add({
       'name': 'Faithfulness',
@@ -1272,7 +1289,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Goodness_banana_128%20(1).png', // Using available emoji from folder
       'description': 'The cherry is the fruit of faithfulness. Faithfulness\'s compatible physical fruit is as sweet as the spiritual fruit. Cherries are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Meekness/Gentleness - Grapes (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Meekness',
@@ -1281,7 +1298,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Meekness_grapes_128%20(1).png', // URL encode space and parentheses
       'description': 'The grape is the fruit of meekness. Meekness\'s compatible physical fruit is as sweet as the spiritual fruit. Grapes are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Self-Control - Apple (not in emojis folder, using patience lemon as fallback)
     fruitMappings.add({
       'name': 'Self-Control',
@@ -1290,12 +1307,12 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Patience_lemon_128%20(1).png', // Using available emoji from folder
       'description': 'The apple is the fruit of self-control. Self-control\'s compatible physical fruit is as sweet as the spiritual fruit. Apples are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     print('🍎 Created ${fruitMappings.length} unique fruit emojis (one per fruit):');
     for (var i = 0; i < fruitMappings.length; i++) {
       print('   ${i + 1}. ${fruitMappings[i]['name']} - ${fruitMappings[i]['code']} - ${fruitMappings[i]['image']}');
     }
-    
+
     // Convert to emoji format
     return fruitMappings.map((fruit) {
       return {
@@ -1353,6 +1370,18 @@ class HomeController extends GetxController {
         }
       }
       scrollController.dispose();
+      
+      // Clear large data lists to reclaim memory
+      fruit.clear();
+      prayers.clear();
+      blogs.clear();
+      videos.clear();
+      galleryPhotos.clear();
+      stories.clear();
+      groups.clear();
+      emojis.clear();
+      allEmojis.clear();
+      _isDataLoaded = false;
     } catch (e) {
       // Ignore errors during disposal
       // This can happen during hot reload when scroll animation is active

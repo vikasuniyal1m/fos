@@ -32,12 +32,13 @@
 				<string>com.googleusercontent.apps.502290384332-87p73dm2n68fk67pb5bq99vod1kptsmn</string>
 			</array>
 		</dict>
-		<dict/>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>GIDClientID</key>
 	<string>502290384332-87p73dm2n68fk67pb5bq99vod1kptsmn.apps.googleusercontent.com</string>
+	<key>GMSApiKey</key>
+	<string>AIzaSyCDcSdmncce1ok5fgOmtEfkTv0FJitixWQ</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -49,10 +50,14 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to share moments and update your profile picture.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app needs your location to find nearby churches.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs your location to find nearby churches.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>This app needs photo library access to save images to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>This app needs photo library access to share moments and generate video thumbnails.</string>
+	<string>This app needs photo library access to share moments, generate video thumbnails, and update your profile picture.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -82,16 +87,16 @@
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
-		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 </dict>
 </plist>

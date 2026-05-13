@@ -13,11 +13,12 @@ import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/utils/screen_size.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fruitsofspirit/screens/IntroVideoScreen.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
-import 'package:flutter_stripe/flutter_stripe.dart';
+// import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:fruitsofspirit/config/api_config.dart';
 
 import 'bindings/InitialBinding.dart';
@@ -27,6 +28,8 @@ import 'bindings/InitialBinding.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+
 
   // Force the app to stay in portrait mode.
   // Only the Intro Video Overlay is allowed to rotate.
@@ -70,7 +73,7 @@ Future<void> _initializeDependencies() async {
   await HiveCacheService.init();
 
   // Stripe: set key only here; applySettings() runs after first frame so Android theme is applied
-  Stripe.publishableKey = ApiConfig.stripePublishableKey;
+  // Stripe.publishableKey = ApiConfig.stripePublishableKey;
 
   // Pre-initialize Jingle Service (starts pre-caching)
   // Get.put will automatically call onInit() which calls initialize()
@@ -91,14 +94,14 @@ Future<void> _initializeServices() async {
         .catchError((error) {
       debugPrint('⚠️ DeepLinkService initialization failed: $error');
     });
-    
+
     // Initialize Push Notifications with timeout
     await PushNotificationService.initialize()
         .timeout(const Duration(seconds: 5))
         .catchError((error) {
       debugPrint('⚠️ PushNotificationService initialization failed: $error');
     });
-    
+
     // Send pending analytics events (non-blocking)
     AnalyticsService.sendPendingEvents()
         .timeout(const Duration(seconds: 3))
@@ -135,24 +138,24 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        // App is in the foreground - resume any paused operations
+      // App is in the foreground - resume any paused operations
         _handleAppResumed();
         break;
       case AppLifecycleState.inactive:
-        // App is in an inactive state (e.g., phone call, app switcher)
-        // Pause video players temporarily
+      // App is in an inactive state (e.g., phone call, app switcher)
+      // Pause video players temporarily
         _handleAppInactive();
         break;
       case AppLifecycleState.paused:
-        // App is in the background - pause video players and save state
+      // App is in the background - pause video players and save state
         _handleAppPaused();
         break;
       case AppLifecycleState.detached:
-        // App is detached from the Flutter engine (e.g., terminated)
+      // App is detached from the Flutter engine (e.g., terminated)
         _handleAppDetached();
         break;
       case AppLifecycleState.hidden:
-        // App is hidden (e.g., minimized)
+      // App is hidden (e.g., minimized)
         _handleAppHidden();
         break;
     }
@@ -201,66 +204,41 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Initialize Stripe after first frame (Android needs theme applied first)
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try {
-        await Stripe.instance.applySettings();
-      } catch (e) {
-        debugPrint('Stripe init deferred or failed: $e');
-      }
-    });
-    return GetMaterialApp(
-      title: '', // Removed the title to hide the system app bar text
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        // Enable keyboard swipe-down functionality
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        platform: TargetPlatform.iOS,
-        // Set default text input action to Done for all TextFields
-        inputDecorationTheme: const InputDecorationTheme(
-          // You can add other default input decoration settings here
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            // Text button styles
+    // 1. Get initial media query data for responsive design
+    final mediaQueryData = MediaQuery.of(context);
+    final isTablet = mediaQueryData.size.width >= 600;
+
+    return ScreenUtilInit(
+      designSize: isTablet ? const Size(768, 1024) : const Size(375, 812),
+      minTextAdapt: true,
+      splitScreenMode: true,
+      builder: (context, _) {
+        // Initialize ScreenSize utility
+        ScreenSize.init(context);
+        
+        final constrainedTextScaleFactor = MediaQuery.of(context).textScaleFactor.clamp(0.9, 1.3);
+
+        return GetMaterialApp(
+          navigatorKey: Get.key, // CRITICAL: Explicitly set Get's global key
+          title: 'Fruit of the Spirit',
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+            visualDensity: VisualDensity.adaptivePlatformDensity,
+            platform: TargetPlatform.iOS,
           ),
-        ),
-      ),
-      initialBinding: InitialBinding(),
-      localizationsDelegates: context.localizationDelegates,
-      supportedLocales: context.supportedLocales,
-      locale: context.locale,
-      initialRoute: Routes.SPLASH,
-      getPages: AppPages.routes,
-      debugShowCheckedModeBanner: false,
-      builder: (context, child) {
-        // Safe access to MediaQuery
-        final mediaQueryData = MediaQuery.of(context);
-        final isTablet = mediaQueryData.size.width >= 600;
-
-        return ScreenUtilInit(
-          designSize: isTablet ? const Size(768, 1024) : const Size(375, 812),
-          minTextAdapt: true,
-          splitScreenMode: true,
-          builder: (context, _) {
-            // Initialize ScreenSize utility
-            ScreenSize.init(context);
-            
-            // Clamp textScaleFactor for better accessibility
-            final constrainedTextScaleFactor = mediaQueryData.textScaleFactor.clamp(0.9, 1.3);
-
-            // Enable keyboard dismiss by dragging down
-            return GestureDetector(
-              onVerticalDragDown: (_) {
-                // Dismiss keyboard when dragging down anywhere on the screen
-                FocusManager.instance.primaryFocus?.unfocus();
-              },
-              child: MediaQuery(
-                data: mediaQueryData.copyWith(
-                  textScaleFactor: constrainedTextScaleFactor,
-                ),
-                child: child!,
+          initialBinding: InitialBinding(),
+          localizationsDelegates: context.localizationDelegates,
+          supportedLocales: context.supportedLocales,
+          locale: context.locale,
+          initialRoute: Routes.SPLASH,
+          getPages: AppPages.routes,
+          debugShowCheckedModeBanner: false,
+          builder: (context, child) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaleFactor: constrainedTextScaleFactor,
               ),
+              child: child!,
             );
           },
         );

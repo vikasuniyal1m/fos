@@ -1,4 +1,4 @@
-import 'package:fruitsofspirit/services/fruits_service.dart';
+import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/prayers_service.dart';
 import 'package:fruitsofspirit/services/blogs_service.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
@@ -8,8 +8,9 @@ import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/profile_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/cache_service.dart';
+import 'package:fruitsofspirit/services/live_streaming_service.dart';
 import 'package:get/get.dart';
-import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/fruit_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
@@ -21,7 +22,7 @@ import 'package:fruitsofspirit/controllers/home_controller.dart';
 /// Data Loading Service
 /// Handles initial data loading and caching for the app
 class DataLoadingService {
-  static const String _cacheKeyFruits = 'home_fruits';
+  static const String _cacheKeyFruit = 'home_fruit';
   static const String _cacheKeyPrayers = 'home_prayers';
   static const String _cacheKeyBlogs = 'home_blogs';
   static const String _cacheKeyVideos = 'home_videos';
@@ -44,8 +45,8 @@ class DataLoadingService {
       // If preferCache is true, check if we have enough cached data to show instantly
       if (preferCache) {
         final cachedData = await _getAllCachedData();
-        // Check if we have at least fruits in cache
-        final hasCriticalCache = (cachedData['fruits'] as List).isNotEmpty;
+        // Check if we have at least fruit in cache
+        final hasCriticalCache = (cachedData['fruit'] as List).isNotEmpty;
 
         if (hasCriticalCache) {
           print('✅ Found critical home data in cache, returning instantly for fast startup');
@@ -58,6 +59,7 @@ class DataLoadingService {
             print('✅ Background home data refresh completed');
           }).catchError((e) {
             print('⚠️ Background home data refresh failed: $e');
+            return <String, dynamic>{};
           });
 
           return cachedData;
@@ -80,7 +82,7 @@ class DataLoadingService {
 
     // Load all data in parallel with timeout to prevent hanging
     final results = await Future.wait([
-      _loadFruits().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadFruit().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
       _loadPrayers().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
       _loadBlogs().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
       _loadVideos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
@@ -92,7 +94,7 @@ class DataLoadingService {
     ]);
 
     final data = {
-      'fruits': results[0],
+      'fruit': results[0],
       'prayers': results[1],
       'blogs': results[2],
       'videos': results[3],
@@ -115,7 +117,7 @@ class DataLoadingService {
   /// Get all data from cache
   static Future<Map<String, dynamic>> _getAllCachedData() async {
     final results = await Future.wait([
-      CacheService.getCachedList(_cacheKeyFruits),
+      CacheService.getCachedList(_cacheKeyFruit),
       CacheService.getCachedList(_cacheKeyPrayers),
       CacheService.getCachedList(_cacheKeyBlogs),
       CacheService.getCachedList(_cacheKeyVideos),
@@ -126,12 +128,19 @@ class DataLoadingService {
       CacheService.getCachedMap(_cacheKeyProfile),
     ]);
 
+    // Filter cached live videos to exclude ended streams
+    final cachedLiveVideos = results[4] as List<Map<String, dynamic>>;
+    final onlyLive = cachedLiveVideos.where((s) {
+      final status = (s['status'] ?? '').toString().toLowerCase();
+      return status == 'live';
+    }).toList();
+
     return {
-      'fruits': results[0],
+      'fruit': results[0],
       'prayers': results[1],
       'blogs': results[2],
       'videos': results[3],
-      'liveVideos': results[4],
+      'liveVideos': onlyLive,
       'galleryPhotos': results[5],
       'groups': results[6],
       'emojis': results[7],
@@ -142,7 +151,7 @@ class DataLoadingService {
   /// Cache all loaded data
   static Future<void> _cacheAllData(Map<String, dynamic> data) async {
     await Future.wait([
-      CacheService.cacheList(_cacheKeyFruits, data['fruits'] as List<Map<String, dynamic>>),
+      CacheService.cacheList(_cacheKeyFruit, data['fruit'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyPrayers, data['prayers'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyBlogs, data['blogs'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyVideos, data['videos'] as List<Map<String, dynamic>>),
@@ -170,14 +179,14 @@ class DataLoadingService {
     }
   }
 
-  /// Load fruits
-  static Future<List<Map<String, dynamic>>> _loadFruits() async {
+  /// Load fruit
+  static Future<List<Map<String, dynamic>>> _loadFruit() async {
     try {
-      final fruitsList = await FruitsService.getAllFruits();
-      print('✅ Loaded ${fruitsList.length} fruits');
-      return fruitsList;
+      final fruitList = await FruitService.getAllFruit();
+      print('✅ Loaded ${fruitList.length} fruit');
+      return fruitList;
     } catch (e) {
-      print('❌ Error loading fruits: $e');
+      print('❌ Error loading fruit: $e');
       return [];
     }
   }
@@ -230,9 +239,15 @@ class DataLoadingService {
   /// Load live videos
   static Future<List<Map<String, dynamic>>> _loadLiveVideos() async {
     try {
-      final liveList = await VideosService.getLiveVideos();
-      print('✅ Loaded ${liveList.length} live videos');
-      return liveList;
+      // Use LiveStreamingService for Agora live streams instead of VideosService
+      final liveList = await LiveStreamingService.getAllLiveStreams();
+      // Filter: only show streams with status 'live' (exclude ended streams)
+      final onlyLive = liveList.where((s) {
+        final status = (s['status'] ?? '').toString().toLowerCase();
+        return status == 'live';
+      }).toList();
+      print('✅ Loaded ${onlyLive.length} live videos');
+      return onlyLive;
     } catch (e) {
       print('❌ Error loading live videos: $e');
       return [];
@@ -317,7 +332,7 @@ class DataLoadingService {
   /// Get cached home data
   static Future<Map<String, dynamic>> getCachedHomeData() async {
     final cached = {
-      'fruits': await CacheService.getCachedList(_cacheKeyFruits),
+      'fruit': await CacheService.getCachedList(_cacheKeyFruit),
       'prayers': await CacheService.getCachedList(_cacheKeyPrayers),
       'blogs': await CacheService.getCachedList(_cacheKeyBlogs),
       'videos': await CacheService.getCachedList(_cacheKeyVideos),
@@ -334,7 +349,7 @@ class DataLoadingService {
   static Future<bool> isHomeDataCached() async {
     final cached = await getCachedHomeData();
     // Check if at least some data is cached
-    return cached['fruits']?.isNotEmpty == true ||
+    return cached['fruit']?.isNotEmpty == true ||
            cached['prayers']?.isNotEmpty == true ||
            cached['blogs']?.isNotEmpty == true;
   }
@@ -342,8 +357,8 @@ class DataLoadingService {
   /// Force refresh data in GetX controllers if they are already initialized
   static void _refreshControllers(Map<String, dynamic> data) {
     try {
-      if (Get.isRegistered<FruitsController>()) {
-        Get.find<FruitsController>().setInitialData(data['fruits']);
+      if (Get.isRegistered<FruitController>()) {
+        Get.find<FruitController>().setInitialData(data['fruit']);
       }
       if (Get.isRegistered<PrayersController>()) {
         Get.find<PrayersController>().setInitialData(data['prayers']);

@@ -129,6 +129,33 @@ class PrayersController extends GetxController {
         } catch (e) {
           print('Error loading pending prayers: $e');
         }
+
+        // Load prayers shared with current user
+        try {
+          final sharedPrayers = await PrayersService.getPrayers(
+            status: 'Approved',
+            category: null,
+            limit: 20,
+            offset: 0,
+            currentUserId: userId.value > 0 ? userId.value : null,
+          );
+
+          // Filter to only include prayers where current user is in shared_with
+          final prayersSharedWithMe = sharedPrayers.where((prayer) {
+            final sharedWith = prayer['shared_with'] as String? ?? '';
+            if (sharedWith.isEmpty) return false;
+            final sharedUserIds = sharedWith.split(',').map((id) => int.tryParse(id.trim()) ?? 0).toList();
+            return sharedUserIds.contains(userId.value);
+          }).toList();
+
+          if (prayersSharedWithMe.isNotEmpty) {
+            // Add shared prayers at the beginning after pending prayers
+            allPrayers.insertAll(0, prayersSharedWithMe);
+            print('🙏 Prayers Shared with Me Loaded: ${prayersSharedWithMe.length}');
+          }
+        } catch (e) {
+          print('Error loading shared prayers: $e');
+        }
       }
 
       print('🙏 Total Prayers Loaded: ${allPrayers.length} (Approved: ${approvedPrayers.length})');
@@ -275,40 +302,41 @@ class PrayersController extends GetxController {
           print('✅ Found emoji reaction (fruit keyword): $emojiKey');
         }
 
-        if (isEmojiReaction && emojiKey != null) {
-          // It's an emoji reaction - store user information
-          if (!emojiReactions.containsKey(emojiKey)) {
-            emojiReactions[emojiKey] = [];
-          }
-          // Add user info for this reaction
-          emojiReactions[emojiKey]!.add({
-            'user_id': comment['user_id'],
-            'user_name': comment['user_name'] ?? 'Anonymous',
-            'profile_photo': comment['profile_photo'],
-            'created_at': comment['created_at'],
-          });
-          print('✅ Added emoji reaction: $emojiKey by ${comment['user_name']} (total: ${emojiReactions[emojiKey]!.length})');
-        } else {
-          // It's a text comment - add to text comments list
-          // Only add top-level comments (replies are nested in 'replies' array)
-          if (parentId == null || parentId == 0) {
-            // Check if replies array exists and log it
-            final replies = comment['replies'];
-            final replyCount = replies != null ? (replies as List).length : 0;
-            print('📝 Found top-level comment: id=$commentId, replies=$replyCount');
-            if (replyCount > 0) {
-              print('   ✅ Replies found in replies array:');
-              for (var i = 0; i < (replies as List).length; i++) {
-                final reply = (replies as List)[i];
-                print('      - Reply ${i + 1}: id=${reply['id']}, content=${(reply['content'] as String? ?? '').substring(0, (reply['content'] as String? ?? '').length > 30 ? 30 : (reply['content'] as String? ?? '').length)}...');
-              }
-            } else {
-              print('   ⚠️ No replies in replies array (might be empty or null)');
+        // FIX: Add ALL top-level comments to textComments (including emoji comments)
+        // Emoji reactions and emoji comments are both stored in comments table
+        // The UI (FruitEmojiHelper.buildCommentText) will render emoji URLs as images
+        if (parentId == null || parentId == 0) {
+          // Check if replies array exists and log it
+          final replies = comment['replies'];
+          final replyCount = replies != null ? (replies as List).length : 0;
+          print('📝 Found top-level comment: id=$commentId, replies=$replyCount, content="${trimmed.substring(0, trimmed.length > 30 ? 30 : trimmed.length)}..."');
+          if (replyCount > 0) {
+            print('   ✅ Replies found in replies array:');
+            for (var i = 0; i < (replies as List).length; i++) {
+              final reply = (replies as List)[i];
+              print('      - Reply ${i + 1}: id=${reply['id']}, content=${(reply['content'] as String? ?? '').substring(0, (reply['content'] as String? ?? '').length > 30 ? 30 : (reply['content'] as String? ?? '').length)}...');
             }
-            textComments.add(comment);
-          } else {
-            print('⏭️ Skipping reply (will be shown in parent comment): id=$commentId, parent=$parentId');
           }
+          
+          // ✅ ADD TO COMMENTS LIST (including emoji comments)
+          textComments.add(comment);
+          print('✅ Added to prayerComments: id=$commentId, isEmoji=$isEmojiReaction');
+          
+          // Also track emoji reactions separately for the reactions bar (if it's an emoji)
+          if (isEmojiReaction && emojiKey != null) {
+            if (!emojiReactions.containsKey(emojiKey)) {
+              emojiReactions[emojiKey] = [];
+            }
+            emojiReactions[emojiKey]!.add({
+              'user_id': comment['user_id'],
+              'user_name': comment['user_name'] ?? 'Anonymous',
+              'profile_photo': comment['profile_photo'],
+              'created_at': comment['created_at'],
+            });
+            print('✅ Also added to emojiReactions: $emojiKey by ${comment['user_name']}');
+          }
+        } else {
+          print('⏭️ Skipping reply (will be shown in parent comment): id=$commentId, parent=$parentId');
         }
       }
       
@@ -888,6 +916,16 @@ class PrayersController extends GetxController {
   void _showModerationSnackbar(String message) {
     // This method is now just a placeholder - moderation messages will be shown through the UI layer's _showCustomSnackbar
     this.message.value = message;
+  }
+
+  @override
+  void onClose() {
+    prayers.clear();
+    _allPrayers.clear();
+    prayerComments.clear();
+    prayerEmojiReactions.clear();
+    _isDataLoaded = false;
+    super.onClose();
   }
 }
 

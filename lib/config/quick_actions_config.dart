@@ -43,21 +43,31 @@ class QuickActionsConfig {
         icon: Icons.spa,
         iconColor: const Color(0xFF5F4628), // Dark brown
         backgroundColor: const Color(0xFF5F4628).withOpacity(0.1), // Light dark brown background
-        label: 'Fruits of Spirit',
-        route: Routes.FRUITS,
-        description: 'Explore fruits of the spirit',
+        label: 'Fruit of the Spirit',
+        route: Routes.FRUIT,
+        description: 'Explore fruit of the spirit',
         imagePath: 'assets/healthy-food.png', // PNG image from assets
       ),
-      /*QuickAction(
-        id: 'live',
-        icon: Icons.live_tv,
-        iconColor: Colors.red,
-        backgroundColor: Colors.red.withOpacity(0.1),
-        label: 'LIVE',
-        route: Routes.LIVE,
-        description: 'Watch live streams',
-        imagePath: 'assets/live.png', // Placeholder, check if asset exists
-      ),*/
+      QuickAction(
+        id: 'denominations',
+        icon: Icons.menu_book,
+        iconColor: const Color(0xFF8B4513), // Theme brown
+        backgroundColor: const Color(0xFF8B4513).withOpacity(0.08),
+        label: 'Denominations',
+        route: Routes.DENOMINATIONS,
+        description: 'Explore spiritual traditions',
+        imagePath: 'assets/reading-book.png',
+      ),
+      QuickAction(
+        id: 'church_locator',
+        icon: Icons.map,
+        iconColor: const Color(0xFF5F4628), // Dark brown
+        backgroundColor: const Color(0xFF5F4628).withOpacity(0.08),
+        label: 'Church Locator',
+        route: Routes.CHURCH_LOCATOR,
+        description: 'Find churches near you',
+        imagePath: 'assets/place.png',
+      ),
     ];
   }
 

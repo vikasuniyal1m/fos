@@ -208,6 +208,26 @@ class NotificationsScreen extends GetView<NotificationsController> {
         return Icons.favorite;
       case 'prayer_reminder':
         return Icons.access_time;
+      case 'prayer_shared':
+        return Icons.share;
+      case 'prayer_tagged_user':
+        return Icons.person;
+      case 'prayer_tagged_group':
+        return Icons.group;
+      case 'live_stream_started':
+        return Icons.videocam;
+      case 'post_commented':
+        return Icons.comment;
+      case 'comment_reply':
+        return Icons.reply;
+      case 'comment_liked':
+        return Icons.thumb_up;
+      case 'post_liked':
+        return Icons.favorite;
+      case 'group_message':
+        return Icons.group;
+      case 'user_followed':
+        return Icons.person_add;
       case 'blog':
         return Icons.article;
       case 'video':

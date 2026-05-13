@@ -24,7 +24,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   final descriptionController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   File? selectedImage;
-  String selectedCategory = 'Love';
+  String? selectedCategory;
   bool _isSubmitting = false; // Loading state
 
   @override
@@ -230,7 +230,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             
             // Category
             Text(
-              'Category *',
+              'Category (Optional)',
               style: ResponsiveHelper.textStyle(
                 context,
                 fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 19, desktop: 20),
@@ -242,6 +242,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             DropdownButtonFormField<String>(
               value: selectedCategory,
               decoration: InputDecoration(
+                hintText: 'Select category (optional)',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
                   borderSide: BorderSide(color: Colors.grey.withOpacity(0.3), width: 1.5),
@@ -259,30 +260,42 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                 contentPadding: ResponsiveHelper.padding(context, all: 16),
               ),
               items: [
-                    'Love',
-                    'Joy',
-                    'Peace',
-                    'Patience',
-                    'Kindness',
-                    'Goodness',
-                    'Faithfulness',
-                    'Gentleness',
-                    'Self-Control'
-                  ]
-                  .map((category) => DropdownMenuItem(
-                        value: category,
-                        child: Text(
-                          category,
-                          style: TextStyle(
-                            fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                            color: Colors.black87,
-                          ),
+                DropdownMenuItem(
+                  value: null,
+                  child: Text(
+                    'None',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ),
+                ...[
+                  'Love',
+                  'Joy',
+                  'Peace',
+                  'Patience',
+                  'Kindness',
+                  'Goodness',
+                  'Faithfulness',
+                  'Gentleness',
+                  'Self-Control'
+                ]
+                .map((category) => DropdownMenuItem(
+                      value: category,
+                      child: Text(
+                        category,
+                        style: TextStyle(
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                          color: Colors.black87,
                         ),
-                      ))
-                  .toList(),
+                      ),
+                    ))
+                .toList()
+              ],
               onChanged: (value) {
                 setState(() {
-                  selectedCategory = value!;
+                  selectedCategory = value;
                 });
               },
               style: ResponsiveHelper.textStyle(
@@ -388,7 +401,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                             description: descriptionController.text.trim().isEmpty
                                 ? null
                                 : descriptionController.text.trim(),
-                            category: selectedCategory,
+                            category: selectedCategory ?? '',
                             groupImage: selectedImage,
                           );
 

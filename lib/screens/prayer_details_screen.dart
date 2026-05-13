@@ -6,13 +6,23 @@ import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/utils/image_helper.dart';
+import 'package:fruitsofspirit/widgets/see_translation_widget.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
-import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
+import 'package:fruitsofspirit/widgets/emoji_button.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/widgets/emoji_sticker_picker.dart';
+import 'package:fruitsofspirit/services/prayers_service.dart'; // edit feature
+import 'package:fruitsofspirit/services/comments_service.dart'; // edit feature
+import 'package:fruitsofspirit/services/user_blocking_service.dart';
+import 'package:fruitsofspirit/utils/report_utils.dart';
+import 'package:fruitsofspirit/utils/sticker_emoji_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
+
+import 'home_screen.dart';
 
 /// Prayer Details Screen
 /// Professional, user-friendly design with attractive UI and Facebook-like comment threads
@@ -21,6 +31,15 @@ class PrayerDetailsScreen extends StatefulWidget {
 
   @override
   State<PrayerDetailsScreen> createState() => _PrayerDetailsScreenState();
+}
+
+// Message model for proper text/sticker separation (reusable from blog_details_screen)
+class CommentMessage {
+  final String? text;
+  final String? stickerId;
+  final bool isSticker;
+
+  CommentMessage({this.text, this.stickerId, required this.isSticker});
 }
 
 class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
@@ -32,8 +51,97 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   final commentController = TextEditingController();
   final scrollController = ScrollController();
   int? currentUserId;
+  String? userEmail;
   bool _isSending = false;
   final Set<int> _sendingReplies = {};
+  // Rich text input messages (text + stickers) like blog_details_screen
+  final List<CommentMessage> commentMessages = [];
+  // edit feature: Comment edit state
+  final editControllers = <int, TextEditingController>{}; // edit feature
+  final showEditInput = <int, bool>{}; // edit feature
+  var isEditingComment = false.obs; // edit feature
+  // edit feature: Post edit state
+  final postEditContentController = TextEditingController(); // edit feature
+  final postEditCategoryController = TextEditingController(); // edit feature
+  var showPostEditInput = false.obs; // edit feature
+  var isEditingPost = false.obs; // edit feature
+
+  /// Build rich text input that can display both text and sticker messages (from blog_details_screen)
+  Widget _buildRichTextInput() {
+    return Container(
+      padding: ResponsiveHelper.padding(context, horizontal: 8, vertical: 8),
+      child: Row(
+        children: [
+          // Display all sticker messages as images
+          ...commentMessages.map((message) => _buildCommentMessage(message)).toList(),
+          // Text input field for regular text
+          Expanded(
+            child: TextField(
+              controller: commentController,
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                hintText: commentMessages.isEmpty ? 'Write a comment...' : '',
+                hintStyle: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: 15,
+                  color: Colors.grey[500],
+                ),
+              ),
+              style: ResponsiveHelper.textStyle(context, fontSize: 15),
+              maxLines: null,
+              onChanged: (value) {
+                setState(() {});
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build message widget that properly renders text vs stickers (from blog_details_screen)
+  Widget _buildCommentMessage(CommentMessage message) {
+    if (message.isSticker) {
+      // Return sticker widget
+      return StickerEmojiHelper.buildStickerWidget(message.stickerId ?? '', size: 40);
+    } else {
+      // Return text widget
+      return Text(
+        message.text ?? '',
+        style: ResponsiveHelper.textStyle(context, fontSize: 15),
+      );
+    }
+  }
+
+  /// Show emoji picker for prayer comments - sends emoji directly without showing in input field
+  void _showEmojiPicker(BuildContext context, int prayerId, TextEditingController controller) {
+    showEmojiStickerPicker(
+      context: context,
+      onEmojiSelected: (emoji) async {
+        // Send emoji directly as comment - no preview in text field!
+        await _sendEmojiDirectly(prayerId, emoji);
+      },
+      height: 350,
+    );
+  }
+
+  /// Send emoji/sticker directly as comment without showing in input field
+  Future<void> _sendEmojiDirectly(int prayerId, String emoji) async {
+    if (emoji.isEmpty) return;
+
+    FocusScope.of(context).unfocus();
+
+    try {
+      final success = await controller.addComment(prayerId, emoji);
+      if (success) {
+        commentController.clear();
+        // Reload prayer details to show new comment
+        await controller.loadPrayerDetails(prayerId);
+      }
+    } catch (e) {
+      print('Error sending emoji comment: $e');
+    }
+  }
 
   void _showCustomSnackbar(BuildContext context, String title, String message, {bool isError = false, bool isModeration = false}) {
     if (!mounted) return;
@@ -91,15 +199,24 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   void initState() {
     super.initState();
     _loadCurrentUserId();
+    _loadUserEmail();
   }
+
 
   Future<void> _loadCurrentUserId() async {
     final user = await UserStorage.getUser();
     if (user != null) {
-      setState(() {
-        currentUserId = user['id'] as int?;
-      });
+      final id = user['id'];
+      if (id is int) {
+        setState(() {
+          currentUserId = id;
+        });
+      }
     }
+  }
+
+  Future<void> _loadUserEmail() async {
+    userEmail = await UserStorage.getUserEmail();
   }
 
   @override
@@ -112,51 +229,459 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
     for (var focusNode in replyFocusNodes.values) {
       focusNode.dispose();
     }
+    // edit feature: Dispose comment edit controllers
+    for (var controller in editControllers.values) { // edit feature
+      controller.dispose(); // edit feature
+    } // edit feature
+    // edit feature: Dispose post edit controllers
+    postEditContentController.dispose(); // edit feature
+    postEditCategoryController.dispose(); // edit feature
     super.dispose();
   }
 
-  /// Format time ago
-  String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return 'Just now';
-    
+  
+  /// Get India time (IST) from timestamp
+  String _getIndiaTime(String? dateString) {
+    if (dateString == null || dateString.isEmpty) return '';
+
     try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      // Appending 'Z' tells Dart to parse this as UTC, then we convert to Local.
-      // This fixes the "5 hours ago" issue (UTC vs IST difference).
       DateTime date;
-      if (!dateString.endsWith('Z')) {
-        date = DateTime.parse('${dateString}Z').toLocal();
+      // Handle different timestamp formats
+      if (dateString.contains('T')) {
+        // ISO 8601 format
+        date = DateTime.parse(dateString);
       } else {
-        date = DateTime.parse(dateString).toLocal();
+        // Try parsing as standard MySQL datetime format
+        date = DateTime.parse('${dateString}Z');
       }
-      
-      // If date is in the future (due to clock skew), clamp to now
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
-      
-      final difference = now.difference(date);
-      
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
+
+      // Convert to India time (IST = UTC+5:30)
+      final indiaTimeZone = Duration(hours: 5, minutes: 30);
+      final indiaTime = date.toUtc().add(indiaTimeZone);
+
+      // Format as HH:MM AM/PM
+      final hour = indiaTime.hour;
+      final minute = indiaTime.minute;
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+      final displayMinute = minute.toString().padLeft(2, '0');
+
+      return '$displayHour:$displayMinute $period IST';
     } catch (e) {
-      return 'Just now';
+      return '';
     }
   }
+
+  // edit feature: Configurable edit time window in minutes
+  static const int _editTimeWindowMinutes = 15; // edit feature
+
+  // edit feature: Check if prayer can be edited (always allow editing)
+  bool _canEditPost(Map<String, dynamic> prayer) { // edit feature
+    print('🔍 Edit check - always allowing editing'); // debug
+    return true; // edit feature: Always allow editing
+  } // edit feature
+
+  // edit feature: Check if comment can be edited (within 15 minutes only)
+  bool _canEditComment(Map<String, dynamic> comment) { // edit feature
+    print('🔍 Edit check - created_at: ${comment['created_at']}'); // debug
+    
+    // Check if user is logged in
+    if (currentUserId == null || currentUserId == 0) { // edit feature
+      print('❌ Edit blocked: user not logged in'); // debug
+      return false; // edit feature
+    } // edit feature
+    
+    // Check if comment belongs to current user
+    final commentUserId = comment['user_id']; // edit feature
+    if (commentUserId == null || commentUserId.toString() != currentUserId.toString()) { // edit feature
+      print('❌ Edit blocked: comment belongs to user $commentUserId, current user is $currentUserId'); // debug
+      return false; // edit feature
+    } // edit feature
+    
+    if (comment['created_at'] == null) { // edit feature
+      print('❌ Edit blocked: created_at is null'); // debug
+      return false; // edit feature
+    } // edit feature
+    try { // edit feature
+      // CRITICAL FIX: Use same logic as TimeHelper.getTimeAgo for consistency
+      String formattedDate = comment['created_at'].toString();
+      if (!formattedDate.contains('Z') && !formattedDate.contains('+')) {
+        formattedDate = formattedDate.replaceAll(' ', 'T') + 'Z';
+      }
+
+      // Use SAME logic as backend for consistency
+      DateTime serverTimeUtc = DateTime.parse(formattedDate).toUtc();
+      serverTimeUtc = serverTimeUtc.add(const Duration(hours: 4)); // 4-hour fix (same as backend)
+      
+      // Get current UTC time (same as backend)
+      DateTime nowUtc = DateTime.now().toUtc();
+      
+      // Calculate difference in UTC (same as backend)
+      final difference = nowUtc.difference(serverTimeUtc);
+      final canEdit = difference.inMinutes < _editTimeWindowMinutes; // edit feature: Check 15-minute window
+      
+      print('  - Backend UTC time (with 4hr fix): $serverTimeUtc'); // debug
+      print('  - Current UTC time: $nowUtc'); // debug
+      print('  - UTC difference: ${difference.inMinutes} minutes'); // debug
+      print('  - Backend logic applied: UTC difference calculation'); // debug
+      print('🕐 Prayer Time check (UTC): ${difference.inMinutes} minutes, canEdit: $canEdit'); // debug
+      print('🌍 Prayer Device timezone: ${DateTime.now().timeZoneName} (${DateTime.now().timeZoneOffset})'); // debug
+      
+      // CRITICAL DEBUG: Show exact frontend calculation to compare with backend
+      print('🔍 FRONTEND TIME CALCULATION DEBUG:'); // debug
+      print('   - Raw created_at: ${comment['created_at']}'); // debug
+      print('   - Formatted date: $formattedDate'); // debug
+      print('   - Server time UTC (fixed): $serverTimeUtc'); // debug
+      print('   - Current UTC: $nowUtc'); // debug
+      print('   - Frontend minutes diff: ${difference.inMinutes}'); // debug
+      print('   - Frontend canEdit: $canEdit'); // debug
+      print('🔍 FRONTEND DEBUG COMPLETE'); // debug
+      
+      // CRITICAL: If difference is more than 60 minutes, it means backend time is wrong
+      if (difference.inMinutes > 60) {
+        print('⚠️ WARNING: Time difference too large (${difference.inMinutes} minutes), backend timestamp may be incorrect'); // debug
+      }
+      return canEdit; // edit feature
+    } catch (e) { // edit feature
+      print('❌ Edit blocked: date parsing error - $e'); // debug
+      return false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Build edit button widget
+  Widget _buildEditButton(BuildContext context, Map<String, dynamic> comment, int prayerId) { // edit feature
+    print('🔨 _buildEditButton called for comment ${comment['id']}'); // debug
+    if (!_canEditComment(comment)) return const SizedBox.shrink(); // edit feature
+    print('✅ Edit button will be shown for comment ${comment['id']}'); // debug
+    final commentId = comment['id'] as int; // edit feature
+
+    return InkWell( // edit feature
+      onTap: () { // edit feature
+        setState(() { // edit feature
+          if (!editControllers.containsKey(commentId)) { // edit feature
+            // Get the raw comment content
+            final rawContent = (comment['comment'] as String? ?? comment['content'] as String? ?? '').trim();
+            print('📝 Edit - Raw content: "$rawContent"');
+
+            // If content is an image URL, don't show it in the edit field (it's an emoji/sticker)
+            // Only show text content for editing
+            String editContent = rawContent;
+            if (rawContent.startsWith('http') && (rawContent.contains('.png') || rawContent.contains('.jpg') || rawContent.contains('.jpeg'))) {
+              // It's an image URL - show empty for editing (user can't edit emojis)
+              editContent = '';
+              print('📝 Edit - Content is image URL, clearing for edit');
+            }
+
+            editControllers[commentId] = TextEditingController(
+              text: editContent,
+            ); // edit feature
+          } // edit feature
+          showEditInput[commentId] = !(showEditInput[commentId] ?? false); // edit feature
+        }); // edit feature
+      }, // edit feature
+      child: Row( // edit feature
+        children: [ // edit feature
+          Icon( // edit feature
+            Icons.edit, // edit feature
+            size: ResponsiveHelper.iconSize(context, mobile: 18), // edit feature
+            color: Colors.orange, // edit feature: Orange like reply button
+          ), // edit feature
+          SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+          Text( // edit feature
+            'Edit', // edit feature
+            style: ResponsiveHelper.textStyle( // edit feature
+              context, // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13), // edit feature
+              color: Colors.orange, // edit feature: Orange like reply button
+            ), // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Build edit input widget
+  Widget _buildEditInput(BuildContext context, int commentId, int prayerId, String postType) { // edit feature
+    if (!editControllers.containsKey(commentId)) { // edit feature
+      editControllers[commentId] = TextEditingController(); // edit feature
+    } // edit feature
+    final editController = editControllers[commentId]!; // edit feature
+
+    return Container( // edit feature
+      padding: ResponsiveHelper.padding(context, all: 12), // edit feature
+      decoration: BoxDecoration( // edit feature
+        color: const Color(0xFFE3F2FD), // edit feature
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+        border: Border.all( // edit feature
+          color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+          width: 1.5, // edit feature
+        ), // edit feature
+      ), // edit feature
+      child: Column( // edit feature
+        crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+        children: [ // edit feature
+          Text( // edit feature
+            'Edit Comment', // edit feature
+            style: ResponsiveHelper.textStyle( // edit feature
+              context, // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 14), // edit feature
+              fontWeight: FontWeight.bold, // edit feature
+              color: const Color(0xFF1565C0), // edit feature
+            ), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          TextField( // edit feature
+            controller: editController, // edit feature
+            maxLines: 3, // edit feature
+            decoration: InputDecoration( // edit feature
+              border: OutlineInputBorder( // edit feature
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+              ), // edit feature
+              contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8), // edit feature
+            ), // edit feature
+            style: TextStyle(fontSize: 13), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          Row( // edit feature
+            mainAxisAlignment: MainAxisAlignment.end, // edit feature
+            children: [ // edit feature
+              TextButton( // edit feature
+                onPressed: () { // edit feature
+                  setState(() { // edit feature
+                    showEditInput[commentId] = false; // edit feature
+                  }); // edit feature
+                }, // edit feature
+                child: Text( // edit feature
+                  'Cancel', // edit feature
+                  style: ResponsiveHelper.textStyle( // edit feature
+                    context, // edit feature
+                    fontSize: 12, // edit feature
+                    color: Colors.grey[600], // edit feature
+                  ), // edit feature
+                ), // edit feature
+              ), // edit feature
+              SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+              ElevatedButton( // edit feature
+                onPressed: () => _editComment(context, commentId, prayerId, postType), // edit feature
+                style: ElevatedButton.styleFrom( // edit feature
+                  backgroundColor: const Color(0xFF2196F3), // edit feature
+                  padding: ResponsiveHelper.padding( // edit feature
+                    context, // edit feature
+                    horizontal: 16, // edit feature
+                    vertical: 8, // edit feature
+                  ), // edit feature
+                ), // edit feature
+                child: Obx(() => isEditingComment.value // edit feature
+                    ? SizedBox( // edit feature
+                        width: 16, // edit feature
+                        height: 16, // edit feature
+                        child: CircularProgressIndicator( // edit feature
+                          strokeWidth: 2, // edit feature
+                          color: Colors.white, // edit feature
+                        ), // edit feature
+                      ) // edit feature
+                    : Text( // edit feature
+                        'Save', // edit feature
+                        style: TextStyle(fontSize: 12, color: Colors.white), // edit feature
+                      )), // edit feature
+              ), // edit feature
+            ], // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Edit comment method
+  Future<void> _editComment(BuildContext context, int commentId, int prayerId, String postType) async { // edit feature
+    // CRITICAL DEBUG: Save button click tracking
+    print('🔍 SAVE BUTTON DEBUG - START ANALYSIS'); // debug
+    print('🔍 Save button clicked for comment ID: $commentId'); // debug
+    print('🔍 Prayer ID: $prayerId, Post Type: $postType'); // debug
+    print('🔍 Current User ID: $currentUserId'); // debug
+    
+    final editController = editControllers[commentId];
+    if (editController == null) {
+      print('❌ SAVE ERROR: Edit controller not found for comment $commentId'); // debug
+      return;
+    }
+
+    final content = editController.text.trim();
+    print('🔍 Edit content: "$content"'); // debug
+    
+    if (content.isEmpty) {
+      print('❌ SAVE ERROR: Content is empty'); // debug
+      ScaffoldMessenger.of(context).showSnackBar( // edit feature
+        SnackBar( // edit feature
+          content: Text('Comment cannot be empty'), // edit feature
+          backgroundColor: Colors.red, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (currentUserId == null || currentUserId == 0) { // edit feature
+      print('❌ SAVE ERROR: User not logged in (currentUserId: $currentUserId)'); // debug
+      ScaffoldMessenger.of(context).showSnackBar( // edit feature
+        SnackBar( // edit feature
+          content: Text('Please login first'), // edit feature
+          backgroundColor: Colors.red, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+    
+    print('✅ SAVE PRE-CHECKS PASSED - Proceeding with API call'); // debug
+
+    // edit feature: Time window check removed - always allow editing
+    // final comment = controller.prayerComments.firstWhereOrNull((c) => c['id'] == commentId);
+    // if (comment != null && comment['created_at'] != null) { // edit feature
+    //   try { // edit feature
+    //     final date = DateTime.parse(comment['created_at'] as String); // edit feature: Use real local time
+    //     final date = DateTime.parse(comment['created_at'] as String); // edit feature
+    //     final now = _getCurrentTime(); // edit feature: Use configured time zone
+    //     final difference = now.difference(date); // edit feature
+    //     if (difference.inMinutes >= _editTimeWindowMinutes) { // edit feature
+    //       ScaffoldMessenger.of(context).showSnackBar( // edit feature
+    //         SnackBar( // edit feature
+    //           content: Text('Comments can only be edited within $_editTimeWindowMinutes minutes of posting'), // edit feature
+    //           backgroundColor: Colors.orange, // edit feature
+    //           duration: const Duration(seconds: 3), // edit feature
+    //         ), // edit feature
+    //       ); // edit feature
+    //       setState(() { // edit feature
+    //         showEditInput[commentId] = false; // edit feature
+    //       }); // edit feature
+    //       return; // edit feature
+    //     } // edit feature
+    //   } catch (e) { // edit feature
+    //     // If date parsing fails, continue with API call // edit feature
+    //   } // edit feature
+    // } // edit feature
+
+    isEditingComment.value = true; // edit feature
+    print('🔍 CALLING COMMENTS SERVICE API'); // debug
+    try { // edit feature
+      await CommentsService.editComment( // edit feature
+        userId: currentUserId!, // edit feature
+        commentId: commentId, // edit feature
+        postType: postType, // edit feature
+        postId: prayerId, // edit feature
+        content: content, // edit feature
+      ); // edit feature
+
+      print('✅ API CALL SUCCESSFUL - Comment edited'); // debug
+      setState(() { // edit feature
+        showEditInput[commentId] = false; // edit feature
+      }); // edit feature
+
+      await controller.loadPrayerDetails(prayerId); // edit feature
+
+      ScaffoldMessenger.of(context).showSnackBar( // edit feature
+        SnackBar( // edit feature
+          content: Text('Comment edited successfully'), // edit feature
+          backgroundColor: Colors.green, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ), // edit feature
+      ); // edit feature
+      print('✅ SAVE COMPLETE - Success message shown'); // debug
+    } catch (e) { // edit feature
+      print('❌ API CALL FAILED: $e'); // debug
+      ScaffoldMessenger.of(context).showSnackBar( // edit feature
+        SnackBar( // edit feature
+          content: Text('Failed to edit comment'), // edit feature
+          backgroundColor: Colors.red, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingComment.value = false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Edit prayer method
+  Future<void> _editPost(int prayerId) async { // edit feature
+    final content = postEditContentController.text.trim(); // edit feature
+    final category = postEditCategoryController.text.trim(); // edit feature
+
+    if (content.isEmpty && category.isEmpty) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'At least one field must be filled', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (currentUserId == null || currentUserId == 0) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Please login first', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    // edit feature: Check if prayer can still be edited (time window check)
+    final prayer = controller.selectedPrayer;
+    if (prayer.isNotEmpty && prayer['created_at'] != null) { // edit feature
+      try { // edit feature
+        final date = DateTime.parse(prayer['created_at'] as String); // edit feature: Use real local time
+        final now = DateTime.now(); // edit feature: Use real local time
+        final difference = now.difference(date); // edit feature
+        if (difference.inMinutes >= _editTimeWindowMinutes) { // edit feature
+          Get.snackbar( // edit feature
+            'Edit Time Expired', // edit feature
+            'Prayers can only be edited within $_editTimeWindowMinutes minutes of posting', // edit feature
+            backgroundColor: Colors.orange, // edit feature
+            colorText: Colors.white, // edit feature
+            duration: const Duration(seconds: 3), // edit feature
+          ); // edit feature
+          showPostEditInput.value = false; // edit feature
+          return; // edit feature
+        } // edit feature
+      } catch (e) { // edit feature
+        // If date parsing fails, continue with API call // edit feature
+      } // edit feature
+    } // edit feature
+
+    isEditingPost.value = true; // edit feature
+    try { // edit feature
+      await PrayersService.editPrayer( // edit feature
+        userId: currentUserId!, // edit feature
+        prayerId: prayerId, // edit feature
+        content: content.isEmpty ? null : content, // edit feature
+        category: category.isEmpty ? null : category, // edit feature
+      ); // edit feature
+
+      showPostEditInput.value = false; // edit feature
+      await controller.loadPrayerDetails(prayerId); // edit feature
+
+      Get.snackbar( // edit feature
+        'Success', // edit feature
+        'Prayer edited successfully', // edit feature
+        backgroundColor: Colors.green, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } catch (e) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        e.toString().replaceAll('Exception: ', ''), // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingPost.value = false; // edit feature
+    } // edit feature
+  } // edit feature
 
   /// Get prayer type color
   Color _getPrayerTypeColor(String? category) {
@@ -173,6 +698,81 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
         return const Color(0xFF9C27B0);
       default:
         return const Color(0xFF8B4513);
+    }
+  }
+
+  /// Get image provider (reusable from blog_details_screen)
+  ImageProvider? _getImageProvider(String? photoUrl) {
+    if (photoUrl == null || photoUrl.isEmpty) return null;
+    
+    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    String fixedUrl = photoUrl.trim();
+    
+    print('🔍 _getImageProvider: Original URL = "$fixedUrl"');
+    
+    // CRITICAL FIX: Always check for 'uploadsprofile' (missing slash) FIRST, regardless of URL type
+    // This is the most common issue - missing slash between 'uploads' and 'profile'
+    if (fixedUrl.contains('uploadsprofile')) {
+      fixedUrl = fixedUrl.replaceAll('uploadsprofile', 'uploads/profile');
+      print('🔧 Fixed missing slash: uploadsprofile -> uploads/profile');
+      print('🔍 After fix: "$fixedUrl"');
+    }
+    
+    // If already a full URL
+    if (fixedUrl.startsWith('http')) {
+      // Additional check: if URL contains 'uploads' but not 'uploads/', fix it
+      if (fixedUrl.contains('uploads') && !fixedUrl.contains('uploads/')) {
+        // Find 'uploads' and check if next character is '/'
+        final uploadsIndex = fixedUrl.indexOf('uploads');
+        if (uploadsIndex >= 0 && uploadsIndex + 7 < fixedUrl.length) {
+          final nextChar = fixedUrl[uploadsIndex + 7];
+          if (nextChar != '/') {
+            // Insert slash after 'uploads'
+            fixedUrl = fixedUrl.substring(0, uploadsIndex + 7) + '/' + fixedUrl.substring(uploadsIndex + 7);
+            print('🔧 Fixed missing slash in full URL after "uploads"');
+            print('🔍 After fix: "$fixedUrl"');
+          }
+        }
+      }
+      
+      // Final check: ensure no 'uploadsprofile' remains
+      if (fixedUrl.contains('uploadsprofile')) {
+        fixedUrl = fixedUrl.replaceAll('uploadsprofile', 'uploads/profile');
+        print('🔧 Final fix for uploadsprofile in full URL');
+        print('🔍 After final fix: "$fixedUrl"');
+      }
+      
+      print('📸 Loading profile photo from: $fixedUrl');
+      return NetworkImage(fixedUrl);
+    } else if (fixedUrl.startsWith('assets/')) {
+      // Don't try to load assets that might not exist in Flutter app
+      return null;
+    } else {
+      // Relative URL - ensure proper formatting
+      
+      // Remove leading slash if present
+      if (fixedUrl.startsWith('/')) {
+        fixedUrl = fixedUrl.substring(1);
+      }
+      
+      // Ensure 'uploads/' has proper slash
+      if (fixedUrl.startsWith('uploads') && !fixedUrl.startsWith('uploads/')) {
+        fixedUrl = 'uploads/' + fixedUrl.substring('uploads'.length);
+        print('🔧 Fixed relative URL: added slash after "uploads"');
+      }
+      
+      // Construct final URL
+      final finalUrl = baseUrl + fixedUrl;
+      
+      // Final safety check: if the final URL still has 'uploadsprofile', fix it
+      if (finalUrl.contains('uploadsprofile')) {
+        final correctedUrl = finalUrl.replaceAll('uploadsprofile', 'uploads/profile');
+        print('🔧 Final safety fix applied: $correctedUrl');
+        return NetworkImage(correctedUrl);
+      }
+      
+      print('📸 Loading profile photo from: $finalUrl');
+      return NetworkImage(finalUrl);
     }
   }
 
@@ -289,7 +889,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
         final category = prayer['category'] as String? ?? 'General';
         final categoryColor = _getPrayerTypeColor(category);
         final prayerFor = prayer['prayer_for'] as String? ?? 'Me';
-        final timeAgo = _getTimeAgo(prayer['created_at'] as String?);
+        final timeAgo = TimeHelper.getTimeAgo(prayer['created_at'] as String?);
         
         // Get profile photo URL
         String? profilePhotoUrl;
@@ -431,24 +1031,184 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                               maxLines: 1,
                             ),
                           ),
+                          // edit feature: Edit button for own prayers within 15 minutes
+                          if (_canEditPost(prayer)) ...[ // edit feature
+                            SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+                            GestureDetector( // edit feature
+                              onTap: () { // edit feature
+                                setState(() { // edit feature
+                                  postEditContentController.text = prayer['content'] as String? ?? ''; // edit feature
+                                  postEditCategoryController.text = prayer['category'] as String? ?? ''; // edit feature
+                                  showPostEditInput.value = !showPostEditInput.value; // edit feature
+                                }); // edit feature
+                              }, // edit feature
+                              child: Container( // edit feature
+                                padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 6), // edit feature
+                                decoration: BoxDecoration( // edit feature
+                                  color: Colors.grey[200], // edit feature
+                                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+                                ), // edit feature
+                                child: Row( // edit feature
+                                  mainAxisSize: MainAxisSize.min, // edit feature
+                                  children: [ // edit feature
+                                    Icon( // edit feature
+                                      Icons.edit, // edit feature
+                                      size: 14, // edit feature
+                                      color: Colors.grey[700], // edit feature
+                                    ), // edit feature
+                                    SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+                                    Text( // edit feature
+                                      'Edit Prayer', // edit feature
+                                      style: TextStyle( // edit feature
+                                        fontSize: 11, // edit feature
+                                        color: Colors.grey[700], // edit feature
+                                      ), // edit feature
+                                    ), // edit feature
+                                  ], // edit feature
+                                ), // edit feature
+                              ), // edit feature
+                            ), // edit feature
+                          ], // edit feature
                           SizedBox(height: ResponsiveHelper.spacing(context, 12)),
                           // Content - Full content displayed (Same style as home screen)
-                          Padding(
-                            padding: ResponsiveHelper.padding(context, horizontal: 16, vertical: 0),
-                            child: Text(
-                              AutoTranslateHelper.getTranslatedTextSync(
-                                text: prayer['content'] as String? ?? '',
-                                sourceLanguage: prayer['language'] as String?,
-                              ),
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
-                                color: Colors.black87,
-                                height: 1.5,
-                                fontWeight: FontWeight.normal,
-                              ),
-                            ),
-                          ),
+                          Column( // edit feature
+                            crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+                            children: [ // edit feature
+                              Padding( // edit feature
+                                padding: ResponsiveHelper.padding(context, horizontal: 16, vertical: 0), // edit feature
+                                child: Text( // edit feature
+                                  AutoTranslateHelper.getTranslatedTextSync( // edit feature
+                                    text: prayer['content'] as String? ?? '', // edit feature
+                                    sourceLanguage: prayer['language'] as String?, // edit feature
+                                  ), // edit feature
+                                  style: ResponsiveHelper.textStyle( // edit feature
+                                    context, // edit feature
+                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15), // edit feature
+                                    color: Colors.black87, // edit feature
+                                    height: 1.5, // edit feature
+                                    fontWeight: FontWeight.normal, // edit feature
+                                  ), // edit feature
+                                ), // edit feature
+                              ), // edit feature
+                              // edit feature: Show "edited" label if prayer was edited
+                              if (prayer['is_edited'] == true || prayer['is_edited'] == 1) ...[ // edit feature
+                                SizedBox(height: ResponsiveHelper.spacing(context, 4)), // edit feature
+                                Padding( // edit feature
+                                  padding: ResponsiveHelper.padding(context, horizontal: 16, vertical: 0), // edit feature
+                                  child: Text( // edit feature
+                                    'edited', // edit feature
+                                    style: TextStyle( // edit feature
+                                      fontSize: 10, // edit feature
+                                      color: Colors.grey[500], // edit feature
+                                      fontStyle: FontStyle.italic, // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                ), // edit feature
+                              ], // edit feature
+                            ], // edit feature
+                          ), // edit feature
+                          // edit feature: Post edit input UI
+                          Obx(() => showPostEditInput.value ? Container( // edit feature
+                            margin: EdgeInsets.only(top: ResponsiveHelper.spacing(context, 16)), // edit feature
+                            padding: ResponsiveHelper.padding(context, all: 16), // edit feature
+                            decoration: BoxDecoration( // edit feature
+                              color: const Color(0xFFE3F2FD), // edit feature
+                              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+                              border: Border.all( // edit feature
+                                color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+                                width: 1.5, // edit feature
+                              ), // edit feature
+                            ), // edit feature
+                            child: Column( // edit feature
+                              crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+                              children: [ // edit feature
+                                Text( // edit feature
+                                  'Edit Prayer', // edit feature
+                                  style: ResponsiveHelper.textStyle( // edit feature
+                                    context, // edit feature
+                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14), // edit feature
+                                    fontWeight: FontWeight.bold, // edit feature
+                                    color: const Color(0xFF1976D2), // edit feature
+                                  ), // edit feature
+                                ), // edit feature
+                                SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                TextField( // edit feature
+                                  controller: postEditContentController, // edit feature
+                                  decoration: InputDecoration( // edit feature
+                                    labelText: 'Prayer Content', // edit feature
+                                    border: OutlineInputBorder( // edit feature
+                                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                    ), // edit feature
+                                    contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                  ), // edit feature
+                                  maxLines: 5, // edit feature
+                                  style: TextStyle( // edit feature
+                                    fontSize: 13, // edit feature
+                                  ), // edit feature
+                                ), // edit feature
+                                SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                TextField( // edit feature
+                                  controller: postEditCategoryController, // edit feature
+                                  decoration: InputDecoration( // edit feature
+                                    labelText: 'Category (optional)', // edit feature
+                                    border: OutlineInputBorder( // edit feature
+                                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                    ), // edit feature
+                                    contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                  ), // edit feature
+                                  style: TextStyle( // edit feature
+                                    fontSize: 13, // edit feature
+                                  ), // edit feature
+                                ), // edit feature
+                                SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                Row( // edit feature
+                                  mainAxisAlignment: MainAxisAlignment.end, // edit feature
+                                  children: [ // edit feature
+                                    TextButton( // edit feature
+                                      onPressed: () { // edit feature
+                                        showPostEditInput.value = false; // edit feature
+                                      }, // edit feature
+                                      child: Text( // edit feature
+                                        'Cancel', // edit feature
+                                        style: TextStyle( // edit feature
+                                          fontSize: 12, // edit feature
+                                          color: Colors.grey[600], // edit feature
+                                        ), // edit feature
+                                      ), // edit feature
+                                    ), // edit feature
+                                    SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+                                    ElevatedButton( // edit feature
+                                      onPressed: () => _editPost(prayer['id'] as int), // edit feature
+                                      style: ElevatedButton.styleFrom( // edit feature
+                                        backgroundColor: const Color(0xFF2196F3), // edit feature
+                                        padding: ResponsiveHelper.padding( // edit feature
+                                          context, // edit feature
+                                          horizontal: 16, // edit feature
+                                          vertical: 8, // edit feature
+                                        ), // edit feature
+                                      ), // edit feature
+                                      child: Obx(() => isEditingPost.value // edit feature
+                                          ? SizedBox( // edit feature
+                                              width: 16, // edit feature
+                                              height: 16, // edit feature
+                                              child: CircularProgressIndicator( // edit feature
+                                                strokeWidth: 2, // edit feature
+                                                color: Colors.white, // edit feature
+                                              ), // edit feature
+                                            ) // edit feature
+                                          : Text( // edit feature
+                                              'Save', // edit feature
+                                              style: TextStyle( // edit feature
+                                                fontSize: 12, // edit feature
+                                                color: Colors.white, // edit feature
+                                              ), // edit feature
+                                            )), // edit feature
+                                    ), // edit feature
+                                  ], // edit feature
+                                ), // edit feature
+                              ], // edit feature
+                            ), // edit feature
+                          ) : const SizedBox.shrink()), // edit feature
                           SizedBox(height: ResponsiveHelper.spacing(context, 16)),
                           // Bottom Actions - Left: Prayed count, Right: Comments count (Exact match home screen)
                           Padding(
@@ -660,37 +1420,23 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                     Expanded(
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.grey[50],
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                            color: Colors.grey.withOpacity(0.2),
-                            width: 1,
-                          ),
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(25),
                         ),
-                          child: TextField(
-                            controller: commentController,
-                            decoration: InputDecoration(
-                              hintText: 'Write a response...',
-                              hintStyle: TextStyle(
-                                color: AppTheme.iconscolor,
-                                fontSize: 14,
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.emoji_emotions_outlined,
+                                color: Color(0xFF8B4513),
                               ),
-                              enabled: !_isSending,
-                              border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              prefixIcon: IconButton(
-                                icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFF8B4513)),
-                                onPressed: () => _showEmojiPicker(context, prayerId, controller),
-                              ),
+                              onPressed: () => _showEmojiPicker(context, prayerId, commentController),
                             ),
-                            maxLines: null,
-                            enabled: !_isSending,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _handleSendComment(prayerId),
-                          ),
+                            Expanded(
+                              child: _buildRichTextInput(),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -872,7 +1618,8 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
       }
     }
     
-    final timeAgo = _getTimeAgo(comment['created_at'] as String?);
+    final timeAgo = TimeHelper.getTimeAgo(comment['created_at'] as String?);
+      print('🕰️ Comment duration debug: comment_id=${comment['id']}, created_at=${comment['created_at']}, timeAgo="$timeAgo"'); // debug
     final profilePhoto = comment['profile_photo'] as String?;
     final commentId = comment['id'] as int;
     String? profilePhotoUrl;
@@ -1014,6 +1761,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                         color: Colors.black87,
                         height: 1.5,
                       ),
+                      userEmail: userEmail,
                     ),
                     const SizedBox(height: 12),
                     // Action Buttons: Like, Reply, Report
@@ -1055,25 +1803,11 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                         InkWell(
                           onTap: () {
                             setState(() {
-                              showReplyInput[commentId] = !(showReplyInput[commentId] ?? false);
-                              final shouldShow = showReplyInput[commentId] ?? false;
-                               
-                              if (shouldShow) {
-                                // Initialize focus node if not exists
-                                if (!replyFocusNodes.containsKey(commentId)) {
-                                  replyFocusNodes[commentId] = FocusNode();
-                                }
-                                
-                                // Unfocus any other fields first
-                                FocusScope.of(context).unfocus();
-                                 
-                                // Focus on the reply input after a short delay to ensure it's rendered
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  if (mounted && replyFocusNodes.containsKey(commentId)) {
-                                    replyFocusNodes[commentId]!.requestFocus();
-                                  }
-                                });
-                              }
+                              // Close all other reply inputs first
+                              showReplyInput.clear();
+
+                              // Toggle current reply input
+                              showReplyInput[commentId] = true;
                             });
                           },
                           child: Row(
@@ -1104,6 +1838,22 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                             ],
                           ),
                         ),
+                        // edit feature: Show "edited" label if comment was edited
+                        if (comment['is_edited'] == true || comment['is_edited'] == 1) ...[
+                          SizedBox(height: ResponsiveHelper.spacing(context, 6)),
+                          Text(
+                            'edited',
+                            style: TextStyle(
+                              fontSize: ResponsiveHelper.fontSize(context, mobile: 11),
+                              color: Colors.grey[500],
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                        SizedBox(width: ResponsiveHelper.spacing(context, 16)),
+                        // edit feature: Edit Button - Show for all comments within 15 minutes
+                        _buildEditButton(context, comment, prayerId), // edit feature
+                        SizedBox(width: ResponsiveHelper.spacing(context, 16)),
                         // Report Button - Only show for other users' comments
                         if (currentUserId != null && (comment['user_id'] as int? ?? 0) != currentUserId)
                           InkWell(
@@ -1134,6 +1884,11 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                       const SizedBox(height: 12),
                       _buildReplyInput(context, commentId, prayerId),
                     ],
+                    // edit feature: Edit Input (if shown)
+                    if (showEditInput[commentId] == true) ...[ // edit feature
+                      const SizedBox(height: 12), // edit feature
+                      _buildEditInput(context, commentId, prayerId, 'prayer'), // edit feature
+                    ], // edit feature
                     // Expand/Collapse button for top-level comment replies
                     if (comment['replies'] != null && (comment['replies'] as List).isNotEmpty) ...[
                       const SizedBox(height: 8),
@@ -1381,6 +2136,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                               context,
                               emojiData,
                               size: ResponsiveHelper.isMobile(context) ? 44 : 48,
+                              userEmail: userEmail,
                             ),
                           ),
                         ),
@@ -1391,7 +2147,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                 Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: () => _showEmojiPicker(context, prayerId, controller),
+                    onTap: () => _showEmojiPicker(context, prayerId, commentController),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 40 : 44),
                     child: Padding(
                       padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 4)),
@@ -1780,7 +2536,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                             ),
                                           ),
                                           Text(
-                                            _getTimeAgo(userData['created_at'] as String?),
+                                            TimeHelper.getTimeAgo(userData['created_at'] as String?),
                                             style: TextStyle(
                                               fontSize: ResponsiveHelper.fontSize(context, mobile: 11),
                                               color: AppTheme.iconscolor,
@@ -1921,6 +2677,10 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                   horizontal: 12,
                   vertical: 8,
                 ),
+                prefixIcon: IconButton(
+                  icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFF8B4513)),
+                  onPressed: () => _showEmojiPicker(context, prayerId, replyController),
+                ),
               ),
               maxLines: null,
               textInputAction: TextInputAction.send,
@@ -1977,7 +2737,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
       }
     }
     
-    final timeAgo = _getTimeAgo(reply['created_at'] as String?);
+    final timeAgo = TimeHelper.getTimeAgo(reply['created_at'] as String?);
     final profilePhoto = reply['profile_photo'] as String?;
     final replyId = reply['id'] as int;
     String? profilePhotoUrl;
@@ -2121,6 +2881,18 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                     height: 1.5,
                                   ),
                                 ),
+                                // edit feature: Show "edited" label if reply was edited
+                                if (reply['is_edited'] == true || reply['is_edited'] == 1) ...[
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 6)),
+                                  Text(
+                                    'edited',
+                                    style: TextStyle(
+                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 11),
+                                      color: Colors.grey[500],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
                                 SizedBox(height: ResponsiveHelper.spacing(context, 10)),
                                 Wrap(
                                   spacing: ResponsiveHelper.spacing(context, 12),
@@ -2162,25 +2934,11 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                     InkWell(
                                       onTap: () {
                                         setState(() {
-                                          showReplyInput[replyId] = !(showReplyInput[replyId] ?? false);
-                                          final shouldShow = showReplyInput[replyId] ?? false;
-                                           
-                                          if (shouldShow) {
-                                            // Initialize focus node if not exists
-                                            if (!replyFocusNodes.containsKey(replyId)) {
-                                              replyFocusNodes[replyId] = FocusNode();
-                                            }
-                                            
-                                            // Unfocus any other fields first
-                                            FocusScope.of(context).unfocus();
-                                             
-                                            // Focus on the reply input after a short delay to ensure it's rendered
-                                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                                              if (mounted && replyFocusNodes.containsKey(replyId)) {
-                                                replyFocusNodes[replyId]!.requestFocus();
-                                              }
-                                            });
-                                          }
+                                          // Close all other reply inputs first
+                                          showReplyInput.clear();
+
+                                          // Toggle current reply input
+                                          showReplyInput[replyId] = true;
                                         });
                                       },
                                       child: Row(
@@ -2287,7 +3045,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
       ),
     );
   }
-  
+
   void _showReportDialog(BuildContext context, Map<String, dynamic> comment) {
     final reasonController = TextEditingController();
     
@@ -2508,7 +3266,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                         ),
                       ),
                       subtitle: Text(
-                        _getTimeAgo(user['created_at'] as String?),
+                        TimeHelper.getTimeAgo(user['created_at'] as String?),
                         style: TextStyle(
                           fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
                           color: Colors.grey[600],
@@ -2524,190 +3282,5 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
       ),
     );
   }
-
-  void _showEmojiPicker(BuildContext context, int prayerId, PrayersController controller) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.6,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Choose an Emoji',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF5F4628),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Color(0xFF5F4628)),
-                  onPressed: (){
-                    final dialogContext = Get.overlayContext;
-                    if (dialogContext != null) {
-                      Navigator.of(dialogContext, rootNavigator: true).pop();
-                    } else if (context.mounted) {
-                      Navigator.of(context, rootNavigator: true).pop();
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: Obx(() {
-                if (controller.availableEmojis.isEmpty) {
-                  return const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF9F9467),
-                    ),
-                  );
-                }
-                
-                return GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 6,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
-                  itemCount: controller.availableEmojis.length,
-                  itemBuilder: (context, index) {
-                    final emoji = controller.availableEmojis[index];
-                    // Try multiple fallbacks: emoji_char -> code -> name (base fruit name)
-                    String? emojiChar = emoji['emoji_char'] as String?;
-                    if (emojiChar == null || emojiChar.trim().isEmpty) {
-                      emojiChar = emoji['code'] as String?;
-                    }
-                    if (emojiChar == null || emojiChar.trim().isEmpty) {
-                      // Try to extract base fruit name from name field
-                      final name = emoji['name'] as String? ?? '';
-                      if (name.isNotEmpty) {
-                        // Extract base fruit name (e.g., "Goodness Banana (1)" -> "goodness")
-                        String baseName = name.toLowerCase();
-                        if (baseName.contains(':')) {
-                          final parts = baseName.split(':');
-                          if (parts.length > 1) {
-                            baseName = parts[1].trim();
-                          }
-                        }
-                        if (baseName.contains(' ')) {
-                          baseName = baseName.split(' ')[0].trim();
-                        }
-                        emojiChar = baseName;
-                      }
-                    }
-                    
-                    // If still empty, skip this emoji (don't make it clickable)
-                    final isValidEmoji = emojiChar != null && emojiChar.trim().isNotEmpty;
-                    
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: isValidEmoji ? () async {
-                          // Close the emoji picker bottom sheet first
-                          Navigator.of(context).pop();
-                          
-                          // Show loading indicator with proper context management
-                          final loadingDialog = showDialog(
-                            context: context,
-                            barrierDismissible: false,
-                            builder: (loadingContext) => Center(
-                              child: Container(
-                                padding: const EdgeInsets.all(20),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: CircularProgressIndicator(
-                                  color: AppTheme.iconscolor,
-                                  strokeWidth: 3,
-                                ),
-                              ),
-                            ),
-                          );
-
-                          try {
-                            final success = await controller.addEmojiReaction(prayerId, emojiChar!);
-                            
-                            // Close loading indicator
-                            if (mounted) {
-                              Navigator.of(context).pop();
-                            }
-                            
-                            // Ensure focus is properly managed
-                            FocusScope.of(context).unfocus();
-                            
-                            if (success) {
-                              _showCustomSnackbar(
-                                context,
-                                'Success',
-                                'Reaction added successfully',
-                              );
-                            } else {
-                              _showCustomSnackbar(
-                                context,
-                                'Error',
-                                controller.message.value.isNotEmpty
-                                    ? controller.message.value
-                                    : 'Failed to add reaction. Please try again.',
-                                isError: true,
-                              );
-                            }
-                          } catch (e) {
-                            // Close loading indicator if an error occurs
-                            if (mounted) {
-                              Navigator.of(context).pop();
-                            }
-                            _showCustomSnackbar(
-                              context,
-                              'Error',
-                              'Failed to add reaction. Please try again.',
-                              isError: true,
-                            );
-                          }
-                        } : null,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey[50],
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.grey.withOpacity(0.1),
-                              width: 1,
-                            ),
-                          ),
-                          child: Center(
-                            child: SizedBox(
-                              width: 32,
-                              height: 32,
-                              child: HomeScreen.buildEmojiDisplay(
-                                context,
-                                emoji,
-                                size: 32,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              }),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
+

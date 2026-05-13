@@ -163,32 +163,50 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       style: ResponsiveHelper.textStyle(
                         context,
                         fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
+                        color: Colors.green,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    SizedBox(height: ResponsiveHelper.spacing(context, 10)),
+                    SizedBox(height: ResponsiveHelper.spacing(context, 12)),
                     Container(
-                      padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 10)),
+                      padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
+                        color: Colors.blue.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                        border: Border.all(color: Colors.blue.withOpacity(0.3)),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.info_outline,
-                            color: Colors.orange,
-                            size: ResponsiveHelper.iconSize(context, mobile: 20),
-                          ),
-                          SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-                          Expanded(
-                            child: Text(
-                              'Your Blogger role request is pending admin approval. Please wait for approval before you can login.',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.isMobile(context) ? 12 : 14,
-                                color: Colors.orange.shade800,
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                color: Colors.blue,
+                                size: ResponsiveHelper.iconSize(context, mobile: 20),
                               ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+                              Expanded(
+                                child: Text(
+                                  'Your account is registered as Blogger with Pending status.',
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: ResponsiveHelper.isMobile(context) ? 13 : 15,
+                                    color: Colors.blue.shade800,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                          Text(
+                            '• You can login immediately as Blogger\n• Basic access is available now\n• Full blogging features require admin approval\n• You will be notified when approved',
+                            style: ResponsiveHelper.textStyle(
+                              context,
+                              fontSize: ResponsiveHelper.isMobile(context) ? 12 : 14,
+                              color: Colors.grey.shade700,
+                              height: 1.4,
                             ),
                           ),
                         ],
@@ -203,7 +221,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       Get.offAllNamed(Routes.LOGIN); // Go to login page
                     },
                     child: Text(
-                      'OK',
+                      'Go to Login',
                       style: ResponsiveHelper.textStyle(
                         context,
                         fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
@@ -503,10 +521,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       // Web Client ID - Used for backend authentication (idToken)
       const String webClientId = '502290384332-79ibsfgk52dd7d9lhvfv9fspn3k26u83.apps.googleusercontent.com';
       
-      // Initialize Google Sign In with serverClientId for proper idToken generation
+      // Initialize Google Sign In with serverClientId for proper authentication
       final GoogleSignIn googleSignIn = GoogleSignIn(
         scopes: ['email', 'profile'],
-        serverClientId: webClientId, // Web Client ID for backend authentication
+        serverClientId: '55853574935-qcg38dj6gnhac02l0gm8v1gqgvv5uiu2.apps.googleusercontent.com', // Web Client ID from Google Cloud Console
         // Android OAuth Client ID is automatically matched by package name + SHA-1
         // iOS OAuth Client ID is configured in Info.plist
       );
@@ -561,6 +579,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         email: email,
         name: name,
         profilePicture: profilePicture,
+        role: _selectedRole, // Use selected role from signup form
       );
       print('✅ Backend authentication successful');
 

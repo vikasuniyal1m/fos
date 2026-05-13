@@ -82,7 +82,7 @@ class ShareHelper {
       );
     } catch (e) {
       print('Error sharing content: $e');
-      final fallbackLink = 'https://fruitofthespirit.templateforwebsites.com/share/$contentType/$contentId';
+      final fallbackLink = 'http://admin.fosmessenger.com/share/$contentType/$contentId';
       
       // Get render box for share position origin for fallback share
       final RenderBox renderBox = context.findRenderObject() as RenderBox;
@@ -91,7 +91,7 @@ class ShareHelper {
       final Rect sharePositionOrigin = Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height);
       
       await Share.share(
-        '$title\n\nCheck this out on Fruits of Spirit:\n$fallbackLink',
+        '$title\n\nCheck this out on Fruit of the Spirit:\n$fallbackLink',
         sharePositionOrigin: sharePositionOrigin,
       );
     }

@@ -137,5 +137,42 @@ class GroupPostsService {
       throw ApiException(response['message'] ?? 'Failed to fetch reactions');
     }
   }
+
+  // edit feature: Edit Group Post (15-minute window)
+  /// Edit Group Post (15-minute window)
+  ///
+  /// Parameters:
+  /// - userId: User ID (must be the post owner)
+  /// - postId: Post ID to edit
+  /// - content: New content (optional)
+  /// - title: New title (optional)
+  ///
+  /// Returns: Success status
+  static Future<Map<String, dynamic>> editGroupPost({ // edit feature
+    required int userId, // edit feature
+    required int postId, // edit feature
+    String? content, // edit feature
+    String? title, // edit feature
+  }) async { // edit feature
+    final body = <String, String>{ // edit feature
+      'action': 'edit-post', // edit feature
+      'user_id': userId.toString(), // edit feature
+      'post_id': postId.toString(), // edit feature
+    }; // edit feature
+
+    if (content != null) body['content'] = content; // edit feature
+    if (title != null) body['title'] = title; // edit feature
+
+    final response = await ApiService.post( // edit feature
+      '${ApiConfig.groups}?action=edit-post', // edit feature
+      body: body, // edit feature
+    ); // edit feature
+
+    if (response['success'] == true) { // edit feature
+      return response; // edit feature
+    } else { // edit feature
+      throw ApiException(response['message'] ?? 'Failed to edit group post'); // edit feature
+    } // edit feature
+  } // edit feature
 }
 

@@ -13,21 +13,32 @@ import 'package:intl/intl.dart';
 import 'dart:io';
 import '../services/terms_service.dart';
 import '../services/user_storage.dart' as us;
+import '../utils/report_utils.dart';
 import 'terms_acceptance_screen.dart';
 
+import 'package:fruitsofspirit/utils/sticker_emoji_helper.dart';
+import 'package:fruitsofspirit/services/sticker_service.dart';
+import 'package:fruitsofspirit/widgets/emoji_sticker_picker.dart';
+
+import 'package:fruitsofspirit/screens/report_content_screen.dart' as rcs;
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import '../utils/app_theme.dart';
-import '../utils/report_utils.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
+// edit feature: Add API imports
+import 'package:fruitsofspirit/services/api_service.dart'; // edit feature
+import 'package:fruitsofspirit/config/api_config.dart'; // edit feature
 
 class RealGroupChatScreen extends StatefulWidget {
   final int groupId;
   final String groupName;
+  final String? userEmail;
 
   const RealGroupChatScreen({
     Key? key,
     required this.groupId,
     required this.groupName,
+    this.userEmail,
   }) : super(key: key);
 
   @override
@@ -86,34 +97,67 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     );
   }
   String? groupImage;
+  // edit feature: Edit mode state
+  final editControllers = <int, TextEditingController>{}; // edit feature
+  final showEditInput = <int, bool>{}; // edit feature
+  var isEditingMessage = false.obs; // edit feature
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadGroupData();
-      controller.loadMessages(widget.groupId, refresh: true);
-      _loadEmojis();
-    });
+    try {
+      _initializeData();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadGroupData();
+        controller.loadMessages(widget.groupId, refresh: true);
+        _loadEmojis();
+        _syncStickers();
+      });
 
-    // Automatically show disable dialog when jingle finishes for the 3rd time
-    ever(_jingleService.lastFinishedCategory, (String category) {
-      if (category == groupCategory && category.isNotEmpty) {
-        _loadJingleStatus();
-      }
-    });
-
-    controller.messages.listen((_) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (scrollController.hasClients) {
-          scrollController.animateTo(
-            0, // Scroll to bottom (0 offset in reverse ListView)
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
+      // Automatically show disable dialog when jingle finishes for the 3rd time
+      ever(_jingleService.lastFinishedCategory, (String category) {
+        if (category == groupCategory && category.isNotEmpty) {
+          _loadJingleStatus();
         }
       });
-    });
+
+      controller.messages.listen((_) {
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (scrollController.hasClients) {
+            scrollController.animateTo(
+              0, // Scroll to bottom (0 offset in reverse ListView)
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      });
+    } catch (e) {
+      print('ROOT CAUSE ERROR in initState: ${e.toString()}');
+    }
+  }
+
+  Future<void> _initializeData() async {
+    try {
+      // Load group details
+      final groupDetails = await GroupsService.getGroupDetails(widget.groupId);
+      if (groupDetails != null) {
+        setState(() {
+          groupOwnerId = groupDetails['created_by'] as int?;
+          groupCategory = groupDetails['category'] as String?;
+          groupImage = groupDetails['group_image'] as String? ?? groupDetails['image_url'] as String?;
+        });
+      }
+
+      // Load emojis
+      availableEmojis.value = await EmojisService.getEmojis(status: 'Active', sortBy: 'image_url', order: 'ASC');
+      isLoadingEmojis.value = false;
+
+      // Load messages
+      await controller.loadMessages(widget.groupId, refresh: true);
+    } catch (e) {
+      print('ROOT CAUSE ERROR in _initializeData: ${e.toString()}');
+    }
   }
 
   Future<void> _loadGroupData() async {
@@ -128,7 +172,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
         _loadJingleStatus();
       }
     } catch (e) {
-      print('Error loading group data: $e');
+      print('ROOT CAUSE ERROR in _loadGroupData: ${e.toString()}');
     }
   }
 
@@ -146,11 +190,32 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
   Future<void> _loadEmojis() async {
     try {
       isLoadingEmojis.value = true;
-      availableEmojis.value = await EmojisService.getEmojis(status: 'Active', sortBy: 'image_url', order: 'ASC');
+      final userEmail = await us.UserStorage.getUserEmail();
+      availableEmojis.value = await EmojisService.getEmojis(status: 'Active', sortBy: 'image_url', order: 'ASC', userEmail: userEmail);
     } catch (e) {
       availableEmojis.value = [];
     } finally {
       isLoadingEmojis.value = false;
+    }
+  }
+
+  Future<void> _syncStickers() async {
+    try {
+      // Get current user ID for sticker sync
+      final userId = await us.UserStorage.getUserId();
+      if (userId != null) {
+        final userEmail = await us.UserStorage.getUserEmail();
+        // Sync first page of stickers for fast loading
+        await StickerService.syncStickers(
+          userId,
+          testMode: true, // Enable test mode to show all stickers
+          userEmail: userEmail,
+          page: 1,
+          limit: 10,
+        );
+      }
+    } catch (e) {
+      print('Error syncing stickers: $e');
     }
   }
 
@@ -203,7 +268,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     try {
       final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
       if (hasAcceptedFactors) {
-        action();
+        await action();
       } else {
         _showUgcTermsDialog(action);
       }
@@ -244,8 +309,8 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                 Navigator.of(context, rootNavigator: true).pop();
               }
               print("Action calling");
-              // Close dialog
-              action(); // Perform action
+              // Close dialog and await action
+              await action(); // Perform action
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primaryColor,
@@ -264,12 +329,108 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     controller.stopPolling();
     messageController.dispose();
     scrollController.dispose();
+    // edit feature: Dispose edit controllers
+    for (var controller in editControllers.values) { // edit feature
+      controller.dispose(); // edit feature
+    } // edit feature
     super.dispose();
   }
 
+  // edit feature: Configurable edit time window in minutes
+  static const int _editTimeWindowMinutes = 15; // edit feature
+
+  // edit feature: Check if message can be edited (within 15 minutes)
+  bool _canEditMessage(Map<String, dynamic> message) { // edit feature
+    if (message['created_at'] == null) return false; // edit feature
+    try { // edit feature
+      DateTime date;
+      // Handle different timestamp formats
+      if (message['created_at'].toString().contains('T')) {
+        // ISO 8601 format
+        date = DateTime.parse(message['created_at'] as String);
+      } else {
+        // Try parsing as standard MySQL datetime format
+        date = DateTime.parse('${message['created_at']}Z');
+      }
+
+      // Convert both to India time (IST = UTC+5:30) for consistent comparison
+      final indiaTimeZone = Duration(hours: 5, minutes: 30);
+      final messageIndiaTime = date.toUtc().add(indiaTimeZone);
+      final nowIndiaTime = DateTime.now().toUtc().add(indiaTimeZone);
+
+      final difference = nowIndiaTime.difference(messageIndiaTime); // edit feature
+      return difference.inMinutes < _editTimeWindowMinutes; // edit feature
+    } catch (e) { // edit feature
+      return false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Edit chat message method
+  Future<void> _editChatMessage(int messageId, String content) async { // edit feature
+    final userId = controller.userId.value; // edit feature
+    if (userId == null || userId == 0) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Please login first', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    isEditingMessage.value = true; // edit feature
+    try { // edit feature
+      final response = await ApiService.post( // edit feature
+        '${ApiConfig.groups}?action=edit-message', // edit feature
+        body: { // edit feature
+          'user_id': userId.toString(), // edit feature
+          'message_id': messageId.toString(), // edit feature
+          'message': content, // edit feature
+          'group_id': widget.groupId.toString(), // edit feature
+        }, // edit feature
+      ); // edit feature
+
+      if (response['success'] == true) { // edit feature
+        setState(() { // edit feature
+          showEditInput[messageId] = false; // edit feature
+        }); // edit feature
+
+        await controller.loadMessages(widget.groupId, refresh: true); // edit feature
+
+        Get.snackbar( // edit feature
+          'Success', // edit feature
+          'Message edited successfully', // edit feature
+          backgroundColor: Colors.green, // edit feature
+          colorText: Colors.white, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ); // edit feature
+      } else { // edit feature
+        Get.snackbar( // edit feature
+          'Error', // edit feature
+          response['message'] ?? 'Failed to edit message', // edit feature
+          backgroundColor: Colors.red, // edit feature
+          colorText: Colors.white, // edit feature
+          duration: const Duration(seconds: 2), // edit feature
+        ); // edit feature
+      } // edit feature
+    } catch (e) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        e.toString().replaceAll('Exception: ', ''), // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingMessage.value = false; // edit feature
+    } // edit feature
+  } // edit feature
+
   @override
   Widget build(BuildContext context) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    try {
+    final baseUrl = 'http://admin.fosmessenger.com/';
 
     return Scaffold(
       backgroundColor: AppTheme.themeColor,
@@ -350,6 +511,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
           Expanded(
             child: Obx(() {
               final groupMessages = controller.messages.where((msg) => msg['group_id'].toString() == widget.groupId.toString()).toList();
+              
               if (controller.isLoading.value && groupMessages.isEmpty) {
                 return const Center(child: CircularProgressIndicator(color: Color(0xFF8B4513)));
               }
@@ -385,27 +547,29 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                     }
                   }
 
-                  List<Widget> widgets = [];
                   if (showDateSeparator) {
-                    widgets.add(
-                      Center(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(vertical: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            _formatDateSeparator(currentMessageDate),
-                            style: const TextStyle(color: Colors.black, fontSize: 12),
+                    return Column(
+                      children: [
+                        Center(
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              _formatDateSeparator(currentMessageDate),
+                              style: const TextStyle(color: Colors.black, fontSize: 12),
+                            ),
                           ),
                         ),
-                      ),
+                        _buildMessageBubble(context, currentMessage),
+                      ],
                     );
+                  } else {
+                    return _buildMessageBubble(context, currentMessage);
                   }
-                  widgets.add(_buildMessageBubble(context, currentMessage));
-                  return Column(children: widgets);
                 },
               );
             }),
@@ -415,6 +579,13 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
         ),
       ),
     );
+    } catch (e) {
+      print('ROOT CAUSE ERROR in build: ${e.toString()}');
+      return Scaffold(
+        appBar: AppBar(title: const Text('Error')),
+        body: Center(child: Text('Error: ${e.toString()}')),
+      );
+    }
   }
 
   String _formatDateSeparator(DateTime date) {
@@ -443,11 +614,6 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     } catch (e) {
       return DateTime.now();
     }
-  }
-
-  String _formatTime(String createdAt) {
-    final dateTime = _parseDateTime(createdAt);
-    return DateFormat('h:mm a').format(dateTime);
   }
 
   Widget _buildOldStyleRoundButton(BuildContext context, {required IconData icon, required VoidCallback onTap}) {
@@ -504,7 +670,8 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     final profilePhoto = message['profile_photo'] as String?;
     final userName = message['user_name'] as String? ?? 'User';
     final createdAt = message['created_at'] as String? ?? '';
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final messageId = int.tryParse(message['id'].toString()) ?? 0;
+    final baseUrl = 'http://admin.fosmessenger.com/';
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
@@ -524,45 +691,141 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
             const SizedBox(width: 8),
           ],
           Flexible(
-            child: InkWell(
-              onLongPress: () => _showModerationDialog(context, message),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.8, // Max width 80% of screen
-                ),
-                child: Container(
-                  width: double.infinity, // Make the container expand horizontally
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8), // Increased vertical padding
-                  decoration: BoxDecoration(
-                    color: isMe ? const Color(0xFFDCF8C6) : const Color(0xFFFFFFFF), // WhatsApp sent (light green) vs received (white)
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(10),
-                      topRight: const Radius.circular(10),
-                      bottomLeft: Radius.circular(isMe ? 10 : 0), // Pointed corner for received
-                      bottomRight: Radius.circular(isMe ? 0 : 10), // Pointed corner for sent
+            child: Column(
+              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                InkWell(
+                  onLongPress: () => _showModerationDialog(context, message),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.8, // Max width 80% of screen
                     ),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 2, offset: const Offset(0, 1))], // Slightly more prominent shadow
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (!isMe) Padding(
-                        padding: const EdgeInsets.only(bottom: 2.0),
-                        child: Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF8B4513))),
-                      ),
-                      _buildMessageContent(context, message),
-                      Padding( // Wrap timestamp in Padding to control its position
-                        padding: const EdgeInsets.only(top: 4.0), // Space between message content and time
-                        child: Align(
-                          alignment: Alignment.bottomRight, // Align time to bottom right within the bubble
-                          child: Text(_formatTime(createdAt), style: const TextStyle(fontSize: 10, color: Colors.grey)), // Smaller font size for time
+                    child: Container(
+                      width: double.infinity, // Make the container expand horizontally
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8), // Increased vertical padding
+                      decoration: BoxDecoration(
+                        color: isMe ? const Color(0xFFDCF8C6) : const Color(0xFFFFFFFF), // WhatsApp sent (light green) vs received (white)
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(10),
+                          topRight: const Radius.circular(10),
+                          bottomLeft: Radius.circular(isMe ? 10 : 0), // Pointed corner for received
+                          bottomRight: Radius.circular(isMe ? 0 : 10), // Pointed corner for sent
                         ),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 2, offset: const Offset(0, 1))], // Slightly more prominent shadow
                       ),
-                    ],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!isMe) Padding(
+                            padding: const EdgeInsets.only(bottom: 2.0),
+                            child: Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF8B4513))),
+                          ),
+                          _buildMessageContent(context, message),
+                          Padding( // Wrap timestamp in Padding to control its position
+                            padding: const EdgeInsets.only(top: 4.0), // Space between message content and time
+                            child: Align(
+                              alignment: Alignment.bottomRight, // Align time to bottom right within the bubble
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // edit feature: Show "edited" label if message was edited
+                                  if (message['is_edited'] == true || message['is_edited'] == 1) ...[ // edit feature
+                                    Text( // edit feature
+                                      'edited', // edit feature
+                                      style: const TextStyle(fontSize: 9, color: Colors.grey, fontStyle: FontStyle.italic), // edit feature
+                                    ), // edit feature
+                                    const SizedBox(width: 4), // edit feature
+                                  ], // edit feature
+                                  Text(TimeHelper.getTimeAgo(createdAt), style: const TextStyle(fontSize: 10, color: Colors.grey)), // Smaller font size for time
+                                  // edit feature: Show pencil icon for own messages within 15 minutes
+                                  if (isMe && _canEditMessage(message)) ...[ // edit feature
+                                    const SizedBox(width: 4), // edit feature
+                                    GestureDetector( // edit feature
+                                      onTap: () { // edit feature
+                                        setState(() { // edit feature
+                                          if (!editControllers.containsKey(messageId)) { // edit feature
+                                            editControllers[messageId] = TextEditingController( // edit feature
+                                              text: (message['message'] as String? ?? '').trim(), // edit feature
+                                            ); // edit feature
+                                          } // edit feature
+                                          showEditInput[messageId] = !(showEditInput[messageId] ?? false); // edit feature
+                                        }); // edit feature
+                                      }, // edit feature
+                                      child: const Icon( // edit feature
+                                        Icons.edit, // edit feature: Pencil icon
+                                        size: 14, // edit feature
+                                        color: Colors.black, // edit feature
+                                      ), // edit feature
+                                    ), // edit feature
+                                  ], // edit feature
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                // edit feature: Edit input (if shown)
+                if (showEditInput[messageId] == true) ...[ // edit feature
+                  const SizedBox(height: 8), // edit feature
+                  Container( // edit feature
+                    constraints: BoxConstraints( // edit feature
+                      maxWidth: MediaQuery.of(context).size.width * 0.8, // edit feature
+                    ), // edit feature
+                    child: Column( // edit feature
+                      children: [ // edit feature
+                        TextField( // edit feature
+                          controller: editControllers[messageId], // edit feature
+                          decoration: InputDecoration( // edit feature
+                            hintText: 'Edit message...', // edit feature
+                            border: OutlineInputBorder( // edit feature
+                              borderRadius: BorderRadius.circular(12), // edit feature
+                              borderSide: const BorderSide(color: Color(0xFF2196F3)), // edit feature
+                            ), // edit feature
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // edit feature
+                          ), // edit feature
+                          maxLines: null, // edit feature
+                          textInputAction: TextInputAction.newline, // edit feature
+                          style: const TextStyle(fontSize: 14), // edit feature
+                        ), // edit feature
+                        const SizedBox(height: 8), // edit feature
+                        Row( // edit feature
+                          mainAxisAlignment: MainAxisAlignment.end, // edit feature
+                          children: [ // edit feature
+                            TextButton( // edit feature
+                              onPressed: () { // edit feature
+                                setState(() { // edit feature
+                                  showEditInput[messageId] = false; // edit feature
+                                }); // edit feature
+                              }, // edit feature
+                              child: const Text('Cancel', style: TextStyle(fontSize: 12)), // edit feature
+                            ), // edit feature
+                            const SizedBox(width: 8), // edit feature
+                            ElevatedButton( // edit feature
+                              onPressed: () => _editChatMessage(messageId, editControllers[messageId]!.text.trim()), // edit feature
+                              style: ElevatedButton.styleFrom( // edit feature
+                                backgroundColor: const Color(0xFF2196F3), // edit feature
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // edit feature
+                              ), // edit feature
+                              child: Obx(() => isEditingMessage.value // edit feature
+                                  ? const SizedBox( // edit feature
+                                      width: 16, // edit feature
+                                      height: 16, // edit feature
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white), // edit feature
+                                    ) // edit feature
+                                  : const Text('Save', style: TextStyle(fontSize: 12, color: Colors.white)), // edit feature
+                              ), // edit feature
+                            ), // edit feature
+                          ], // edit feature
+                        ), // edit feature
+                      ], // edit feature
+                    ), // edit feature
+                  ), // edit feature
+                ], // edit feature
+              ],
             ),
           ),
           if (isMe) const SizedBox(width: 4),
@@ -575,10 +838,18 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     final messageType = msg['message_type']?.toString() ?? 'text';
     final content = msg['message']?.toString() ?? '';
 
+    // Check for sticker emoji codes (e.g., :sticker_123:)
+    if (StickerEmojiHelper.isStickerEmoji(content)) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: StickerEmojiHelper.buildStickerWidget(content, size: 80),
+      );
+    }
+
     if (messageType == 'emoji' || FruitEmojiHelper.isFruit(content)) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        child: FruitEmojiHelper.buildFruitWidget(content, size: 40),
+        child: FruitEmojiHelper.buildFruitWidget(content, size: 40, userEmail: widget.userEmail),
       );
     }
 
@@ -593,7 +864,11 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
           if (content.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4.0),
-              child: Text(content, style: const TextStyle(fontSize: 14)),
+              child: FruitEmojiHelper.buildCommentText(
+                context,
+                content,
+                style: const TextStyle(fontSize: 14),
+              ),
             ),
         ],
       );
@@ -688,7 +963,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
         messageController.clear();
         await controller.sendMessage(groupId: widget.groupId, text: text);
       } catch (e) {
-        print('Error sending message: $e');
+        print('ROOT CAUSE ERROR in _sendMessage: ${e.toString()}');
       } finally {
         if (mounted) {
           setState(() {
@@ -700,37 +975,41 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
   }
 
   void _showEmojiPicker(BuildContext context) {
-    showModalBottomSheet(
+    showEmojiStickerPicker(
       context: context,
-      builder: (context) => Obx(() => GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 6, crossAxisSpacing: 12, mainAxisSpacing: 12),
-        itemCount: availableEmojis.length,
-        itemBuilder: (context, index) => InkWell(
-          onTap: () async {
-            _runWithTermsCheck(() async {
-              final emojiData = availableEmojis[index];
-              final String emojiChar = emojiData['emoji_char']?.toString() ?? '';
-              final String imageUrl = emojiData['image_url']?.toString() ?? '';
-              final String code = emojiData['code']?.toString() ?? '';
+      onEmojiSelected: (emoji) async {
+        _runWithTermsCheck(() async {
+          await controller.sendMessage(
+            groupId: widget.groupId,
+            text: emoji,
+            messageType: 'emoji',
+          );
+          // Close keyboard and emoji picker
+          FocusScope.of(context).unfocus();
+          // Get.back();
+        });
+      },
+      height: 350,
+    );
+  }
 
-              // Prioritize emoji character if it's not empty, otherwise use image_url for direct rendering,
-              // or fall back to code if nothing else is available.
-              final String textToSend = emojiChar.isNotEmpty ? emojiChar : (imageUrl.isNotEmpty ? imageUrl : code);
-
-              if (textToSend.isEmpty) return;
-
-              await controller.sendMessage(
-                groupId: widget.groupId, 
-                text: textToSend,
-                messageType: 'emoji',
-              );
-              Get.back();
-            });
-          },
-          child: HomeScreen.buildEmojiDisplay(context, availableEmojis[index], size: 32),
-        ),
-      )),
+// Helper function to handle the Sticker Picker side
+  void _openStickerPickerOnly(BuildContext context) {
+    showEmojiStickerPicker(
+      context: context,
+      height: 350,
+      onEmojiSelected: (emoji) async {
+        _runWithTermsCheck(() async {
+          await controller.sendMessage(
+            groupId: widget.groupId,
+            text: emoji,
+            messageType: 'emoji',
+          );
+          // Close keyboard and emoji picker
+          FocusScope.of(context).unfocus();
+          // Get.back();
+        });
+      },
     );
   }
 

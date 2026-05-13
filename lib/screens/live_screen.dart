@@ -10,6 +10,9 @@ import 'package:fruitsofspirit/services/payment_gate.dart';
 class LiveScreen extends GetView<LiveStreamController> {
   const LiveScreen({Key? key}) : super(key: key);
 
+  // Flag to prevent auto-opening dialog when returning from agora screen
+  static bool _isNavigatingToAgora = false;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -119,7 +122,11 @@ class LiveScreen extends GetView<LiveStreamController> {
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
-                onPressed: () => _showCreateStreamDialog(context),
+                onPressed: () {
+                  // Prevent dialog from auto-opening when returning from agora screen
+                  if (_isNavigatingToAgora) return;
+                  _showCreateStreamDialog(context);
+                },
                 icon: const Icon(Icons.videocam),
                 label: const Text('Go Live Now'),
                 style: AppTheme.primaryButtonStyle(padding: const EdgeInsets.symmetric(vertical: 14)),
@@ -221,9 +228,11 @@ class LiveScreen extends GetView<LiveStreamController> {
                 return;
               }
               Get.back();
+              _isNavigatingToAgora = true;
               final uid = controller.userId.value;
               if (uid == 0) {
                 Get.snackbar('Error', 'Please login first to go live.', snackPosition: SnackPosition.BOTTOM);
+                _isNavigatingToAgora = false;
                 return;
               }
               final channelName = 'live_${uid}_${DateTime.now().millisecondsSinceEpoch}';
@@ -232,6 +241,7 @@ class LiveScreen extends GetView<LiveStreamController> {
                 'title': titleController.text,
                 'is_broadcaster': true,
               });
+              _isNavigatingToAgora = false;
             },
             child: const Text('Go Live (Agora)'),
           ),

@@ -31,8 +31,56 @@ class CachedImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Clean up URL if it contains appended text (e.g., URL||text, URL%7C%7Ctext, or URLok)
+    String cleanImageUrl = imageUrl;
+    print('🔍 CachedImage received URL: "$imageUrl"');
+    if (imageUrl.isNotEmpty && !imageUrl.startsWith('assets/')) {
+      // Check if it's a full HTTP/HTTPS URL - if so, use it as-is
+      if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        // It's a full URL, just use it without regex cleaning
+        cleanImageUrl = imageUrl;
+        print('🔍 CachedImage: Using full URL as-is: "$cleanImageUrl"');
+      } else {
+        // For relative URLs or other cases, try to extract the clean URL
+        // Extract URL up to .png/.jpg/.jpeg/.webp/.gif - non-greedy match stops at first extension
+        // This handles emoji names with spaces (%20) correctly and ignores appended text
+        // Also handles dynamic API URLs with query parameters
+        final urlPattern = RegExp(
+          r'https?://[^?]*\.(?:png|jpg|jpeg|webp|gif|bmp)[^?]*',
+          caseSensitive: false,
+        );
+        final match = urlPattern.firstMatch(imageUrl);
+        print('🔍 Regex match: ${match?.group(0) ?? "NO MATCH"}');
+        if (match != null) {
+          // For API URLs, include query parameters but clean up appended text
+          String matchedUrl = match.group(0)!;
+          if (matchedUrl.contains('get-emoji-image.php')) {
+            // For API URLs, keep the base URL and query parameters but remove trailing text
+            final apiPattern = RegExp(r'https?://[^?]*\?[^\s]*');
+            final apiMatch = apiPattern.firstMatch(imageUrl);
+            if (apiMatch != null) {
+              cleanImageUrl = apiMatch.group(0)!;
+            } else {
+              cleanImageUrl = matchedUrl;
+            }
+          } else {
+            cleanImageUrl = matchedUrl;
+          }
+          if (cleanImageUrl != imageUrl) {
+            print('🧹 CachedImage cleaned URL from: "$imageUrl" to: "$cleanImageUrl"');
+          }
+        } else {
+          print('⚠️ CachedImage: No URL pattern match found in: "$imageUrl"');
+          // If no match, use the original URL as-is (might be a valid URL without extension)
+          cleanImageUrl = imageUrl;
+        }
+      }
+    } else {
+      print('🔍 CachedImage: Skipping cleanup - empty or asset URL');
+    }
+
     // Check if URL is empty or invalid
-    if (imageUrl.isEmpty || imageUrl.trim().isEmpty) {
+    if (cleanImageUrl.isEmpty || cleanImageUrl.trim().isEmpty) {
       return errorWidget ?? _defaultErrorWidget(context);
     }
 
@@ -62,14 +110,14 @@ class CachedImage extends StatelessWidget {
     }
 
     // Check if it's a file:// URL (invalid for network)
-    if (imageUrl.startsWith('file://')) {
+    if (cleanImageUrl.startsWith('file://')) {
       return errorWidget ?? _defaultErrorWidget(context);
     }
 
     // Preload image if requested (only for network images)
-    if (preload && imageUrl.isNotEmpty) {
+    if (preload && cleanImageUrl.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ImagePreloadService().preloadImage(imageUrl, priority: false);
+        ImagePreloadService().preloadImage(cleanImageUrl, priority: false);
       });
     }
 
@@ -88,24 +136,32 @@ class CachedImage extends StatelessWidget {
       builder: (context) {
         try {
           Widget image = CachedNetworkImage(
-            imageUrl: imageUrl,
+            imageUrl: cleanImageUrl,
             width: width,
             height: height,
             fit: fit,
             httpHeaders: headers,
             placeholder: (context, url) => placeholder ?? _defaultPlaceholder(context),
             errorWidget: (context, url, error) {
-              // Log the error for debugging
-              print('❌ Error loading network image: $url');
-              if (error != null) {
-                print('   Error type: ${error.runtimeType}');
-                print('   Error message: $error');
-                // Check for 404 specifically
-                if (error.toString().contains('404') || 
-                    error.toString().contains('HttpException') ||
-                    error.toString().contains('statusCode: 404')) {
-                  print('   ⚠️ Image not found (404): $url');
+              final msg = error?.toString() ?? '';
+              final is404 = msg.contains('404') || msg.contains('statusCode: 404') || msg.contains('Not Found');
+              final isConnectionError = msg.contains('Connection closed') || 
+                                      msg.contains('connection closed') || 
+                                      msg.contains('HttpException') ||
+                                      msg.contains('SocketException') ||
+                                      msg.contains('Connection reset') ||
+                                      msg.contains('timeout');
+              
+              if (!is404 && !isConnectionError) {
+                // Only log non-404 and non-connection errors to avoid console noise
+                print('❌ Error loading network image: $url');
+                if (error != null) {
+                  print('   Error type: ${error.runtimeType}');
+                  print('   Error message: $error');
                 }
+              } else if (isConnectionError) {
+                // Log connection errors with lower severity
+                print('🔌 Connection issue loading image: $url - will retry on next load');
               }
               return errorWidget ?? _defaultErrorWidget(context);
             },
@@ -302,4 +358,3 @@ class _LazyCachedImageState extends State<LazyCachedImage> {
     );
   }
 }
-
