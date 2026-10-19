@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
@@ -28,54 +31,74 @@ class MainDashboardController extends GetxController {
     showIntroVideo.value = false;
   }
 
-  // 🔴 YEH FUNCTION IMPORTANT HAI - ISME PREMIUM CHECK HAI
-  Future<void> changeIndex(int index) async {  // <-- async add karo
+  /// Switch tab instantly; sync data silently in background (no full-screen reload).
+  Future<void> changeIndex(int index) async {
     if (currentIndex.value == index) return;
 
-    // 🔴 PREMIUM CHECK - YEH LINES ADD KARO
-    if (index == 1 || index == 2 || index == 3 || index == 4) {
-      final ok = await Get.find<IAPService>().hasPremium();
-      if (!ok) {
+    if (index >= 1 && index <= 4) {
+      final iap = Get.find<IAPService>();
+      if (!await iap.hasPremiumFast()) {
         Get.toNamed(Routes.PAYMENT);
         return;
       }
     }
 
-    // Special logic for certain tabs
-    if (index == 2) {
-      // Prayer Requests
-      try {
-        if (Get.isRegistered<PrayersController>()) {
-          final prayersController = Get.find<PrayersController>();
-          prayersController.filterUserId.value = 0;
-          prayersController.loadPrayers(refresh: true);
-        }
-      } catch (e) {
-        print('Error resetting prayers filter: $e');
-      }
-    } else if (index == 3) {
-      // Videos
-      try {
-        if (Get.isRegistered<VideosController>()) {
-          final videosController = Get.find<VideosController>();
-          videosController.loadVideos(refresh: true, includePending: true);
-        }
-      } catch (e) {
-        print('Error refreshing videos: $e');
-      }
-    } else if (index == 4) {
-      // Gallery
-      try {
-        if (Get.isRegistered<GalleryController>()) {
-          final galleryController = Get.find<GalleryController>();
-          galleryController.filterUserId.value = 0;
-          galleryController.loadPhotos(refresh: true);
-        }
-      } catch (e) {
-        print('Error resetting gallery filter: $e');
-      }
-    }
-
     currentIndex.value = index;
+    unawaited(_backgroundSyncForTab(index));
+  }
+
+  Future<void> _backgroundSyncForTab(int index) async {
+    try {
+      if (index == 2) {
+        if (!Get.isRegistered<PrayersController>()) return;
+        final prayersController = Get.find<PrayersController>();
+        prayersController.filterUserId.value = 0;
+
+        if (Get.isRegistered<HomeController>()) {
+          prayersController.seedFromHomeIfEmpty(
+            Get.find<HomeController>().prayers.toList(),
+          );
+        }
+
+        await prayersController.loadPrayers(
+          refresh: true,
+          silent: prayersController.prayers.isNotEmpty,
+        );
+      } else if (index == 3) {
+        if (!Get.isRegistered<VideosController>()) return;
+        final videosController = Get.find<VideosController>();
+        videosController.selectedFruitTag.value = '';
+
+        if (Get.isRegistered<HomeController>()) {
+          final homeController = Get.find<HomeController>();
+          videosController.seedFromHomeIfEmpty(
+            homeVideos: homeController.videos.toList(),
+            homeLiveVideos: homeController.liveVideos.toList(),
+          );
+        }
+
+        await videosController.loadVideos(
+          refresh: true,
+          silent: true,
+          includePending: true,
+        );
+        unawaited(videosController.loadLiveVideos());
+      } else if (index == 4) {
+        if (!Get.isRegistered<GalleryController>()) return;
+        final galleryController = Get.find<GalleryController>();
+        galleryController.filterUserId.value = 0;
+        galleryController.filterByFruitTag('');
+
+        if (Get.isRegistered<HomeController>()) {
+          galleryController.seedFromHomeIfEmpty(
+            Get.find<HomeController>().galleryPhotos.toList(),
+          );
+        }
+
+        await galleryController.loadPhotos(refresh: true, silent: true);
+      }
+    } catch (e) {
+      debugPrint('Tab silent sync error: $e');
+    }
   }
 }

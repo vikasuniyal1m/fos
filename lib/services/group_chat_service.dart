@@ -132,5 +132,22 @@ class GroupChatService {
       rethrow;
     }
   }
+
+  static Future<void> deleteChatMessage({
+    required int userId,
+    required int messageId,
+  }) async {
+    final response = await ApiService.post(
+      '${ApiConfig.groups}?action=delete-message',
+      body: {
+        'user_id': userId.toString(),
+        'message_id': messageId.toString(),
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete message');
+    }
+  }
 }
 

@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/services/banners_prefetch_service.dart';
 import 'package:fruitsofspirit/services/data_loading_service.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
+import 'package:fruitsofspirit/controllers/banners_controller.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 
 import '../utils/app_theme.dart';
@@ -46,99 +50,52 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
   Future<void> _initializeApp() async {
     try {
-      _animationController.forward();
+      unawaited(IntroService.incrementLaunchCount());
+      final bannerWarm = BannersPrefetchService.warmCache();
+      final animation = _animationController.forward();
 
-      // Increment launch count
-      await IntroService.incrementLaunchCount();
-      final isFirstLaunch = IntroService.getLaunchCount() == 1;
-      debugPrint('DEBUG: App launch count = ${IntroService.getLaunchCount()}, isFirstLaunch = $isFirstLaunch');
-
-      // Minimum delay to show splash screen and allow user to read scripture
-      // Total delay: 1200ms (animation) + 3000ms (reading time) = 4200ms
-      await Future.delayed(const Duration(milliseconds: 1200));
-
-      // Additional delay for user to read scripture (3 seconds)
-      if (isFirstLaunch) {
-        await Future.delayed(const Duration(seconds: 3));
-      }
-
-
-
-
-
-      // Check if user is logged in with timeout to prevent hanging
-      final hasSeenOnboarding = await UserStorage.hasSeenOnboarding()
-          .timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          debugPrint('⚠️ UserStorage.hasSeenOnboarding() timed out, defaulting to false');
-          return false;
-        },
-      )
-          .catchError((error) {
-        debugPrint('❌ Error checking onboarding status: $error');
-        return false;
-      });
-
-      debugPrint('DEBUG: hasSeenOnboarding = $hasSeenOnboarding');
+      final hasSeenOnboarding = await Future.wait([
+        animation,
+        Future<void>.delayed(const Duration(milliseconds: 600)),
+        UserStorage.hasSeenOnboarding().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => false,
+        ).catchError((_) => false),
+      ]).then((results) => results[2] as bool);
 
       if (!mounted) return;
 
       if (!hasSeenOnboarding) {
-        debugPrint('➡️ Navigating to ONBOARDING');
+        unawaited(bannerWarm);
         Get.offAllNamed(Routes.ONBOARDING);
         return;
       }
 
-      final isLoggedIn = await UserStorage.isLoggedIn()
-          .timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          debugPrint('⚠️ UserStorage.isLoggedIn() timed out, defaulting to false');
-          return false;
-        },
-      )
-          .catchError((error) {
-        debugPrint('❌ Error checking login status: $error');
-        return false;
-      });
-
-      debugPrint('DEBUG: isLoggedIn = $isLoggedIn');
+      final isLoggedIn = await UserStorage.isLoggedIn().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => false,
+      ).catchError((_) => false);
 
       if (!mounted) return;
 
       if (isLoggedIn) {
-        debugPrint('➡️ Navigating to HOME');
-
-        // Check if we have cached data to show instantly
-        final hasCache = await DataLoadingService.isHomeDataCached();
-
-        if (hasCache) {
-          debugPrint('✅ Found cached data, navigating to home immediately');
-          // Trigger background refresh but don't wait for it
-          DataLoadingService.loadAllHomeData(preferCache: true).catchError((e) {
-            debugPrint('⚠️ Background data refresh failed: $e');
-          });
-
-          if (!mounted) return;
-          Get.offAllNamed(Routes.DASHBOARD);
-          return;
+        await bannerWarm.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {},
+        );
+        if (Get.isRegistered<BannersController>()) {
+          Get.find<BannersController>().bootstrapBanners();
         }
-
-        // No cache found, trigger data loading in background and navigate immediately
-        DataLoadingService.loadAllHomeData(preferCache: false).catchError((e) {
-          debugPrint('⚠️ Background data loading failed after login/registration: $e');
-        });
-
-        if (!mounted) return;
+        unawaited(
+          DataLoadingService.loadAllHomeData(preferCache: true).catchError((_) {}),
+        );
         Get.offAllNamed(Routes.DASHBOARD);
       } else {
-        debugPrint('➡️ Navigating to LOGIN');
+        unawaited(bannerWarm);
         Get.offAllNamed(Routes.LOGIN);
       }
     } catch (e) {
       debugPrint('❌ Error in _initializeApp: $e');
-      // Fallback: Navigate to login if anything fails
       if (mounted) {
         Get.offAllNamed(Routes.LOGIN);
       }

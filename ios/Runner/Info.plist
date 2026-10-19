@@ -41,6 +41,11 @@
 	<string>AIzaSyCDcSdmncce1ok5fgOmtEfkTv0FJitixWQ</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>comgooglemaps</string>
+		<string>maps</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -49,7 +54,9 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>This app needs camera access to share moments and update your profile picture.</string>
+	<string>This app needs camera access for live streaming, sharing moments, and updating your profile picture.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs microphone access so others can hear you during live streams.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app needs your location to find nearby churches.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

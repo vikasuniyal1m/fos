@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
@@ -23,11 +25,18 @@ import 'package:fruitsofspirit/widgets/emoji_sticker_picker.dart';
 import 'package:fruitsofspirit/screens/report_content_screen.dart' as rcs;
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
+import 'package:fruitsofspirit/utils/group_chat_backgrounds.dart';
+import 'package:fruitsofspirit/widgets/group_chat_background_picker.dart';
 import '../utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/time_helper.dart';
 // edit feature: Add API imports
 import 'package:fruitsofspirit/services/api_service.dart'; // edit feature
 import 'package:fruitsofspirit/config/api_config.dart'; // edit feature
+import 'package:fruitsofspirit/services/group_chat_service.dart';
+import 'package:fruitsofspirit/utils/content_delete_helper.dart';
+import 'package:fruitsofspirit/config/group_posts_config.dart';
+import 'package:fruitsofspirit/screens/group_posts_screen.dart';
 
 class RealGroupChatScreen extends StatefulWidget {
   final int groupId;
@@ -45,8 +54,11 @@ class RealGroupChatScreen extends StatefulWidget {
   State<RealGroupChatScreen> createState() => _RealGroupChatScreenState();
 }
 
-class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
-  final GroupChatController controller = Get.put(GroupChatController());
+class _RealGroupChatScreenState extends State<RealGroupChatScreen>
+    with WidgetsBindingObserver {
+  late final GroupChatController controller = Get.isRegistered<GroupChatController>()
+      ? Get.find<GroupChatController>()
+      : Get.put(GroupChatController());
   final TextEditingController messageController = TextEditingController();
   final ScrollController scrollController = ScrollController();
   final ImagePicker _picker = ImagePicker();
@@ -59,6 +71,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
 
   int? groupOwnerId;
   String? groupCategory;
+  String _backgroundId = GroupChatBackgrounds.defaultId;
 
   /// Show a custom snackbar using ScaffoldMessenger
   void _showCustomSnackbar(String title, String message, {bool isError = false}) {
@@ -105,13 +118,22 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    controller.setChatScreenActive(true, groupId: widget.groupId);
     try {
-      _initializeData();
+      _seedGroupFromController();
+      unawaited(_loadChatBackground());
+      controller.bootstrapMessages(widget.groupId);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _loadGroupData();
-        controller.loadMessages(widget.groupId, refresh: true);
-        _loadEmojis();
-        _syncStickers();
+        unawaited(
+          controller.loadMessages(
+            widget.groupId,
+            silent: controller.messages.isNotEmpty,
+          ),
+        );
+        unawaited(_syncGroupDetailsSilently());
+        unawaited(_loadEmojis());
+        unawaited(_syncStickers());
       });
 
       // Automatically show disable dialog when jingle finishes for the 3rd time
@@ -137,42 +159,69 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     }
   }
 
-  Future<void> _initializeData() async {
+  void _seedGroupFromController() {
     try {
-      // Load group details
-      final groupDetails = await GroupsService.getGroupDetails(widget.groupId);
-      if (groupDetails != null) {
-        setState(() {
-          groupOwnerId = groupDetails['created_by'] as int?;
-          groupCategory = groupDetails['category'] as String?;
-          groupImage = groupDetails['group_image'] as String? ?? groupDetails['image_url'] as String?;
-        });
-      }
+      if (!Get.isRegistered<GroupsController>()) return;
+      final groupsController = Get.find<GroupsController>();
+      groupsController.bootstrapGroupDetail(widget.groupId);
+      final group = groupsController.selectedGroup;
+      if (group.isEmpty) return;
 
-      // Load emojis
-      availableEmojis.value = await EmojisService.getEmojis(status: 'Active', sortBy: 'image_url', order: 'ASC');
-      isLoadingEmojis.value = false;
-
-      // Load messages
-      await controller.loadMessages(widget.groupId, refresh: true);
+      groupOwnerId = group['created_by'] is int
+          ? group['created_by'] as int
+          : int.tryParse(group['created_by']?.toString() ?? '');
+      groupCategory = group['category'] as String?;
+      groupImage = group['group_image'] as String? ??
+          group['image_url'] as String?;
     } catch (e) {
-      print('ROOT CAUSE ERROR in _initializeData: ${e.toString()}');
+      print('Error seeding group for chat: $e');
     }
   }
 
-  Future<void> _loadGroupData() async {
+  Future<void> _loadChatBackground() async {
+    final id = await GroupChatBackgrounds.loadForGroup(widget.groupId);
+    if (mounted) {
+      setState(() => _backgroundId = id);
+    }
+  }
+
+  void _showBackgroundPicker(BuildContext anchorContext) {
+    if (!mounted) return;
+    GroupChatBackgroundPicker.show(
+      anchorContext,
+      selectedId: _backgroundId,
+      onSelected: (id) {
+        if (!mounted) return;
+        setState(() => _backgroundId = id);
+        GroupChatBackgrounds.saveForGroup(widget.groupId, id);
+      },
+    );
+  }
+
+  Future<void> _syncGroupDetailsSilently() async {
     try {
+      if (Get.isRegistered<GroupsController>()) {
+        final groupsController = Get.find<GroupsController>();
+        unawaited(
+          groupsController.loadGroupDetails(widget.groupId, silent: true),
+        );
+      }
+
       final details = await GroupsService.getGroupDetails(widget.groupId);
-      if (mounted) {
-        setState(() {
-          groupOwnerId = details['created_by'] as int?;
-          groupCategory = details['category'] as String?;
-          groupImage = details['group_image'] as String? ?? details['image_url'] as String?;
-        });
-        _loadJingleStatus();
+      if (!mounted) return;
+      setState(() {
+        groupOwnerId = details['created_by'] is int
+            ? details['created_by'] as int
+            : int.tryParse(details['created_by']?.toString() ?? '');
+        groupCategory = details['category'] as String?;
+        groupImage = details['group_image'] as String? ??
+            details['image_url'] as String?;
+      });
+      if (groupCategory != null && groupCategory!.isNotEmpty) {
+        unawaited(_loadJingleStatus());
       }
     } catch (e) {
-      print('ROOT CAUSE ERROR in _loadGroupData: ${e.toString()}');
+      print('Error syncing group details for chat: $e');
     }
   }
 
@@ -201,17 +250,12 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
 
   Future<void> _syncStickers() async {
     try {
-      // Get current user ID for sticker sync
       final userId = await us.UserStorage.getUserId();
       if (userId != null) {
         final userEmail = await us.UserStorage.getUserEmail();
-        // Sync first page of stickers for fast loading
-        await StickerService.syncStickers(
+        await StickerService.syncStickersIfStale(
           userId,
-          testMode: true, // Enable test mode to show all stickers
           userEmail: userEmail,
-          page: 1,
-          limit: 10,
         );
       }
     } catch (e) {
@@ -325,8 +369,20 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      controller.setChatScreenActive(true, groupId: widget.groupId);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      controller.setChatScreenActive(false);
+    }
+  }
+
+  @override
   void dispose() {
-    controller.stopPolling();
+    WidgetsBinding.instance.removeObserver(this);
+    controller.setChatScreenActive(false);
     messageController.dispose();
     scrollController.dispose();
     // edit feature: Dispose edit controllers
@@ -364,6 +420,23 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
       return false; // edit feature
     } // edit feature
   } // edit feature
+
+  Future<void> _deleteChatMessage(int messageId) async {
+    final userId = controller.userId.value;
+    if (userId == null || userId == 0) {
+      Get.snackbar('Error', 'Please login first', backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'message');
+    if (!confirmed) return;
+    try {
+      await GroupChatService.deleteChatMessage(userId: userId, messageId: messageId);
+      await controller.loadMessages(widget.groupId, refresh: true);
+      Get.snackbar('Success', 'Message deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } catch (e) {
+      Get.snackbar('Error', e.toString().replaceAll('Exception: ', ''), backgroundColor: Colors.red, colorText: Colors.white);
+    }
+  }
 
   // edit feature: Edit chat message method
   Future<void> _editChatMessage(int messageId, String content) async { // edit feature
@@ -496,6 +569,31 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                       ],
                     );
                   }),
+                  if (GroupPostsConfig.enabled) ...[
+                    _buildOldStyleRoundButton(
+                      context,
+                      icon: Icons.feed_outlined,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => GroupPostsScreen(
+                              groupId: widget.groupId,
+                              groupName: widget.groupName,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Builder(
+                    builder: (pickerContext) => _buildOldStyleRoundButton(
+                      pickerContext,
+                      icon: Icons.wallpaper_rounded,
+                      onTap: () => _showBackgroundPicker(pickerContext),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   _buildMoreMenu(context),
                 ],
               ),
@@ -503,7 +601,9 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
           ),
         ),
       ),
-      body: GestureDetector(
+      body: GroupChatBackgrounds.buildBackground(
+        optionId: _backgroundId,
+        child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: () => FocusScope.of(context).unfocus(),
         child: Column(
@@ -529,6 +629,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                 controller: scrollController,
                 padding: const EdgeInsets.all(8),
                 reverse: true,
+                physics: const AlwaysScrollableScrollPhysics(),
                 itemCount: groupMessages.length,
                 itemBuilder: (context, index) {
                   final currentMessage = groupMessages[groupMessages.length - 1 - index];
@@ -578,6 +679,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
           ],
         ),
       ),
+      ),
     );
     } catch (e) {
       print('ROOT CAUSE ERROR in build: ${e.toString()}');
@@ -616,51 +718,119 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     }
   }
 
-  Widget _buildOldStyleRoundButton(BuildContext context, {required IconData icon, required VoidCallback onTap}) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(30),
-        child: Container(
-          width: 40.0, height: 40.0,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.grey[50]!, Colors.grey[100]!]),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1.5),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+  Widget _buildOldStyleRoundButton(
+    BuildContext context, {
+    required IconData icon,
+    VoidCallback? onTap,
+  }) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(30),
+          splashFactory: InkRipple.splashFactory,
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.grey[50]!, Colors.grey[100]!],
+              ),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: AppTheme.iconscolor, size: 20.0),
           ),
-          child: Icon(icon, color: AppTheme.iconscolor, size: 20.0),
         ),
       ),
     );
   }
 
-  Widget _buildMoreMenu(BuildContext context) {
-    return PopupMenuButton<String>(
-      onSelected: (value) { if (value == 'toggle') _toggleJingle(); },
+  Future<void> _openMoreMenu(BuildContext context) async {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+
+    final offset = box.localToGlobal(Offset.zero);
+    final status = jingleStatus;
+    final shouldShow = status['shouldShowOption'] ?? false;
+    final isDisabled = status['isDisabled'] ?? false;
+
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        offset.dx - 120,
+        offset.dy + box.size.height,
+        offset.dx + box.size.width,
+        offset.dy,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      icon: _buildOldStyleRoundButton(context, icon: Icons.more_vert, onTap: () {}),
-      itemBuilder: (context) {
-        final status = jingleStatus.value;
-        final shouldShow = status['shouldShowOption'] ?? false;
-        final isDisabled = status['isDisabled'] ?? false;
-        return [
-          if (shouldShow)
-            PopupMenuItem(
-              value: 'toggle',
-              child: Row(children: [
-                Icon(isDisabled ? Icons.volume_up_rounded : Icons.volume_off_rounded, color: const Color(0xFF5F4628), size: 20),
-                const SizedBox(width: 12),
-                Text(isDisabled ? 'Enable Voice' : 'Disable Voice'),
-              ]),
-            ),
-          const PopupMenuItem(value: 'info', child: Row(children: [
-            Icon(Icons.info_outline_rounded, color: Color(0xFF5F4628), size: 20),
-            const SizedBox(width: 12),
-            Text('Group Info'),
-          ])),
-        ];
+      items: [
+        if (shouldShow)
+          PopupMenuItem(
+            value: 'toggle',
+            child: Row(children: [
+              Icon(
+                isDisabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                color: const Color(0xFF5F4628),
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Text(isDisabled ? 'Enable Voice' : 'Disable Voice'),
+            ]),
+          ),
+        if (GroupPostsConfig.enabled)
+          const PopupMenuItem(
+            value: 'posts',
+            child: Row(children: [
+              Icon(Icons.feed_outlined, color: Color(0xFF5F4628), size: 20),
+              SizedBox(width: 12),
+              Text('Group Posts'),
+            ]),
+          ),
+        const PopupMenuItem(
+          value: 'background',
+          child: Row(children: [
+            Icon(Icons.wallpaper_rounded, color: Color(0xFF5F4628), size: 20),
+            SizedBox(width: 12),
+            Text('Chat Background'),
+          ]),
+        ),
+      ],
+    );
+
+    if (!mounted || selected == null) return;
+    if (selected == 'toggle') _toggleJingle();
+    if (selected == 'background') _showBackgroundPicker(context);
+    if (selected == 'posts' && GroupPostsConfig.enabled) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => GroupPostsScreen(
+            groupId: widget.groupId,
+            groupName: widget.groupName,
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget _buildMoreMenu(BuildContext context) {
+    return Builder(
+      builder: (menuContext) {
+        return _buildOldStyleRoundButton(
+          menuContext,
+          icon: Icons.more_vert,
+          onTap: () => _openMoreMenu(menuContext),
+        );
       },
     );
   }
@@ -671,6 +841,8 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
     final userName = message['user_name'] as String? ?? 'User';
     final createdAt = message['created_at'] as String? ?? '';
     final messageId = int.tryParse(message['id'].toString()) ?? 0;
+    final messageContent = (message['message'] as String? ?? '').trim();
+    final isStickerMessage = StickerEmojiHelper.isStickerEmoji(messageContent);
     final baseUrl = 'http://admin.fosmessenger.com/';
 
     return Container(
@@ -739,7 +911,7 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                                   ], // edit feature
                                   Text(TimeHelper.getTimeAgo(createdAt), style: const TextStyle(fontSize: 10, color: Colors.grey)), // Smaller font size for time
                                   // edit feature: Show pencil icon for own messages within 15 minutes
-                                  if (isMe && _canEditMessage(message)) ...[ // edit feature
+                                  if (isMe && _canEditMessage(message) && !isStickerMessage) ...[ // edit feature
                                     const SizedBox(width: 4), // edit feature
                                     GestureDetector( // edit feature
                                       onTap: () { // edit feature
@@ -759,6 +931,13 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
                                       ), // edit feature
                                     ), // edit feature
                                   ], // edit feature
+                                  if (isMe) ...[
+                                    const SizedBox(width: 4),
+                                    GestureDetector(
+                                      onTap: () => _deleteChatMessage(messageId),
+                                      child: const Icon(Icons.delete_outline, size: 14, color: Colors.red),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -853,13 +1032,28 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
       );
     }
 
-    if (messageType == 'image' && msg['file_url'] != null) {
+    final resolvedImageUrl = ImageHelper.resolveChatFileUrl(msg);
+    if (messageType == 'image' && resolvedImageUrl != null) {
+      final imageUrl = resolvedImageUrl;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: CachedImage(imageUrl: msg['file_url'], width: 200, height: 150, fit: BoxFit.cover),
+          GestureDetector(
+            onTap: () => _showImagePreview(imageUrl),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 220,
+                height: 180,
+                color: Colors.black.withOpacity(0.05),
+                child: CachedImage(
+                  imageUrl: imageUrl,
+                  width: 220,
+                  height: 180,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
           ),
           if (content.isNotEmpty)
             Padding(
@@ -877,6 +1071,71 @@ class _RealGroupChatScreenState extends State<RealGroupChatScreen> {
       context,
       content,
       style: const TextStyle(color: Colors.black87, fontSize: 14),
+    );
+  }
+
+  void _showImagePreview(String imageUrl) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      enableDrag: true,
+      isDismissible: true,
+      useSafeArea: true,
+      backgroundColor: Colors.black,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        return SizedBox(
+          height: MediaQuery.of(sheetContext).size.height * 0.88,
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white54,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Stack(
+                  children: [
+                    Center(
+                      child: InteractiveViewer(
+                        minScale: 1,
+                        maxScale: 4,
+                        child: CachedImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Material(
+                        color: Colors.black54,
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: () => Navigator.of(sheetContext).pop(),
+                          child: const Padding(
+                            padding: EdgeInsets.all(8.0),
+                            child: Icon(Icons.close, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

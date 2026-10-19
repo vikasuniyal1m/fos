@@ -30,6 +30,7 @@ subprojects {
         resolutionStrategy {
             force("androidx.core:core-ktx:1.15.0")
             force("androidx.core:core:1.15.0")
+            force("com.android.billingclient:billing:9.0.0")
 
             // Ensure all Kotlin-related dependencies use the project's Kotlin version
             eachDependency {

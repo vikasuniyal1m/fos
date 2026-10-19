@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:get/get.dart';
 import 'package:flutter/material.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/services/prayers_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
@@ -16,6 +19,7 @@ import 'package:share_plus/share_plus.dart';
 class PrayersController extends GetxController {
   // Observable variables
   var isLoading = false.obs;
+  var isDetailsSilentSyncing = false.obs;
   var message = ''.obs;
   
   // Data
@@ -39,6 +43,14 @@ class PrayersController extends GetxController {
   // Performance: Track if data is already loaded to prevent unnecessary reloads
   var _isDataLoaded = false;
   var _isLoading = false;
+  int _loadGeneration = 0;
+  int _detailsLoadGeneration = 0;
+  DateTime? _lastSyncedAt;
+  DateTime? _detailsLastSyncedAt;
+  static const Duration _minSyncInterval = Duration(minutes: 2);
+  static const Duration _detailsMinSyncInterval = Duration(minutes: 2);
+  Completer<void>? _activeLoadCompleter;
+  final Set<int> _deletedCommentIds = {};
 
   @override
   void onInit() {
@@ -51,15 +63,25 @@ class PrayersController extends GetxController {
   @override
   void onReady() {
     super.onReady();
-    // Performance: Only load if data is not already loaded and filter is not set
-    // If filter is set, it means we're coming from profile, so loadPrayers will be called after navigation
-    // Don't reload if data already exists
-    if (!_isDataLoaded && filterUserId.value == 0 && !_isLoading && prayers.isEmpty && _allPrayers.isEmpty) {
-      loadPrayers();
-    } else if (_allPrayers.isNotEmpty) {
-      // Apply filter from cached data if available
+    if (_allPrayers.isNotEmpty) {
       _applyClientSideFilter();
+      if (filterUserId.value == 0) {
+        unawaited(loadPrayers(refresh: true, silent: true));
+      }
+      return;
     }
+
+    if (filterUserId.value == 0 && !_isLoading) {
+      loadPrayers(refresh: false);
+    }
+  }
+
+  /// Seed prayers from home cache for instant open.
+  void seedFromHomeIfEmpty(List<Map<String, dynamic>> homePrayers) {
+    if (_allPrayers.isNotEmpty || homePrayers.isEmpty) return;
+    _allPrayers = List<Map<String, dynamic>>.from(homePrayers);
+    _isDataLoaded = true;
+    _applyClientSideFilter();
   }
 
   /// Load user ID from storage
@@ -71,34 +93,53 @@ class PrayersController extends GetxController {
   }
 
   /// Load prayers
-  Future<void> loadPrayers({bool refresh = false}) async {
-
+  Future<void> loadPrayers({bool refresh = false, bool silent = false}) async {
     if (filterUserId.value > 0) {
       refresh = true;
     }
 
-    // Performance: Skip if already loading
-    if (_isLoading && !refresh) {
+    if (_isLoading) {
+      if (_activeLoadCompleter != null) {
+        await _activeLoadCompleter!.future;
+      }
+      if (_allPrayers.isNotEmpty) {
+        _applyClientSideFilter();
+      }
       return;
     }
-    
-    // Performance: Skip if data already loaded and not explicitly refreshing
-    if (_isDataLoaded && !refresh && prayers.isNotEmpty && _allPrayers.isNotEmpty) {
-      // Apply current filter from cache
+
+    if (_isDataLoaded && !refresh && _allPrayers.isNotEmpty) {
       _applyClientSideFilter();
       return;
     }
-    
+
+    if (silent &&
+        _lastSyncedAt != null &&
+        DateTime.now().difference(_lastSyncedAt!) < _minSyncInterval) {
+      if (_allPrayers.isNotEmpty) {
+        _applyClientSideFilter();
+      }
+      return;
+    }
+
+    final generation = silent ? _loadGeneration : ++_loadGeneration;
+    _activeLoadCompleter = Completer<void>();
+
     if (refresh) {
       currentPage.value = 0;
       _isDataLoaded = false;
     }
 
     _isLoading = true;
-    isLoading.value = true;
+    if (!silent) {
+      isLoading.value = true;
+    }
     message.value = '';
 
     try {
+      if (userId.value == 0) {
+        await _loadUserId();
+      }
       // Performance: Always load ALL prayers (no category filter) to populate cache
       // Then apply client-side filtering for instant updates
       final approvedPrayers = await PrayersService.getPrayers(
@@ -109,6 +150,10 @@ class PrayersController extends GetxController {
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
+
+      if (generation != _loadGeneration) {
+        return;
+      }
 
       // If user wants to see their pending prayers, load them too
       List<Map<String, dynamic>> allPrayers = List.from(approvedPrayers);
@@ -164,31 +209,61 @@ class PrayersController extends GetxController {
         print('   - Prayer: ${prayer['id']} (Status: $status)');
       }
 
+      if (!silent && generation != _loadGeneration) {
+        return;
+      }
+
       if (refresh || currentPage.value == 0) {
-        // Performance: Store ALL prayers in cache (no category filter)
-        _allPrayers = List<Map<String, dynamic>>.from(allPrayers);
-        // Apply current filter to display
-        _applyClientSideFilter();
+        final hasChanged = !_prayerListsEqual(_allPrayers, allPrayers);
+        if (hasChanged || _allPrayers.isEmpty) {
+          _allPrayers = List<Map<String, dynamic>>.from(allPrayers);
+          _applyClientSideFilter();
+        }
       } else {
-        // Performance: Add to all prayers cache
         _allPrayers.addAll(allPrayers);
-        // Apply current filter to display
         _applyClientSideFilter();
       }
-      
-      // Performance: Mark as loaded
+
       _isDataLoaded = true;
+      _lastSyncedAt = DateTime.now();
     } catch (e) {
-      message.value = 'Error loading prayers: ${e.toString().replaceAll('Exception: ', '')}';
+      if (!silent) {
+        message.value = 'Error loading prayers: ${e.toString().replaceAll('Exception: ', '')}';
+      }
       print('Error loading prayers: $e');
-      if (refresh || currentPage.value == 0) {
+      if (!silent && (refresh || currentPage.value == 0) && _allPrayers.isEmpty) {
         prayers.value = [];
         _isDataLoaded = false;
+      } else if (_allPrayers.isNotEmpty) {
+        _applyClientSideFilter();
       }
     } finally {
       _isLoading = false;
-      isLoading.value = false;
+      _activeLoadCompleter?.complete();
+      _activeLoadCompleter = null;
+      if (!silent) {
+        isLoading.value = false;
+      }
     }
+  }
+
+  bool _prayerListsEqual(
+    List<Map<String, dynamic>> previous,
+    List<Map<String, dynamic>> next,
+  ) {
+    if (identical(previous, next)) return true;
+    if (previous.length != next.length) return false;
+
+    for (var i = 0; i < previous.length; i++) {
+      final prev = previous[i];
+      final curr = next[i];
+      if (prev['id'] != curr['id']) return false;
+      if (prev['updated_at'] != curr['updated_at']) return false;
+      if (prev['response_count'] != curr['response_count']) return false;
+      if (prev['comment_count'] != curr['comment_count']) return false;
+      if (prev['status'] != curr['status']) return false;
+    }
+    return true;
   }
 
   /// Load more prayers (pagination)
@@ -199,29 +274,142 @@ class PrayersController extends GetxController {
     await loadPrayers();
   }
 
-  /// Load single prayer with comments
-  Future<void> loadPrayerDetails(int prayerId) async {
-    isLoading.value = true;
+  int? _prayerIdFromMap(Map<String, dynamic> prayer) {
+    final id = prayer['id'];
+    if (id is int) return id;
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  String _prayerDetailHiveKey(int prayerId) => 'prayer_detail_$prayerId';
+
+  /// Show list/Hive data immediately before opening detail screen.
+  void seedPrayerDetailFromList(int prayerId) {
+    if (_prayerIdFromMap(selectedPrayer) == prayerId && selectedPrayer.isNotEmpty) {
+      return;
+    }
+
+    Map<String, dynamic>? found;
+    for (final prayer in _allPrayers) {
+      if (_prayerIdFromMap(prayer) == prayerId) {
+        found = prayer;
+        break;
+      }
+    }
+    if (found == null) {
+      for (final prayer in prayers) {
+        if (_prayerIdFromMap(prayer) == prayerId) {
+          found = prayer;
+          break;
+        }
+      }
+    }
+
+    if (found != null) {
+      selectedPrayer.value = Map<String, dynamic>.from(found);
+    }
+  }
+
+  void loadPrayerDetailFromHive(int prayerId) {
+    if (_prayerIdFromMap(selectedPrayer) == prayerId && selectedPrayer.isNotEmpty) {
+      return;
+    }
+    final cached = HiveCacheService.getCachedData(_prayerDetailHiveKey(prayerId));
+    if (cached is Map && cached['prayer'] is Map) {
+      selectedPrayer.value =
+          Map<String, dynamic>.from(cached['prayer'] as Map<String, dynamic>);
+    }
+  }
+
+  Future<void> _cachePrayerDetail(int prayerId) async {
+    if (selectedPrayer.isEmpty) return;
+    await HiveCacheService.cacheData(
+      _prayerDetailHiveKey(prayerId),
+      {
+        'prayer': Map<String, dynamic>.from(selectedPrayer),
+        'cached_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      expiryHours: 24,
+    );
+  }
+
+  /// Cache/list seed first, then silent API sync when preview exists.
+  Future<void> preparePrayerDetails(int prayerId) async {
+    if (prayerId <= 0) return;
+
+    seedPrayerDetailFromList(prayerId);
+    loadPrayerDetailFromHive(prayerId);
+
+    final hasPreview =
+        _prayerIdFromMap(selectedPrayer) == prayerId && selectedPrayer.isNotEmpty;
+    if (!hasPreview) {
+      await loadPrayerDetails(prayerId, silent: false);
+    } else {
+      unawaited(loadPrayerDetails(prayerId, silent: true));
+    }
+  }
+
+  /// Load single prayer with comments (silent = no blocking spinner if preview exists).
+  Future<void> loadPrayerDetails(
+    int prayerId, {
+    bool silent = false,
+    bool force = false,
+  }) async {
+    if (silent &&
+        !force &&
+        _detailsLastSyncedAt != null &&
+        _prayerIdFromMap(selectedPrayer) == prayerId &&
+        DateTime.now().difference(_detailsLastSyncedAt!) < _detailsMinSyncInterval) {
+      return;
+    }
+
+    final generation = silent ? _detailsLoadGeneration : ++_detailsLoadGeneration;
+    final hadPreview =
+        _prayerIdFromMap(selectedPrayer) == prayerId && selectedPrayer.isNotEmpty;
+
+    if (!silent && !hadPreview) {
+      isLoading.value = true;
+    } else {
+      isDetailsSilentSyncing.value = true;
+    }
     message.value = '';
 
     try {
+      if (userId.value == 0) {
+        await _loadUserId();
+      }
+
       final prayer = await PrayersService.getPrayerDetails(
         prayerId,
         currentUserId: userId.value > 0 ? userId.value : null,
       );
+
+      if (generation != _detailsLoadGeneration) {
+        return;
+      }
+
       selectedPrayer.value = prayer;
-      
-      // Load emojis and comments
+
       await Future.wait([
         loadAvailableEmojis(),
         loadQuickEmojis(),
         loadPrayerComments(prayerId),
       ]);
+
+      if (generation != _detailsLoadGeneration) {
+        return;
+      }
+
+      _detailsLastSyncedAt = DateTime.now();
+      unawaited(_cachePrayerDetail(prayerId));
     } catch (e) {
-      message.value = 'Error loading prayer: ${e.toString().replaceAll('Exception: ', '')}';
+      if (!silent || !hadPreview) {
+        message.value =
+            'Error loading prayer: ${e.toString().replaceAll('Exception: ', '')}';
+      }
       print('Error loading prayer details: $e');
     } finally {
       isLoading.value = false;
+      isDetailsSilentSyncing.value = false;
     }
   }
 
@@ -247,14 +435,16 @@ class PrayersController extends GetxController {
       final emojiReactions = <String, List<Map<String, dynamic>>>{};
       
       for (var comment in comments) {
+        if (_isCommentDeleted(comment)) continue;
+
         // Handle both 'content' and 'comment' fields for backward compatibility
         final content = (comment['content'] as String? ?? comment['comment'] as String? ?? '').trim();
         final trimmed = content;
-        final parentId = comment['parent_comment_id'];
-        final commentId = comment['id'];
+        final parentId = _normalizeParentId(comment['parent_comment_id']);
+        final commentId = _commentId(comment);
         
         // Debug: Check if this is a reply
-        if (parentId != null && parentId != 0) {
+        if (parentId != null) {
           print('🔗 Found reply in main list: comment_id=$commentId, parent_comment_id=$parentId');
           print('   ⚠️ WARNING: This reply should NOT be in the main comments list!');
           print('   ⚠️ Backend should only return top-level comments with replies in replies array');
@@ -305,7 +495,7 @@ class PrayersController extends GetxController {
         // FIX: Add ALL top-level comments to textComments (including emoji comments)
         // Emoji reactions and emoji comments are both stored in comments table
         // The UI (FruitEmojiHelper.buildCommentText) will render emoji URLs as images
-        if (parentId == null || parentId == 0) {
+        if (parentId == null) {
           // Check if replies array exists and log it
           final replies = comment['replies'];
           final replyCount = replies != null ? (replies as List).length : 0;
@@ -318,8 +508,7 @@ class PrayersController extends GetxController {
             }
           }
           
-          // ✅ ADD TO COMMENTS LIST (including emoji comments)
-          textComments.add(comment);
+          textComments.add(_filterDeletedFromTree(comment));
           print('✅ Added to prayerComments: id=$commentId, isEmoji=$isEmojiReaction');
           
           // Also track emoji reactions separately for the reactions bar (if it's an emoji)
@@ -347,11 +536,197 @@ class PrayersController extends GetxController {
       
       prayerComments.value = textComments;
       prayerEmojiReactions.value = emojiReactions;
+      _deletedCommentIds.removeWhere((id) => !_commentExistsInList(textComments, id));
     } catch (e) {
       print('❌ Error loading prayer comments: $e');
-      prayerComments.value = [];
-      prayerEmojiReactions.value = <String, List<Map<String, dynamic>>>{};
     }
+  }
+
+  bool _isCommentDeleted(Map<String, dynamic> comment) {
+    final id = _commentId(comment);
+    if (_deletedCommentIds.contains(id)) return true;
+    final deleted = comment['is_deleted'];
+    return deleted == 1 || deleted == true || deleted == '1';
+  }
+
+  bool _commentExistsInList(List<Map<String, dynamic>> comments, int commentId) {
+    for (final comment in comments) {
+      if (_commentId(comment) == commentId) return true;
+      final replies = comment['replies'];
+      if (replies is List && replies.isNotEmpty) {
+        final nested = replies
+            .whereType<Map>()
+            .map((r) => Map<String, dynamic>.from(r))
+            .toList();
+        if (_commentExistsInList(nested, commentId)) return true;
+      }
+    }
+    return false;
+  }
+
+  Map<String, dynamic> _filterDeletedFromTree(Map<String, dynamic> comment) {
+    final copy = Map<String, dynamic>.from(comment);
+    final replies = copy['replies'];
+    if (replies is List && replies.isNotEmpty) {
+      final filtered = replies
+          .whereType<Map>()
+          .map((r) => Map<String, dynamic>.from(r))
+          .where((r) => !_isCommentDeleted(r))
+          .map(_filterDeletedFromTree)
+          .toList();
+      copy['replies'] = filtered;
+      copy['reply_count'] = filtered.length;
+    }
+    return copy;
+  }
+
+  int _commentId(Map<String, dynamic> comment) {
+    final id = comment['id'];
+    if (id is int) return id;
+    if (id is String) return int.tryParse(id) ?? 0;
+    return 0;
+  }
+
+  int? _normalizeParentId(dynamic parentId) {
+    if (parentId == null || parentId == '' || parentId == false) return null;
+    if (parentId is int) return parentId == 0 ? null : parentId;
+    if (parentId is String) {
+      final parsed = int.tryParse(parentId);
+      return parsed == null || parsed == 0 ? null : parsed;
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _stripCommentFromTree(
+    Map<String, dynamic> comment,
+    int targetId,
+  ) {
+    final copy = Map<String, dynamic>.from(comment);
+    final replies = copy['replies'];
+    if (replies is List && replies.isNotEmpty) {
+      final filtered = replies
+          .whereType<Map>()
+          .map((r) => Map<String, dynamic>.from(r))
+          .where((r) => _commentId(r) != targetId)
+          .map((r) => _stripCommentFromTree(r, targetId))
+          .toList();
+      copy['replies'] = filtered;
+      copy['reply_count'] = filtered.length;
+    }
+    return copy;
+  }
+
+  void _removeCommentLocally(int commentId) {
+    final updated = <Map<String, dynamic>>[];
+    for (final comment in prayerComments) {
+      if (_commentId(comment) == commentId) continue;
+      updated.add(_stripCommentFromTree(comment, commentId));
+    }
+    prayerComments.value = updated;
+  }
+
+  void _insertCommentLocally({
+    required String content,
+    required int tempId,
+    String? userName,
+    String? profilePhoto,
+    int? parentCommentId,
+  }) {
+    final comment = <String, dynamic>{
+      'id': tempId,
+      'content': content,
+      'user_id': userId.value,
+      'user_name': userName ?? 'You',
+      'profile_photo': profilePhoto,
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+      'parent_comment_id': parentCommentId ?? 0,
+      'replies': <Map<String, dynamic>>[],
+      'reply_count': 0,
+      'like_count': 0,
+      'is_liked': 0,
+    };
+
+    if (parentCommentId != null && parentCommentId > 0) {
+      final updated = <Map<String, dynamic>>[];
+      for (final existing in prayerComments) {
+        if (_commentId(existing) == parentCommentId) {
+          final parent = Map<String, dynamic>.from(existing);
+          final replies = List<Map<String, dynamic>>.from(
+            (parent['replies'] as List?)
+                    ?.whereType<Map>()
+                    .map((r) => Map<String, dynamic>.from(r)) ??
+                [],
+          );
+          replies.add(comment);
+          parent['replies'] = replies;
+          parent['reply_count'] = replies.length;
+          updated.add(parent);
+        } else {
+          updated.add(existing);
+        }
+      }
+      prayerComments.value = updated;
+      return;
+    }
+
+    prayerComments.add(comment);
+  }
+
+  void _replaceTempCommentId(int tempId, int realId) {
+    final updated = <Map<String, dynamic>>[];
+    for (final comment in prayerComments) {
+      final copy = Map<String, dynamic>.from(comment);
+      if (_commentId(copy) == tempId) {
+        copy['id'] = realId;
+      }
+      final replies = copy['replies'];
+      if (replies is List && replies.isNotEmpty) {
+        copy['replies'] = replies
+            .whereType<Map>()
+            .map((r) {
+              final reply = Map<String, dynamic>.from(r);
+              if (_commentId(reply) == tempId) {
+                reply['id'] = realId;
+              }
+              return reply;
+            })
+            .toList();
+      }
+      updated.add(copy);
+    }
+    prayerComments.value = updated;
+  }
+
+  Future<void> _deleteCommentOnServer(int prayerId, int commentId) async {
+    try {
+      await CommentsService.deleteComment(
+        userId: userId.value,
+        commentId: commentId,
+        postType: 'prayer',
+      );
+    } catch (e) {
+      _deletedCommentIds.remove(commentId);
+      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      unawaited(loadPrayerComments(prayerId));
+    }
+  }
+
+  /// Delete a prayer comment with instant UI update.
+  Future<bool> deletePrayerComment(int prayerId, int commentId) async {
+    if (userId.value == 0) {
+      await _loadUserId();
+    }
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      return false;
+    }
+    if (commentId <= 0) return false;
+
+    _deletedCommentIds.add(commentId);
+    _removeCommentLocally(commentId);
+    prayerComments.refresh();
+    unawaited(_deleteCommentOnServer(prayerId, commentId));
+    return true;
   }
 
   /// Check if string is an emoji
@@ -385,36 +760,14 @@ class PrayersController extends GetxController {
   /// Load available emojis
   /// Loads all emojis from database so reactions can be mapped correctly
   Future<void> loadAvailableEmojis() async {
+    if (availableEmojis.isNotEmpty) return;
     try {
-      print('🔄 Loading all available emojis from database for reactions mapping...');
       final emojis = await EmojisService.getEmojis(
         status: 'Active',
         sortBy: 'image_url',
         order: 'ASC',
       );
       availableEmojis.value = emojis;
-      print('✅ Loaded ${emojis.length} available emojis');
-      if (emojis.isNotEmpty) {
-        print('📋 Sample emojis:');
-        for (var i = 0; i < (emojis.length > 10 ? 10 : emojis.length); i++) {
-          print('   ${i + 1}. ${emojis[i]['name']} - emoji_char: "${emojis[i]['emoji_char']}" - code: ${emojis[i]['code']} - image: ${emojis[i]['image_url']}');
-        }
-        // Group by name to show all variants
-        final grouped = <String, List<Map<String, dynamic>>>{};
-        for (var emoji in emojis) {
-          final name = emoji['name'] as String? ?? 'Unknown';
-          if (!grouped.containsKey(name)) {
-            grouped[name] = [];
-          }
-          grouped[name]!.add(emoji);
-        }
-        print('📊 Emojis grouped by name:');
-        grouped.forEach((name, emojiList) {
-          print('   $name: ${emojiList.length} variants');
-        });
-      } else {
-        print('⚠️ WARNING: No emojis loaded! Check API endpoint and database.');
-      }
     } catch (e) {
       print('❌ Error loading emojis: $e');
       availableEmojis.value = [];
@@ -423,6 +776,7 @@ class PrayersController extends GetxController {
 
   /// Load quick emojis (top 6 by usage)
   Future<void> loadQuickEmojis() async {
+    if (quickEmojis.isNotEmpty) return;
     try {
       final emojis = await EmojisService.getQuickEmojis();
       quickEmojis.value = emojis;
@@ -452,8 +806,7 @@ class PrayersController extends GetxController {
         postId: prayerId,
       );
       
-      // Reload comments to get updated reactions with user info (this will update prayerEmojiReactions)
-      await loadPrayerComments(prayerId);
+      unawaited(loadPrayerComments(prayerId));
       
       // Check if reaction was removed or added
       if (result.contains('removed')) {
@@ -474,7 +827,71 @@ class PrayersController extends GetxController {
     }
   }
 
-  /// Create prayer request
+  Future<void> _insertCreatedPrayerLocally({
+    required int id,
+    required String category,
+    required String content,
+    String? prayerFor,
+    bool isAnonymous = false,
+  }) async {
+    final user = await UserStorage.getUser();
+    final prayer = <String, dynamic>{
+      'id': id,
+      'category': category,
+      'content': content,
+      'prayer_for': prayerFor ?? 'Me',
+      'status': 'Pending',
+      'is_anonymous': isAnonymous ? 1 : 0,
+      'user_id': userId.value,
+      'user_name': isAnonymous ? 'Anonymous' : (user?['name'] ?? 'You'),
+      'profile_photo': isAnonymous ? null : user?['profile_photo'],
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+      'response_count': 0,
+      'comment_count': 0,
+    };
+    _allPrayers.removeWhere((p) => _prayerIdFromMap(p) == id);
+    _allPrayers.insert(0, prayer);
+    _isDataLoaded = true;
+    _applyClientSideFilter();
+  }
+
+  void _removePrayerLocally(int prayerId) {
+    _allPrayers.removeWhere((p) => _prayerIdFromMap(p) == prayerId);
+    prayers.removeWhere((p) => _prayerIdFromMap(p) == prayerId);
+    prayers.refresh();
+    if (_prayerIdFromMap(selectedPrayer) == prayerId) {
+      selectedPrayer.clear();
+    }
+    unawaited(HiveCacheService.clearKey(_prayerDetailHiveKey(prayerId)));
+  }
+
+  /// Delete prayer — API first, remove locally, sync list in background.
+  Future<bool> deletePrayer(int prayerId) async {
+    if (userId.value == 0) {
+      await _loadUserId();
+    }
+
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      return false;
+    }
+
+    try {
+      await PrayersService.deletePrayer(
+        userId: userId.value,
+        prayerId: prayerId,
+      );
+      _removePrayerLocally(prayerId);
+      unawaited(loadPrayers(refresh: true, silent: true));
+      return true;
+    } catch (e) {
+      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      print('Error deleting prayer: $e');
+      return false;
+    }
+  }
+
+  /// Create prayer request — no blocking full-list reload after submit.
   Future<bool> createPrayer({
     required String category,
     required String content,
@@ -494,18 +911,16 @@ class PrayersController extends GetxController {
       return false;
     }
 
-    // Check for inappropriate content
     final moderationCheck = ContentModerationService.checkContent(content);
     if (!moderationCheck['isClean']) {
       message.value = moderationCheck['message'];
       return false;
     }
 
-    isLoading.value = true;
     message.value = '';
 
     try {
-      await PrayersService.createPrayerRequest(
+      final newId = await PrayersService.createPrayerRequest(
         userId: userId.value,
         category: category,
         content: content,
@@ -516,22 +931,22 @@ class PrayersController extends GetxController {
         taggedUserId: taggedUserId,
         taggedGroupId: taggedGroupId,
       );
-      
+
+      await _insertCreatedPrayerLocally(
+        id: newId,
+        category: category,
+        content: content,
+        prayerFor: prayerFor,
+        isAnonymous: isAnonymous,
+      );
+
       message.value = 'Prayer request submitted. Waiting for admin approval.';
-      
-      // Reload prayers and force UI refresh
-      await loadPrayers(refresh: true);
-      
-      // Force UI refresh to ensure new prayer appears
-      prayers.refresh();
-      
+      unawaited(loadPrayers(refresh: true, silent: true));
       return true;
     } catch (e) {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error creating prayer: $e');
       return false;
-    } finally {
-      isLoading.value = false;
     }
   }
 
@@ -554,10 +969,34 @@ class PrayersController extends GetxController {
       return false;
     }
 
+    final tempId = -DateTime.now().millisecondsSinceEpoch;
+    final user = await UserStorage.getUser();
+    _insertCommentLocally(
+      content: content,
+      tempId: tempId,
+      userName: user?['name'] as String?,
+      profilePhoto: user?['profile_photo'] as String?,
+      parentCommentId: parentCommentId,
+    );
+    prayerComments.refresh();
+    unawaited(
+      _submitCommentToServer(
+        prayerId: prayerId,
+        content: content,
+        parentCommentId: parentCommentId,
+        tempId: tempId,
+      ),
+    );
+    return true;
+  }
+
+  Future<void> _submitCommentToServer({
+    required int prayerId,
+    required String content,
+    required int tempId,
+    int? parentCommentId,
+  }) async {
     try {
-      final isReply = parentCommentId != null && parentCommentId > 0;
-      print('📝 Adding ${isReply ? "REPLY" : "COMMENT"}: prayerId=$prayerId, parentCommentId=$parentCommentId, content=${content.substring(0, content.length > 20 ? 20 : content.length)}...');
-      
       final commentId = await CommentsService.addComment(
         userId: userId.value,
         postType: 'prayer',
@@ -565,39 +1004,15 @@ class PrayersController extends GetxController {
         content: content,
         parentCommentId: parentCommentId,
       );
-      
-      print('✅ ${isReply ? "Reply" : "Comment"} added successfully (ID: $commentId), reloading comments...');
-      
-      // Reload comments to get updated structure with nested replies
-      await loadPrayerComments(prayerId);
-      
-      // Force UI refresh for comments
-      prayerComments.refresh();
-      prayerEmojiReactions.refresh();
-      
-      // Debug: Check if reply was added to parent
-      if (isReply) {
-        for (var comment in prayerComments) {
-          if (comment['id'] == parentCommentId) {
-            final replies = comment['replies'] as List?;
-            print('🔍 Parent comment ${parentCommentId} now has ${replies?.length ?? 0} replies');
-            if (replies != null) {
-              for (var reply in replies) {
-                print('  - Reply ID: ${reply['id']}, content: ${(reply['content'] as String? ?? '').substring(0, (reply['content'] as String? ?? '').length > 30 ? 30 : (reply['content'] as String? ?? '').length)}...');
-              }
-            }
-            break;
-          }
-        }
+      if (commentId > 0) {
+        _replaceTempCommentId(tempId, commentId);
+        prayerComments.refresh();
       }
-      
-      print('✅ Comments reloaded: ${prayerComments.length} top-level comments, ${prayerEmojiReactions.length} emoji reactions');
-      
-      return true;
+      unawaited(loadPrayerComments(prayerId));
     } catch (e) {
+      _removeCommentLocally(tempId);
+      prayerComments.refresh();
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
-      print('❌ Error adding comment: $e');
-      return false;
     }
   }
   
@@ -618,30 +1033,39 @@ class PrayersController extends GetxController {
         commentId: commentId,
       );
       
-      // Update comment in list
       for (var i = 0; i < prayerComments.length; i++) {
-        if (prayerComments[i]['id'] == commentId) {
+        if (_commentId(prayerComments[i]) == commentId) {
           prayerComments[i]['is_liked'] = result['liked'] == true ? 1 : 0;
           prayerComments[i]['like_count'] = result['like_count'] ?? 0;
-          break;
+          prayerComments.refresh();
+          return true;
         }
       }
-      
-      // Also update in replies
-      for (var comment in prayerComments) {
-        if (comment['replies'] != null) {
-          final replies = List<Map<String, dynamic>>.from(comment['replies']);
-          for (var i = 0; i < replies.length; i++) {
-            if (replies[i]['id'] == commentId) {
-              replies[i]['is_liked'] = result['liked'] == true ? 1 : 0;
-              replies[i]['like_count'] = result['like_count'] ?? 0;
-              comment['replies'] = replies;
-              break;
-            }
+
+      for (var i = 0; i < prayerComments.length; i++) {
+        final comment = prayerComments[i];
+        final replies = comment['replies'];
+        if (replies is! List) continue;
+        final updatedReplies = List<Map<String, dynamic>>.from(
+          replies.whereType<Map>().map((r) => Map<String, dynamic>.from(r)),
+        );
+        var changed = false;
+        for (var j = 0; j < updatedReplies.length; j++) {
+          if (_commentId(updatedReplies[j]) == commentId) {
+            updatedReplies[j]['is_liked'] = result['liked'] == true ? 1 : 0;
+            updatedReplies[j]['like_count'] = result['like_count'] ?? 0;
+            changed = true;
+            break;
           }
         }
+        if (changed) {
+          prayerComments[i] = Map<String, dynamic>.from(comment)
+            ..['replies'] = updatedReplies;
+          prayerComments.refresh();
+          return true;
+        }
       }
-      
+
       return true;
     } catch (e) {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
@@ -685,6 +1109,10 @@ class PrayersController extends GetxController {
     }
   }
 
+  void reapplyFilter() {
+    _applyClientSideFilter();
+  }
+
   /// Apply client-side filter instantly (no API call)
   void _applyClientSideFilter() {
     if (_allPrayers.isEmpty) {
@@ -692,20 +1120,30 @@ class PrayersController extends GetxController {
       prayers.refresh();
       return;
     }
-    
-    if (selectedCategory.value.isEmpty) {
-      // Show all prayers - create new list instance
-      prayers.value = List<Map<String, dynamic>>.from(_allPrayers);
-    } else {
-      // Filter by category client-side - create new list instance
-      prayers.value = List<Map<String, dynamic>>.from(_allPrayers.where((prayer) {
-        final prayerCategory = prayer['category'] as String? ?? 
-                               prayer['type'] as String? ?? 
-                               prayer['prayer_type'] as String? ?? '';
-        return prayerCategory.toLowerCase() == selectedCategory.value.toLowerCase();
-      }).toList());
+
+    var filtered = List<Map<String, dynamic>>.from(_allPrayers);
+
+    if (filterUserId.value > 0) {
+      filtered = filtered
+          .where(
+            (prayer) =>
+                prayer['user_id']?.toString() == filterUserId.value.toString(),
+          )
+          .toList();
     }
-    // Force UI refresh
+
+    if (selectedCategory.value.isNotEmpty) {
+      filtered = filtered.where((prayer) {
+        final prayerCategory = prayer['category'] as String? ??
+            prayer['type'] as String? ??
+            prayer['prayer_type'] as String? ??
+            '';
+        return prayerCategory.toLowerCase() ==
+            selectedCategory.value.toLowerCase();
+      }).toList();
+    }
+
+    prayers.value = filtered;
     prayers.refresh();
   }
 

@@ -157,5 +157,23 @@ class StoriesService {
       throw ApiException(response['message'] ?? 'Failed to edit story'); // edit feature
     } // edit feature
   } // edit feature
+
+  static Future<void> deleteStory({
+    required int userId,
+    required int storyId,
+  }) async {
+    final response = await ApiService.post(
+      ApiConfig.stories,
+      body: {
+        'action': 'delete',
+        'user_id': userId.toString(),
+        'story_id': storyId.toString(),
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete story');
+    }
+  }
 }
 

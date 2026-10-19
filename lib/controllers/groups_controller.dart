@@ -1,15 +1,20 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/services/groups_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/jingle_service.dart';
+
+import '../controllers/home_controller.dart';
 
 /// Groups Controller
 /// Manages groups data and operations
 class GroupsController extends GetxController {
   // Observable variables
   var isLoading = false.obs;
+  var isCreatingGroup = false.obs;
   var message = ''.obs;
   
   // Data
@@ -23,14 +28,59 @@ class GroupsController extends GetxController {
   var selectedCategory = ''.obs;
   var selectedFruit = ''.obs;
   var currentPage = 0.obs;
+  var hasMore = true.obs;
+  var isLoadingMore = false.obs;
   final int itemsPerPage = 20;
-  
+  int _apiPage = 0;
+  int _duplicatePageStreak = 0;
+  bool _paginationRunning = false;
+
   // Performance: Store all groups for instant client-side filtering
   var _allGroups = <Map<String, dynamic>>[];
   
   // Performance: Track if data is already loaded to prevent unnecessary reloads
   var _isDataLoaded = false;
   var _isLoading = false;
+  int _loadGeneration = 0;
+  DateTime? _lastSyncedAt;
+  static const Duration _minSyncInterval = Duration(minutes: 2);
+  static const Duration _detailsMinSyncInterval = Duration(minutes: 2);
+  static const String _groupsListHiveKey = 'groups_list';
+  static const String _userGroupsHiveKey = 'user_groups_list';
+  Completer<void>? _activeLoadCompleter;
+  final Map<int, DateTime> _detailSyncedAtByGroupId = {};
+  DateTime? _userGroupsLastSyncedAt;
+  int? preparedDetailGroupId;
+
+  /// Seed from home cache for instant open.
+  void seedFromHomeIfEmpty(List<Map<String, dynamic>> homeGroups) {
+    if (_allGroups.isNotEmpty || homeGroups.isEmpty) return;
+    _allGroups = List<Map<String, dynamic>>.from(homeGroups);
+    _isDataLoaded = true;
+    _apiPage = 0;
+    hasMore.value = true;
+    _applyClientSideFilter();
+  }
+
+  bool get _isHomePreviewOnly => _allGroups.length <= 6;
+
+  void _markHasMoreFromCache() {
+    if (_allGroups.isEmpty || _isHomePreviewOnly) {
+      hasMore.value = true;
+      return;
+    }
+    hasMore.value = _allGroups.length % itemsPerPage == 0;
+  }
+
+  void _appendUniqueGroups(List<Map<String, dynamic>> batch) {
+    final existingIds = _allGroups.map(_groupIdFromMap).whereType<int>().toSet();
+    for (final group in batch) {
+      final id = _groupIdFromMap(group);
+      if (id == null || existingIds.contains(id)) continue;
+      _allGroups.add(Map<String, dynamic>.from(group));
+      existingIds.add(id);
+    }
+  }
   
   /// Set fruit filter
   void setFruitFilter(String fruitName) {
@@ -78,28 +128,41 @@ class GroupsController extends GetxController {
   void onInit() {
     super.onInit();
     _loadUserId();
+    bootstrapGroups();
   }
+
+  /// Hive → home seed — instant groups list (feeling / blogs pattern).
+  void bootstrapGroups() {
+    loadFromHiveIfEmpty();
+    if (_allGroups.isNotEmpty) return;
+    try {
+      if (Get.isRegistered<HomeController>()) {
+        seedFromHomeIfEmpty(Get.find<HomeController>().groups.toList());
+      }
+    } catch (_) {}
+  }
+
+  int? _groupIdFromMap(Map<String, dynamic> group) {
+    final id = group['id'];
+    if (id is int) return id;
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  String _groupDetailHiveKey(int groupId) => 'group_detail_$groupId';
+  String _groupMembersHiveKey(int groupId) => 'group_members_$groupId';
 
   @override
   void onReady() {
     super.onReady();
-    // Always load fresh groups data when navigating to groups screen
-    // This ensures users see updated group content when accessing from quick actions
-    if (!_isLoading) {
-      loadGroups(refresh: true);
+    if (_allGroups.isNotEmpty) {
+      _applyClientSideFilter();
     }
-    // Always load user groups to ensure membership status is up-to-date
-    loadUserGroups();
-    print('DEBUG: GroupsController.onReady - selectedCategory.value before jingle check: "${selectedCategory.value}"');
-    // New code to start jingle
+    unawaited(loadUserGroups(silent: userGroups.isNotEmpty));
     if (selectedCategory.value.isNotEmpty) {
-      print('DEBUG: GroupsController.onReady - Calling startJingle with selectedCategory: "${selectedCategory.value}"');
       Get.find<JingleService>().startJingle(selectedCategory.value);
     } else {
-      print('DEBUG: GroupsController.onReady - selectedCategory is empty, calling startJingle with default "Prayer"');
       Get.find<JingleService>().startJingle('Prayer');
     }
-    print('DEBUG: GroupsController.onReady - Jingle start logic completed.');
   }
 
   /// Load user ID from storage
@@ -111,71 +174,177 @@ class GroupsController extends GetxController {
   }
 
   /// Load groups
-  Future<void> loadGroups({bool refresh = false}) async {
-    // Performance: Skip if already loading
-    if (_isLoading && !refresh) {
+  Future<void> loadGroups({bool refresh = false, bool silent = false}) async {
+    if (_isLoading) {
+      if (_activeLoadCompleter != null) {
+        await _activeLoadCompleter!.future;
+      }
+      if (_allGroups.isNotEmpty) {
+        _applyClientSideFilter();
+      }
       return;
     }
-    
-    // Performance: Skip if data already loaded and not explicitly refreshing
-    if (_isDataLoaded && !refresh && groups.isNotEmpty && _allGroups.isNotEmpty) {
-      // Apply current filter from cache
+
+    if (_isDataLoaded && !refresh && _allGroups.isNotEmpty) {
       _applyClientSideFilter();
       return;
     }
-    
+
+    if (silent &&
+        _lastSyncedAt != null &&
+        DateTime.now().difference(_lastSyncedAt!) < _minSyncInterval) {
+      if (_allGroups.isNotEmpty) {
+        _applyClientSideFilter();
+      }
+      return;
+    }
+
+    final generation = silent ? _loadGeneration : ++_loadGeneration;
+    _activeLoadCompleter = Completer<void>();
+
     if (refresh) {
       currentPage.value = 0;
-      _isDataLoaded = false;
+      if (!silent) {
+        _isDataLoaded = false;
+      }
     }
 
     _isLoading = true;
-    isLoading.value = true;
+    if (!silent) {
+      isLoading.value = true;
+    }
     message.value = '';
 
     try {
-      // Performance: Always load ALL groups (no filters) to populate cache
-      // Then apply client-side filtering for instant updates
       final groupsList = await GroupsService.getGroups(
         status: 'Active',
-        category: null, // Always load all groups for cache
+        category: null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
 
-      if (refresh || currentPage.value == 0) {
-        // Performance: Store ALL groups in cache (no filters)
-        _allGroups = List<Map<String, dynamic>>.from(groupsList);
-        // Apply current filter to display
+      if (generation != _loadGeneration) {
+        return;
+      }
+
+      if (groupsList.isEmpty && _allGroups.isNotEmpty) {
         _applyClientSideFilter();
+        return;
+      }
+
+      if (refresh || currentPage.value == 0) {
+        if (_allGroups.isEmpty) {
+          _allGroups = List<Map<String, dynamic>>.from(groupsList);
+          _applyClientSideFilter();
+        } else if (silent) {
+          _mergeGroupListPage(groupsList);
+        } else if (!_groupListsEqual(_allGroups, groupsList)) {
+          _allGroups = List<Map<String, dynamic>>.from(groupsList);
+          _applyClientSideFilter();
+        }
       } else {
-        // Performance: Add to all groups cache
         _allGroups.addAll(groupsList);
-        // Apply current filter to display
         _applyClientSideFilter();
       }
-      
-      // Force UI refresh to ensure changes are visible
+
       groups.refresh();
-      
-      // Performance: Mark as loaded
       _isDataLoaded = true;
+      _lastSyncedAt = DateTime.now();
+      unawaited(
+        HiveCacheService.cacheList(
+          _groupsListHiveKey,
+          _allGroups,
+          expiryHours: 24,
+        ),
+      );
+      final homeSlice = _allGroups.take(6).toList();
+      if (homeSlice.isNotEmpty) {
+        unawaited(
+          HiveCacheService.cacheList('home_groups', homeSlice, expiryHours: 24),
+        );
+      }
     } catch (e) {
-      message.value = 'Error loading groups: ${e.toString().replaceAll('Exception: ', '')}';
+      if (!silent) {
+        message.value =
+            'Error loading groups: ${e.toString().replaceAll('Exception: ', '')}';
+      }
       print('Error loading groups: $e');
-      if (refresh || currentPage.value == 0) {
+      if ((refresh || currentPage.value == 0) && _allGroups.isEmpty) {
         groups.value = [];
-        _allGroups = [];
         _isDataLoaded = false;
       }
     } finally {
       _isLoading = false;
-      isLoading.value = false;
+      if (!silent) {
+        isLoading.value = false;
+      }
+      _activeLoadCompleter?.complete();
+      _activeLoadCompleter = null;
     }
   }
 
-  /// Load user's groups
-  Future<void> loadUserGroups() async {
+  bool _groupListsEqual(
+    List<Map<String, dynamic>> previous,
+    List<Map<String, dynamic>> next,
+  ) {
+    if (previous.length != next.length) return false;
+    for (var i = 0; i < previous.length; i++) {
+      if (!_groupItemEqual(previous[i], next[i])) return false;
+    }
+    return true;
+  }
+
+  bool _groupItemEqual(
+    Map<String, dynamic> previous,
+    Map<String, dynamic> next,
+  ) {
+    return previous['id'] == next['id'] &&
+        previous['updated_at'] == next['updated_at'] &&
+        previous['member_count'] == next['member_count'] &&
+        previous['name'] == next['name'] &&
+        previous['description'] == next['description'] &&
+        previous['category'] == next['category'] &&
+        previous['image'] == next['image'] &&
+        previous['image_url'] == next['image_url'];
+  }
+
+  void _mergeGroupListPage(List<Map<String, dynamic>> incoming) {
+    if (incoming.isEmpty) return;
+    if (_allGroups.isEmpty) {
+      _allGroups = List<Map<String, dynamic>>.from(incoming);
+      _applyClientSideFilter();
+      return;
+    }
+
+    final indexById = <int, int>{};
+    for (var i = 0; i < _allGroups.length; i++) {
+      final id = _groupIdFromMap(_allGroups[i]);
+      if (id != null) indexById[id] = i;
+    }
+
+    var changed = false;
+    for (final remote in incoming) {
+      final id = _groupIdFromMap(remote);
+      if (id == null) continue;
+      final idx = indexById[id];
+      if (idx != null) {
+        if (!_groupItemEqual(_allGroups[idx], remote)) {
+          _allGroups[idx] = {..._allGroups[idx], ...remote};
+          changed = true;
+        }
+      } else {
+        _allGroups.add(Map<String, dynamic>.from(remote));
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      _applyClientSideFilter();
+    }
+  }
+
+  /// Load user's groups — Hive first, silent sync.
+  Future<void> loadUserGroups({bool silent = false, bool force = false}) async {
     if (userId.value == 0) {
       await _loadUserId();
     }
@@ -185,72 +354,409 @@ class GroupsController extends GetxController {
       return;
     }
 
+    if (userGroups.isEmpty) {
+      final cached = HiveCacheService.getCachedList(_userGroupsHiveKey);
+      if (cached.isNotEmpty) {
+        userGroups.value = List<Map<String, dynamic>>.from(cached);
+      }
+    }
+
+    if (silent &&
+        !force &&
+        _userGroupsLastSyncedAt != null &&
+        DateTime.now().difference(_userGroupsLastSyncedAt!) < _minSyncInterval) {
+      return;
+    }
+
     try {
-      print('🔄 Loading user groups for userId: ${userId.value}');
       final groupsList = await GroupsService.getGroups(
         status: 'Active',
         userId: userId.value,
       );
-      // Create new list instance and force UI refresh
-      userGroups.value = List<Map<String, dynamic>>.from(groupsList);
-      userGroups.refresh();
-      print('✅ Loaded ${userGroups.length} user groups');
-      if (userGroups.isNotEmpty) {
-        print('   Group IDs: ${userGroups.map((g) => g['id']).toList()}');
+      if (!_groupListsEqual(userGroups.toList(), groupsList)) {
+        userGroups.value = List<Map<String, dynamic>>.from(groupsList);
       }
+      _userGroupsLastSyncedAt = DateTime.now();
+      unawaited(
+        HiveCacheService.cacheList(
+          _userGroupsHiveKey,
+          List<Map<String, dynamic>>.from(userGroups),
+          expiryHours: 24,
+        ),
+      );
     } catch (e) {
-      print('❌ Error loading user groups: $e');
-      userGroups.value = [];
+      print('Error loading user groups: $e');
+      if (userGroups.isEmpty) {
+        userGroups.value = [];
+      }
     }
   }
 
-  /// Load more groups (pagination)
+  /// Load more groups when user scrolls down.
   Future<void> loadMore() async {
-    if (isLoading.value) return;
-
-    currentPage.value++;
-    await loadGroups();
+    await loadNextPage();
   }
 
-  /// Load single group with members
-  Future<void> loadGroupDetails(int groupId) async {
-    isLoading.value = true;
+  /// Auto-load all API pages (home shows 6; groups screen needs full list).
+  Future<void> startGroupsPagination({
+    bool silent = true,
+    bool force = false,
+  }) async {
+    if (_paginationRunning) return;
+    if (!force &&
+        !_isHomePreviewOnly &&
+        _lastSyncedAt != null &&
+        DateTime.now().difference(_lastSyncedAt!) < _minSyncInterval) {
+      return;
+    }
+
+    if (_isHomePreviewOnly || force) {
+      _apiPage = 0;
+      hasMore.value = true;
+    }
+
+    _paginationRunning = true;
+    try {
+      while (hasMore.value) {
+        final keepGoing = await _loadGroupsPage(silent: silent);
+        if (!keepGoing) break;
+      }
+    } finally {
+      _paginationRunning = false;
+      if (_allGroups.isNotEmpty) {
+        _applyClientSideFilter();
+      }
+    }
+  }
+
+  Future<void> expandGroupsIfPreview({bool silent = true}) async {
+    await startGroupsPagination(silent: silent, force: _isHomePreviewOnly);
+  }
+
+  Future<void> loadNextPage({bool silent = true}) async {
+    if (_paginationRunning || !hasMore.value) return;
+    await _loadGroupsPage(silent: silent);
+  }
+
+  Future<bool> _loadGroupsPage({bool silent = false}) async {
+    if (isLoadingMore.value || !hasMore.value) return false;
+
+    isLoadingMore.value = true;
+    try {
+      final batch = await GroupsService.getGroups(
+        status: 'Active',
+        category: null,
+        limit: itemsPerPage,
+        offset: _apiPage * itemsPerPage,
+      );
+
+      if (batch.isEmpty) {
+        hasMore.value = false;
+        return false;
+      }
+
+      final beforeCount = _allGroups.length;
+      _appendUniqueGroups(batch);
+      _apiPage++;
+
+      if (batch.length < itemsPerPage) {
+        hasMore.value = false;
+        _duplicatePageStreak = 0;
+      } else if (_allGroups.length == beforeCount) {
+        _duplicatePageStreak++;
+        if (_duplicatePageStreak >= 2) {
+          hasMore.value = false;
+        }
+      } else {
+        _duplicatePageStreak = 0;
+      }
+
+      if (_allGroups.isNotEmpty) {
+        _isDataLoaded = true;
+        _lastSyncedAt = DateTime.now();
+        _applyClientSideFilter();
+        if (_allGroups.length > beforeCount) {
+          unawaited(
+            HiveCacheService.cacheList(
+              _groupsListHiveKey,
+              _allGroups,
+              expiryHours: 24,
+            ),
+          );
+        }
+      }
+
+      return hasMore.value;
+    } catch (e) {
+      if (!silent) {
+        message.value =
+            'Error loading groups: ${e.toString().replaceAll('Exception: ', '')}';
+      }
+      print('Error loading groups page $_apiPage: $e');
+      return false;
+    } finally {
+      isLoadingMore.value = false;
+    }
+  }
+
+  void bootstrapGroupDetail(int groupId) {
+    if (groupId <= 0) return;
+
+    final currentId = _groupIdFromMap(selectedGroup);
+    if (currentId != null && currentId != groupId) {
+      groupMembers.clear();
+    }
+
+    _loadGroupDetailFromHive(groupId);
+    if (_groupIdFromMap(selectedGroup) != groupId || selectedGroup.isEmpty) {
+      _seedGroupDetailFromList(groupId);
+    }
+    preparedDetailGroupId = groupId;
+  }
+
+  void _seedGroupDetailFromList(int groupId) {
+    if (_groupIdFromMap(selectedGroup) == groupId && selectedGroup.isNotEmpty) {
+      return;
+    }
+
+    Map<String, dynamic>? found;
+    for (final group in _allGroups) {
+      if (_groupIdFromMap(group) == groupId) {
+        found = group;
+        break;
+      }
+    }
+    if (found == null) {
+      for (final group in groups) {
+        if (_groupIdFromMap(group) == groupId) {
+          found = group;
+          break;
+        }
+      }
+    }
+    if (found == null) {
+      for (final group in userGroups) {
+        if (_groupIdFromMap(group) == groupId) {
+          found = group;
+          break;
+        }
+      }
+    }
+
+    if (found != null) {
+      selectedGroup.value = Map<String, dynamic>.from(found);
+    }
+  }
+
+  void _loadGroupDetailFromHive(int groupId) {
+    final cached = HiveCacheService.getCachedData(_groupDetailHiveKey(groupId));
+    if (cached is! Map) return;
+
+    if (cached['group'] is Map) {
+      selectedGroup.value =
+          Map<String, dynamic>.from(cached['group'] as Map<String, dynamic>);
+    }
+    if (cached['members'] is List) {
+      final members = (cached['members'] as List)
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+      if (members.isNotEmpty) {
+        groupMembers.value = members;
+      }
+    }
+  }
+
+  Future<void> _cacheGroupDetail(int groupId) async {
+    if (selectedGroup.isEmpty) return;
+    await HiveCacheService.cacheData(
+      _groupDetailHiveKey(groupId),
+      {
+        'group': Map<String, dynamic>.from(selectedGroup),
+        'members': groupMembers
+            .map((m) => Map<String, dynamic>.from(m))
+            .toList(),
+        'cached_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      expiryHours: 24,
+    );
+  }
+
+  bool _groupDetailNeedsUpdate(
+    Map<String, dynamic> local,
+    Map<String, dynamic> remote,
+  ) {
+    const keys = [
+      'updated_at',
+      'member_count',
+      'name',
+      'description',
+      'category',
+      'image',
+      'image_url',
+    ];
+    for (final key in keys) {
+      if (local[key] != remote[key]) return true;
+    }
+    return false;
+  }
+
+  void _mergeGroupFields(Map<String, dynamic> remote) {
+    var changed = false;
+    for (final entry in remote.entries) {
+      if (selectedGroup[entry.key] != entry.value) {
+        selectedGroup[entry.key] = entry.value;
+        changed = true;
+      }
+    }
+    if (changed) {
+      selectedGroup.refresh();
+    }
+  }
+
+  Future<void> prepareGroupDetails(int groupId) async {
+    if (groupId <= 0) return;
+
+    bootstrapGroupDetail(groupId);
+
+    final hasPreview =
+        _groupIdFromMap(selectedGroup) == groupId && selectedGroup.isNotEmpty;
+    if (!hasPreview) {
+      await loadGroupDetails(groupId, silent: false);
+    } else {
+      unawaited(loadGroupDetails(groupId, silent: true));
+    }
+  }
+
+  /// Load single group with members — cache first, silent sync.
+  Future<void> loadGroupDetails(
+    int groupId, {
+    bool silent = false,
+    bool force = false,
+  }) async {
+    if (silent && !force) {
+      final lastSync = _detailSyncedAtByGroupId[groupId];
+      if (lastSync != null &&
+          DateTime.now().difference(lastSync) < _detailsMinSyncInterval) {
+        return;
+      }
+    }
+
+    final hadPreview =
+        _groupIdFromMap(selectedGroup) == groupId && selectedGroup.isNotEmpty;
+
+    if (!silent && !hadPreview) {
+      isLoading.value = true;
+    }
     message.value = '';
 
     try {
-      // Ensure userGroups is loaded to check membership
       if (userGroups.isEmpty && userId.value > 0) {
-        await loadUserGroups();
+        unawaited(loadUserGroups(silent: true));
       }
-      
+
       final group = await GroupsService.getGroupDetails(groupId);
-      selectedGroup.value = group;
-      
-      // Load members
-      await loadGroupMembers(groupId);
-      
-      // Double-check membership by reloading userGroups if needed
-      // This ensures membership state is always accurate
-      if (userId.value > 0) {
-        await loadUserGroups();
+
+      if (silent &&
+          hadPreview &&
+          !force &&
+          !_groupDetailNeedsUpdate(selectedGroup, group)) {
+        _detailSyncedAtByGroupId[groupId] = DateTime.now();
+        return;
       }
+
+      if (silent && hadPreview) {
+        _mergeGroupFields(group);
+      } else {
+        selectedGroup.value = group;
+      }
+
+      await loadGroupMembers(groupId, silent: silent);
+      _detailSyncedAtByGroupId[groupId] = DateTime.now();
+      unawaited(_cacheGroupDetail(groupId));
+      _syncGroupInLists(groupId);
     } catch (e) {
-      message.value = 'Error loading group: ${e.toString().replaceAll('Exception: ', '')}';
+      if (!silent || !hadPreview) {
+        message.value =
+            'Error loading group: ${e.toString().replaceAll('Exception: ', '')}';
+      }
       print('Error loading group details: $e');
     } finally {
       isLoading.value = false;
     }
   }
 
+  void _syncGroupInLists(int groupId) {
+    if (selectedGroup.isEmpty) return;
+    final snapshot = Map<String, dynamic>.from(selectedGroup);
+
+    for (var i = 0; i < _allGroups.length; i++) {
+      if (_groupIdFromMap(_allGroups[i]) == groupId) {
+        _allGroups[i] = {..._allGroups[i], ...snapshot};
+        break;
+      }
+    }
+
+    for (var i = 0; i < groups.length; i++) {
+      if (_groupIdFromMap(groups[i]) == groupId) {
+        groups[i] = {...groups[i], ...snapshot};
+        break;
+      }
+    }
+    groups.refresh();
+    unawaited(
+      HiveCacheService.cacheList(_groupsListHiveKey, _allGroups, expiryHours: 24),
+    );
+  }
+
   /// Load group members
-  Future<void> loadGroupMembers(int groupId) async {
+  Future<void> loadGroupMembers(int groupId, {bool silent = false}) async {
     try {
       final members = await GroupsService.getGroupMembers(groupId);
+      if (members.isEmpty && groupMembers.isNotEmpty && silent) {
+        return;
+      }
       groupMembers.value = members;
+      unawaited(
+        HiveCacheService.cacheList(
+          _groupMembersHiveKey(groupId),
+          List<Map<String, dynamic>>.from(members),
+          expiryHours: 24,
+        ),
+      );
     } catch (e) {
       print('Error loading group members: $e');
-      groupMembers.value = [];
+      if (!silent || groupMembers.isEmpty) {
+        groupMembers.value = [];
+      }
     }
+  }
+
+  void _markJoinedLocally(int groupId) {
+    if (isMember(groupId)) return;
+
+    Map<String, dynamic>? group;
+    for (final item in _allGroups) {
+      if (_groupIdFromMap(item) == groupId) {
+        group = item;
+        break;
+      }
+    }
+    if (group == null) {
+      for (final item in groups) {
+        if (_groupIdFromMap(item) == groupId) {
+          group = item;
+          break;
+        }
+      }
+    }
+
+    userGroups.add(
+      group != null
+          ? Map<String, dynamic>.from(group)
+          : {'id': groupId},
+    );
+    userGroups.refresh();
   }
 
   /// Create group
@@ -269,29 +775,45 @@ class GroupsController extends GetxController {
       return false;
     }
 
-    isLoading.value = true;
+    isCreatingGroup.value = true;
     message.value = 'Creating group...';
 
     try {
-      await GroupsService.createGroup(
+      final newGroupId = await GroupsService.createGroup(
         userId: userId.value,
         name: name,
         description: description,
         category: category,
         groupImage: groupImage,
       );
-      
+
       message.value = 'Group created successfully';
-      
-      // Update only specific values - no full page refresh
-      // Load groups and user groups to update UI
-      await Future.wait([
-        loadGroups(refresh: true), // Need to refresh to get new group
-        loadUserGroups(), // Update user groups to include new group
-      ]);
-      
-      // UI will auto-update via GetX observables
-      
+
+      final optimisticGroup = <String, dynamic>{
+        'id': newGroupId,
+        'name': name,
+        'description': description ?? '',
+        'category': category ?? '',
+        'created_by': userId.value,
+        'status': 'Active',
+        'member_count': 1,
+      };
+      _allGroups.insert(0, optimisticGroup);
+      _markJoinedLocally(newGroupId);
+      _applyClientSideFilter();
+      unawaited(
+        HiveCacheService.cacheList(
+          _groupsListHiveKey,
+          _allGroups,
+          expiryHours: 24,
+        ),
+      );
+
+      unawaited(Future.wait([
+        loadGroups(refresh: true, silent: true),
+        loadUserGroups(force: true),
+      ]));
+
       return true;
     } catch (e) {
       // Handle network errors specifically
@@ -307,7 +829,7 @@ class GroupsController extends GetxController {
       print('Error creating group: $e');
       return false;
     } finally {
-      isLoading.value = false;
+      isCreatingGroup.value = false;
     }
   }
 
@@ -322,7 +844,6 @@ class GroupsController extends GetxController {
       return false;
     }
 
-    isLoading.value = true;
     message.value = '';
 
     try {
@@ -332,16 +853,13 @@ class GroupsController extends GetxController {
       );
       
       message.value = 'Joined group successfully';
-      
-      // Update only specific values - no full reload
-      await loadUserGroups();
-      // Update members list for this group
-      await loadGroupMembers(groupId);
-      // Update selected group membership status
+      _markJoinedLocally(groupId);
+      unawaited(loadUserGroups(force: true));
+      unawaited(loadGroupMembers(groupId, silent: true));
       if (selectedGroup.isNotEmpty && selectedGroup['id'] == groupId) {
         selectedGroup.refresh();
       }
-      
+
       return true;
     } catch (e) {
       final errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -353,25 +871,68 @@ class GroupsController extends GetxController {
         print('ℹ️ User is already a member - refreshing UI');
         message.value = 'You are already a member of this group';
         
-        // Update only specific values - no full reload
-        await loadUserGroups();
-        // Update members list for this group
-        await loadGroupMembers(groupId);
-        
-        // Update selected group membership status
+        _markJoinedLocally(groupId);
+        unawaited(loadUserGroups(force: true));
+        unawaited(loadGroupMembers(groupId, silent: true));
         if (selectedGroup.isNotEmpty && selectedGroup['id'] == groupId) {
           selectedGroup.refresh();
         }
-        userGroups.refresh();
-        
-        return true; // Return true to show success (UI will update)
+
+        return true;
       }
       
       message.value = errorMessage;
       print('Error joining group: $e');
       return false;
-    } finally {
-      isLoading.value = false;
+    }
+  }
+
+  /// Check if current user is the group owner
+  bool isGroupOwner([int? groupId]) {
+    if (userId.value == 0 || selectedGroup.isEmpty) return false;
+
+    final targetGroupId = groupId ?? selectedGroup['id'];
+    if (targetGroupId != null && groupId != null) {
+      final groupIdValue = selectedGroup['id'];
+      final matches = groupIdValue == groupId ||
+          (groupIdValue is String && int.tryParse(groupIdValue) == groupId);
+      if (!matches) return false;
+    }
+
+    final createdBy = selectedGroup['created_by'];
+    if (createdBy is int) return createdBy == userId.value;
+    if (createdBy is String) return int.tryParse(createdBy) == userId.value;
+    return false;
+  }
+
+  /// Remove a member from group (owner only)
+  Future<bool> removeMember(int groupId, int memberId) async {
+    if (userId.value == 0) {
+      await _loadUserId();
+    }
+
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      return false;
+    }
+
+    message.value = '';
+
+    try {
+      await GroupsService.removeMember(
+        userId: userId.value,
+        groupId: groupId,
+        memberId: memberId,
+      );
+
+      message.value = 'Member removed successfully';
+      await loadGroupMembers(groupId);
+      await loadUserGroups();
+      return true;
+    } catch (e) {
+      message.value = e.toString().replaceAll('Exception: ', '');
+      print('Error removing member: $e');
+      return false;
     }
   }
 
@@ -386,7 +947,6 @@ class GroupsController extends GetxController {
       return false;
     }
 
-    isLoading.value = true;
     message.value = '';
 
     try {
@@ -398,8 +958,7 @@ class GroupsController extends GetxController {
       message.value = 'Left group successfully';
       
       // Update only specific values - no full reload
-      await loadUserGroups();
-      // Update members list for this group
+      await loadUserGroups(force: true);
       await loadGroupMembers(groupId);
       // Update selected group membership status
       if (selectedGroup.isNotEmpty && selectedGroup['id'] == groupId) {
@@ -419,8 +978,6 @@ class GroupsController extends GetxController {
       
       print('Error leaving group: $e');
       return false;
-    } finally {
-      isLoading.value = false;
     }
   }
 
@@ -444,6 +1001,27 @@ class GroupsController extends GetxController {
     }
     
     return isMemberResult;
+  }
+
+  /// Load from Hive if memory cache is empty.
+  void loadFromHiveIfEmpty() {
+    if (_allGroups.isNotEmpty) return;
+    final cached = HiveCacheService.getCachedList(_groupsListHiveKey);
+    if (cached.isEmpty) {
+      final homeCached = HiveCacheService.getCachedList('home_groups');
+      if (homeCached.isNotEmpty) {
+        seedFromHomeIfEmpty(homeCached);
+      }
+      return;
+    }
+    _allGroups = List<Map<String, dynamic>>.from(cached);
+    _isDataLoaded = true;
+    _apiPage = _allGroups.length ~/ itemsPerPage;
+    if (_allGroups.length % itemsPerPage != 0) {
+      _apiPage++;
+    }
+    _markHasMoreFromCache();
+    _applyClientSideFilter();
   }
 
   /// Set initial data from cache
@@ -534,14 +1112,153 @@ class GroupsController extends GetxController {
     }
   }
 
-  /// Refresh data - Only refresh if explicitly called (pull to refresh)
+  /// Fetch every active group page (home shows 6; groups screen needs full list).
+  Future<void> fetchAllGroups({bool silent = false, bool force = false}) async {
+    if (_isLoading) {
+      if (_activeLoadCompleter != null) {
+        await _activeLoadCompleter!.future;
+      }
+      return;
+    }
+
+    if (silent &&
+        !force &&
+        _lastSyncedAt != null &&
+        DateTime.now().difference(_lastSyncedAt!) < _minSyncInterval) {
+      return;
+    }
+
+    final generation = silent ? _loadGeneration : ++_loadGeneration;
+    _activeLoadCompleter = Completer<void>();
+    _isLoading = true;
+    if (!silent) {
+      isLoading.value = true;
+    }
+    message.value = '';
+
+    try {
+      final all = <Map<String, dynamic>>[];
+      var page = 0;
+      while (true) {
+        final batch = await GroupsService.getGroups(
+          status: 'Active',
+          category: null,
+          limit: itemsPerPage,
+          offset: page * itemsPerPage,
+        );
+        if (generation != _loadGeneration) {
+          return;
+        }
+        if (batch.isEmpty) break;
+        all.addAll(batch);
+        if (batch.length < itemsPerPage) break;
+        page++;
+      }
+
+      if (all.isEmpty) {
+        if (!silent && _allGroups.isEmpty) {
+          groups.value = [];
+          _isDataLoaded = false;
+        }
+        return;
+      }
+
+      final hadGroups = _allGroups.isNotEmpty;
+      if (silent &&
+          hadGroups &&
+          !force &&
+          _groupListsEqual(_allGroups, all)) {
+        _lastSyncedAt = DateTime.now();
+        return;
+      }
+
+      _allGroups = all;
+      currentPage.value = page;
+      _isDataLoaded = true;
+      hasMore.value = false;
+      _lastSyncedAt = DateTime.now();
+      _applyClientSideFilter();
+      unawaited(
+        HiveCacheService.cacheList(
+          _groupsListHiveKey,
+          _allGroups,
+          expiryHours: 24,
+        ),
+      );
+      final homeSlice = _allGroups.take(6).toList();
+      if (homeSlice.isNotEmpty) {
+        unawaited(
+          HiveCacheService.cacheList('home_groups', homeSlice, expiryHours: 24),
+        );
+      }
+    } catch (e) {
+      if (!silent) {
+        message.value =
+            'Error loading groups: ${e.toString().replaceAll('Exception: ', '')}';
+      }
+      print('Error loading all groups: $e');
+    } finally {
+      _isLoading = false;
+      if (!silent) {
+        isLoading.value = false;
+      }
+      _activeLoadCompleter?.complete();
+      _activeLoadCompleter = null;
+    }
+  }
+
+  /// Refresh data — keep current list visible until new data arrives.
   Future<void> refresh() async {
-    // Force refresh only when user explicitly pulls to refresh
-    _isDataLoaded = false;
-    await Future.wait([
-      loadGroups(refresh: true),
-      loadUserGroups(),
-    ]);
+    final snapshot = List<Map<String, dynamic>>.from(_allGroups);
+    _lastSyncedAt = null;
+    isLoading.value = true;
+
+    try {
+      final fetched = <Map<String, dynamic>>[];
+      var page = 0;
+      while (true) {
+        final batch = await GroupsService.getGroups(
+          status: 'Active',
+          category: null,
+          limit: itemsPerPage,
+          offset: page * itemsPerPage,
+        );
+        if (batch.isEmpty) break;
+        fetched.addAll(batch);
+        if (batch.length < itemsPerPage) break;
+        page++;
+      }
+
+      if (fetched.isNotEmpty) {
+        _allGroups = fetched;
+        _apiPage = page + 1;
+        hasMore.value = false;
+        _isDataLoaded = true;
+        _lastSyncedAt = DateTime.now();
+        _applyClientSideFilter();
+        unawaited(
+          HiveCacheService.cacheList(
+            _groupsListHiveKey,
+            _allGroups,
+            expiryHours: 24,
+          ),
+        );
+      } else if (snapshot.isNotEmpty) {
+        _allGroups = snapshot;
+        _applyClientSideFilter();
+      }
+    } catch (e) {
+      if (snapshot.isNotEmpty) {
+        _allGroups = snapshot;
+        _applyClientSideFilter();
+      }
+      message.value =
+          'Error refreshing groups: ${e.toString().replaceAll('Exception: ', '')}';
+    } finally {
+      isLoading.value = false;
+    }
+
+    await loadUserGroups(force: true);
   }
 }
 

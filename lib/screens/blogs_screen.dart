@@ -6,6 +6,7 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
+import 'package:fruitsofspirit/screens/home_screen.dart';
 
 /// Blogs Screen
 /// Displays list of approved blogs
@@ -22,6 +23,8 @@ class BlogsScreen extends GetView<BlogsController> {
         : null;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.bootstrapBlogs();
+
       final args = Get.arguments;
       final fromProfile = args is Map && args['fromProfile'] == true;
       final dynamic rawUserId = args is Map ? args['filterUserId'] : null;
@@ -41,7 +44,11 @@ class BlogsScreen extends GetView<BlogsController> {
 
       if (controller.filterUserId.value != 0) {
         controller.filterUserId.value = 0;
-        controller.loadBlogs(refresh: true);
+        if (controller.blogs.isEmpty) {
+          controller.loadBlogs(refresh: false);
+        } else {
+          controller.loadBlogs(refresh: true, silent: true);
+        }
       }
     });
     
@@ -131,9 +138,11 @@ class BlogsScreen extends GetView<BlogsController> {
               maxWidth: maxContentWidthValue,
               child: NotificationListener<ScrollNotification>(
                 onNotification: (ScrollNotification scrollInfo) {
-                  // Load more when user scrolls near the bottom
-                  if (scrollInfo is ScrollEndNotification) {
-                    if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
+                  if (scrollInfo is ScrollEndNotification &&
+                      controller.hasMore.value &&
+                      !controller.isLoading.value) {
+                    if (scrollInfo.metrics.pixels >=
+                        scrollInfo.metrics.maxScrollExtent - 200) {
                       controller.loadMore();
                     }
                   }
@@ -188,9 +197,11 @@ class BlogsScreen extends GetView<BlogsController> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => PaymentGate.navigateToFeature(
-            Routes.BLOG_DETAILS,
-            arguments: blog['id'],
+          onTap: () => HomeScreen.navigateToBlogDetail(
+            context,
+            blog['id'] is int
+                ? blog['id'] as int
+                : int.tryParse(blog['id'].toString()) ?? 0,
           ),
           borderRadius: BorderRadius.circular(AppTheme.radiusLG),
           splashColor: AppTheme.primaryColor.withOpacity(0.1),

@@ -5,8 +5,8 @@ import 'package:fruitsofspirit/services/banners_service.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'dart:math' as math;
 import 'dart:async';
+import 'dart:math' as math;
 
 class BannerCarouselWidget extends StatefulWidget {
   const BannerCarouselWidget({Key? key}) : super(key: key);
@@ -15,56 +15,72 @@ class BannerCarouselWidget extends StatefulWidget {
 }
 
 class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
-  PageController? _pageController;
+  late final PageController _pageController;
   int _currentPage = 0;
+  int _lastBannerCount = 0;
   Timer? _countdownTimer;
-  Map<String, String> _countdowns = {};
+  Timer? _autoScrollTimer;
+  final Map<String, String> _countdowns = {};
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
     try {
       final controller = Get.find<BannersController>();
-      print('🎯 BannerWidget: BannersController found');
-      ever(controller.activeBanners, (_) => _startAutoScroll());
+      _lastBannerCount =
+          controller.activeBanners.length + controller.upcomingBanners.length;
+      ever(controller.activeBanners, (_) => _onBannerListChanged());
+      ever(controller.upcomingBanners, (_) => _onBannerListChanged());
       _startCountdownTimer();
+      _scheduleAutoScroll();
     } catch (e) {
       print('❌ BannerWidget: BannersController not found - $e');
     }
   }
 
-  void _startAutoScroll() {
+  void _onBannerListChanged() {
     if (!mounted) return;
-    
-    _pageController?.dispose();
+    try {
+      final ctrl = Get.find<BannersController>();
+      final count = ctrl.activeBanners.length + ctrl.upcomingBanners.length;
+      if (count == _lastBannerCount) return;
+      _lastBannerCount = count;
+      _currentPage = 0;
+      if (_pageController.hasClients && count > 0) {
+        _pageController.jumpToPage(0);
+      }
+      _scheduleAutoScroll();
+    } catch (_) {}
+  }
+
+  void _scheduleAutoScroll() {
+    _autoScrollTimer?.cancel();
+    if (!mounted) return;
     try {
       final ctrl = Get.find<BannersController>();
       final totalBanners =
           ctrl.activeBanners.length + ctrl.upcomingBanners.length;
       if (totalBanners <= 1) return;
-      _pageController = PageController(initialPage: _currentPage);
-      Future.delayed(const Duration(seconds: 4), _autoScrollNext);
-    } catch (e) {
-      print('❌ Error starting auto-scroll: $e');
-    }
+      _autoScrollTimer = Timer(const Duration(seconds: 4), _autoScrollNext);
+    } catch (_) {}
   }
 
   void _autoScrollNext() {
-    if (!mounted || _pageController == null || !_pageController!.hasClients)
-      return;
-    
+    if (!mounted || !_pageController.hasClients) return;
+
     try {
       final ctrl = Get.find<BannersController>();
       final totalBanners =
           ctrl.activeBanners.length + ctrl.upcomingBanners.length;
       if (totalBanners <= 1) return;
       _currentPage = (_currentPage + 1) % totalBanners;
-      _pageController!.animateToPage(
+      _pageController.animateToPage(
         _currentPage,
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOut,
       );
-      Future.delayed(const Duration(seconds: 4), _autoScrollNext);
+      _scheduleAutoScroll();
     } catch (e) {
       print('❌ Error in auto-scroll: $e');
     }
@@ -72,7 +88,8 @@ class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
 
   @override
   void dispose() {
-    _pageController?.dispose();
+    _autoScrollTimer?.cancel();
+    _pageController.dispose();
     _countdownTimer?.cancel();
     super.dispose();
   }
@@ -101,7 +118,6 @@ class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
 
       for (var banner in allBanners) {
         final endsAt = banner['ends_at'] as String?;
-        final startsAt = banner['starts_at'] as String?;
 
         if (endsAt != null) {
           final endTime = DateTime.parse(endsAt);
@@ -142,14 +158,14 @@ class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
   }
 
   Color _parseBackgroundColor(String? colorStr) {
-    if (colorStr == null || colorStr.isEmpty) return const Color(0xFF1A1A1A);
+    if (colorStr == null || colorStr.isEmpty) return const Color(0xFFF3F4F6);
     try {
       if (colorStr.startsWith('#')) {
         return Color(int.parse(colorStr.substring(1), radix: 16) + 0xFF000000);
       }
-      return const Color(0xFF1A1A1A);
+      return const Color(0xFFF3F4F6);
     } catch (e) {
-      return const Color(0xFF1A1A1A);
+      return const Color(0xFFF3F4F6);
     }
   }
 
@@ -166,6 +182,79 @@ class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
     }
   }
 
+  double _bannerImageHeight(BuildContext context) {
+    final width = ResponsiveHelper.screenWidth(context);
+    // Height scales with width for all devices to prevent top/bottom cropping
+    // 0.54 ratio works well for standard banner images across all screen sizes
+    if (ResponsiveHelper.isTablet(context) || ResponsiveHelper.isDesktop(context)) {
+      return width * 0.50; 
+    }
+    return width * 0.54;
+  }
+
+  double _pageHeightForBanner(BuildContext context, Map<String, dynamic> banner) {
+    final imageHeight = _bannerImageHeight(context);
+    final hasCountdown = banner['ends_at'] != null;
+    final hasButton = (banner['button_text'] as String? ?? '').isNotEmpty;
+    final countdownHeight = ResponsiveHelper.dim(context, mobile: 36, tablet: 44, desktop: 50);
+    final buttonHeight = ResponsiveHelper.dim(context, mobile: 42, tablet: 50);
+    
+    // Match gaps with itemBuilder padding to minimize empty space
+    final countdownGap = hasCountdown ? ResponsiveHelper.spacing(context, 4) : 0;
+    final buttonGap = hasButton ? ResponsiveHelper.spacing(context, 6) : 0;
+
+    return imageHeight +
+        (hasCountdown ? countdownHeight + countdownGap : 0) +
+        (hasButton ? buttonHeight + buttonGap : 0) + 4; // Minimal buffer for tight layout
+  }
+
+  double _maxPageHeight(BuildContext context, List<Map<String, dynamic>> banners) {
+    if (banners.isEmpty) return _bannerImageHeight(context);
+    return banners
+        .map((banner) => _pageHeightForBanner(context, banner))
+        .reduce(math.max);
+  }
+
+  EdgeInsets _bannerHorizontalPadding(BuildContext context) {
+    // Zero padding for edge-to-edge look to remove side spaces
+    return EdgeInsets.zero;
+  }
+
+  Widget _buildBannerPlaceholder(BuildContext context) {
+    final height = _bannerImageHeight(context);
+    return Padding(
+      padding: _bannerHorizontalPadding(context),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(
+          ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 20),
+        ),
+        child: SizedBox(
+          height: height,
+          width: double.infinity,
+          child: const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF8B4513), Color(0xFFA0522D)],
+              ),
+            ),
+            child: Center(
+              child: SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     try {
@@ -173,25 +262,30 @@ class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
       return Obx(() {
         final banners = bannersCtrl.activeBanners;
         final upcoming = bannersCtrl.upcomingBanners;
-        // Combine both active and upcoming banners
         final allBanners = [...banners, ...upcoming];
 
-        if (allBanners.isEmpty || !mounted) {
-          // Return empty widget when no banners are available or widget is not mounted
+        if (!mounted) return const SizedBox.shrink();
+
+        if (allBanners.isEmpty) {
+          if (!bannersCtrl.hasInitialLoad.value) {
+            return _buildBannerPlaceholder(context);
+          }
           return const SizedBox.shrink();
         }
 
-        // Ensure we have valid banner data before creating PageView
         if (allBanners.any((banner) => banner == null || banner.isEmpty)) {
           return const SizedBox.shrink();
         }
 
+        final imageHeight = _bannerImageHeight(context);
+        final pageHeight = _maxPageHeight(context, allBanners);
+
         return Column(
           children: [
             SizedBox(
-              height: ResponsiveHelper.isMobile(context) ? 160.0 : 200.0,
+              height: pageHeight,
               child: PageView.builder(
-                controller: _pageController ?? PageController(),
+                controller: _pageController,
                 onPageChanged: (i) {
                   if (mounted) {
                     setState(() => _currentPage = i);
@@ -203,153 +297,107 @@ class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
                     return const SizedBox.shrink();
                   }
                   final b = allBanners[index];
-                  final url = BannersService.getBannerImageUrl(
-                    b['file_path'] ?? '',
-                  );
-                  final title = b['title'] as String? ?? '';
-                  final description = b['description'] as String? ?? '';
+                  final url = BannersService.getBannerImageUrl(b['file_path'] ?? '');
                   final buttonText = b['button_text'] as String? ?? '';
                   final buttonAction = b['button_action'] as String? ?? '';
-                  final bgColor = _parseBackgroundColor(
-                    b['background_color'] as String?,
-                  );
+                  final bgColor = _parseBackgroundColor(b['background_color'] as String?);
                   final isPromotional = buttonText.isNotEmpty;
                   final endsAt = b['ends_at'] as String?;
 
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        height: ResponsiveHelper.isMobile(context) ? 160.0 : 200.0,
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: ResponsiveHelper.isMobile(context) ? 12 : 16,
+                      Padding(
+                        padding: _bannerHorizontalPadding(context),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(
+                            ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 20),
                           ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                              ResponsiveHelper.borderRadius(
-                                context,
-                                mobile: 16,
-                                tablet: 20,
-                              ),
-                            ),
-                            child: GestureDetector(
-                            onTap: isPromotional
-                                ? () => _handleBannerAction(buttonAction)
-                                : null,
-                            child: Stack(
-                              fit: StackFit.loose,
-                              children: [
-                                // Banner image
-                                if (url.isNotEmpty)
-                                  CachedNetworkImage(
-                                    imageUrl: url,
-                                    fit: BoxFit.contain,
-                                    placeholder: (_, __) => Container(
-                                      decoration: BoxDecoration(
+                          child: GestureDetector(
+                            onTap: isPromotional ? () => _handleBannerAction(buttonAction) : null,
+                            child: Container(
+                              height: imageHeight,
+                              width: double.infinity,
+                              color: bgColor,
+                              child: url.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: url,
+                                      fit: BoxFit.cover, // Back to cover for full-width look
+                                      alignment: Alignment.center,
+                                      width: double.infinity,
+                                      height: imageHeight,
+                                      fadeInDuration: Duration.zero,
+                                      fadeOutDuration: Duration.zero,
+                                      placeholder: (_, __) => ColoredBox(
+                                        color: bgColor == Colors.white
+                                            ? const Color(0xFF8B4513).withOpacity(0.15)
+                                            : bgColor,
+                                      ),
+                                      errorWidget: (_, __, ___) => ColoredBox(
+                                        color: bgColor,
+                                        child: Icon(
+                                          Icons.image_not_supported_outlined,
+                                          color: Colors.grey.shade400,
+                                          size: ResponsiveHelper.dim(context, mobile: 36, tablet: 42),
+                                        ),
+                                      ),
+                                    )
+                                  : Container(
+                                      decoration: const BoxDecoration(
                                         gradient: LinearGradient(
                                           begin: Alignment.topLeft,
                                           end: Alignment.bottomRight,
-                                          colors: [
-                                            bgColor,
-                                            bgColor.withOpacity(0.1),
-                                          ],
+                                          colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
                                         ),
                                       ),
                                     ),
-                                    errorWidget: (_, __, ___) => Container(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            bgColor,
-                                            bgColor.withOpacity(0.1),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: [
-                                          const Color(0xFF667EEA),
-                                          const Color(0xFF764BA2),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                // Content overlay at bottom
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                    padding: EdgeInsets.all(
-                                      ResponsiveHelper.isMobile(context) ? 12 : 16,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        // Countdown timer
-                                        if (endsAt != null)
-                                          Flexible(
-                                            child: _buildLiveCountdown(
-                                              context,
-                                              b['id'].toString(),
-                                              b['starts_at'] as String?,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
                             ),
                           ),
                         ),
                       ),
-                    ),
-                      // Action button outside banner container
+                      if (endsAt != null)
+                        Padding(
+                          padding: EdgeInsets.only(top: ResponsiveHelper.spacing(context, 4)),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: _buildLiveCountdown(
+                              context,
+                              b['id'].toString(),
+                              b['starts_at'] as String?,
+                            ),
+                          ),
+                        ),
                       if (buttonText.isNotEmpty)
                         Padding(
                           padding: EdgeInsets.only(
-                            top: ResponsiveHelper.spacing(context, 12),
-                            left: ResponsiveHelper.isMobile(context) ? 16 : 20,
-                            right: ResponsiveHelper.isMobile(context) ? 16 : 20,
-                          ),
+                            top: ResponsiveHelper.spacing(context, 6),
+                          ).add(_bannerHorizontalPadding(context)),
                           child: SizedBox(
                             width: double.infinity,
-                            height: ResponsiveHelper.isMobile(context) ? 50 : 60,
+                            height: ResponsiveHelper.buttonHeight(context, mobile: 40, tablet: 48),
                             child: ElevatedButton(
                               onPressed: () => _handleBannerAction(buttonAction),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
                                 foregroundColor: const Color(0xFF667EEA),
-                                padding: EdgeInsets.symmetric(
+                                padding: ResponsiveHelper.padding(
+                                  context,
                                   horizontal: ResponsiveHelper.isMobile(context) ? 24 : 32,
-                                  vertical: ResponsiveHelper.isMobile(context) ? 12 : 16,
+                                  vertical: ResponsiveHelper.isMobile(context) ? 10 : 12,
                                 ),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(25),
+                                  borderRadius: BorderRadius.circular(
+                                    ResponsiveHelper.borderRadius(context, mobile: 25),
+                                  ),
                                 ),
-                                elevation: 4,
+                                elevation: ResponsiveHelper.dim(context, mobile: 4, tablet: 6),
                                 shadowColor: Colors.black.withOpacity(0.2),
                               ),
                               child: Text(
                                 buttonText.toUpperCase(),
                                 style: ResponsiveHelper.textStyle(
                                   context,
-                                  fontSize: ResponsiveHelper.fontSize(
-                                    context,
-                                    mobile: 14,
-                                    tablet: 16,
-                                  ),
+                                  fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   letterSpacing: 1.2,
                                 ),
@@ -362,24 +410,31 @@ class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
                 },
               ),
             ),
-            // Dot indicators for active banners
             if (allBanners.length > 1)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: EdgeInsets.only(
+                  top: ResponsiveHelper.spacing(context, 4), // Reduced gap between content and dots
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(
                     allBanners.length,
                     (i) => AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      width: _currentPage == i ? 20 : 8,
-                      height: 8,
+                      margin: EdgeInsets.symmetric(
+                        horizontal: ResponsiveHelper.spacing(context, 4),
+                      ),
+                      width: _currentPage == i
+                          ? ResponsiveHelper.dim(context, mobile: 16, tablet: 24, desktop: 28)
+                          : ResponsiveHelper.dim(context, mobile: 6, tablet: 10, desktop: 12),
+                      height: ResponsiveHelper.dim(context, mobile: 6, tablet: 10, desktop: 12),
                       decoration: BoxDecoration(
                         color: _currentPage == i
-                            ? const Color(0xFF6C5CE7)
-                            : Colors.grey[400],
-                        borderRadius: BorderRadius.circular(4),
+                            ? const Color(0xFF6C5CE7).withOpacity(0.75)
+                            : Colors.grey[300],
+                        borderRadius: BorderRadius.circular(
+                          ResponsiveHelper.dim(context, mobile: 3, tablet: 5),
+                        ),
                       ),
                     ),
                   ),
@@ -394,506 +449,67 @@ class _BannerCarouselWidgetState extends State<BannerCarouselWidget> {
     }
   }
 
-  Widget _buildUpcomingBanner(
-    BuildContext context,
-    BannersController ctrl,
-    Map<String, dynamic> upcoming,
-  ) {
-    final url = BannersService.getBannerImageUrl(upcoming['file_path'] ?? '');
-    final title = upcoming['title'] as String? ?? '';
-    final startsAt = DateTime.parse(upcoming['starts_at']);
-
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-      ),
-      child: Container(
-        height: ResponsiveHelper.isMobile(context) ? 200 : 280,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(
-            ResponsiveHelper.borderRadius(context, mobile: 24, tablet: 28),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(
-            ResponsiveHelper.borderRadius(context, mobile: 24, tablet: 28),
-          ),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Decorative overlays removed as per request
-              // Banner image with full opacity
-              if (url.isNotEmpty)
-                CachedNetworkImage(
-                  imageUrl: url,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) =>
-                      Container(color: const Color(0xFF6C5CE7)),
-                  errorWidget: (_, __, ___) =>
-                      Container(color: const Color(0xFF6C5CE7)),
-                ),
-              // Radial gradient overlay for depth removed as per request
-              // Container(
-              //   decoration: BoxDecoration(
-              //     gradient: RadialGradient(
-              //       center: Alignment.center,
-              //       radius: 1.0,
-              //       colors: [
-              //         Colors.transparent,
-              //         Colors.black.withOpacity(0.2),
-              //         Colors.black.withOpacity(0.5),
-              //       ],
-              //       stops: const [0.0, 0.6, 1.0],
-              //     ),
-              //   ),
-              // ),
-              // Decorative border
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.3),
-                    width: 3,
-                  ),
-                  borderRadius: BorderRadius.circular(
-                    ResponsiveHelper.borderRadius(
-                      context,
-                      mobile: 24,
-                      tablet: 28,
-                    ),
-                  ),
-                ),
-              ),
-              // Content
-              Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: ResponsiveHelper.isMobile(context) ? 20 : 32,
-                    vertical: ResponsiveHelper.isMobile(context) ? 16 : 24,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Modern Badge with glow
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: ResponsiveHelper.isMobile(context)
-                              ? 24
-                              : 32,
-                          vertical: ResponsiveHelper.isMobile(context)
-                              ? 12
-                              : 16,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(40),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.white.withOpacity(0.5),
-                              blurRadius: 20,
-                              spreadRadius: 5,
-                            ),
-                            BoxShadow(
-                              color: const Color(0xFF6C5CE7).withOpacity(0.4),
-                              blurRadius: 15,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.auto_awesome,
-                              color: const Color(0xFF6C5CE7),
-                              size: ResponsiveHelper.isMobile(context)
-                                  ? 24
-                                  : 28,
-                            ),
-                            SizedBox(
-                              width: ResponsiveHelper.spacing(
-                                context,
-                                10,
-                              ),
-                            ),
-                            Text(
-                              '✨ COMING SOON ✨',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.fontSize(
-                                  context,
-                                  mobile: 14,
-                                  tablet: 16,
-                                ),
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF6C5CE7),
-                                letterSpacing: 2,
-                              ),
-                            ),
-                            Icon(
-                              Icons.auto_awesome,
-                              color: const Color(0xFF6C5CE7),
-                              size: ResponsiveHelper.isMobile(context)
-                                  ? 24
-                                  : 28,
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(
-                        height: ResponsiveHelper.spacing(
-                          context,
-                          16,
-                        ),
-                      ),
-                      // Title with dramatic styling hidden as per request
-                      // if (title.isNotEmpty)
-                      //   Container(
-                      //     padding: EdgeInsets.symmetric(
-                      //       horizontal: ResponsiveHelper.isMobile(context)
-                      //           ? 16
-                      //           : 24,
-                      //       vertical: ResponsiveHelper.isMobile(context)
-                      //           ? 8
-                      //           : 12,
-                      //     ),
-                      //     decoration: BoxDecoration(
-                      //       color: Colors.black.withOpacity(0.4),
-                      //       borderRadius: BorderRadius.circular(16),
-                      //       border: Border.all(
-                      //         color: Colors.white.withOpacity(0.4),
-                      //         width: 2,
-                      //       ),
-                      //     ),
-                      //     child: Text(
-                      //       title.toUpperCase(),
-                      //       textAlign: TextAlign.center,
-                      //       style: ResponsiveHelper.textStyle(
-                      //         context,
-                      //         fontSize: ResponsiveHelper.fontSize(
-                      //           context,
-                      //           mobile: 20,
-                      //           tablet: 26,
-                      //         ),
-                      //         fontWeight: FontWeight.bold,
-                      //         color: Colors.white,
-                      //         letterSpacing: 2,
-                      //       ),
-                      //     ),
-                      //   ),
-                      SizedBox(
-                        height: ResponsiveHelper.spacing(
-                          context,
-                          20,
-                        ),
-                      ),
-                      // Large Countdown Timer
-                      Obx(
-                        () => Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: ResponsiveHelper.isMobile(context)
-                                ? 32
-                                : 40,
-                            vertical: ResponsiveHelper.isMobile(context)
-                                ? 20
-                                : 28,
-                          ),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Colors.white.withOpacity(0.3),
-                                Colors.white.withOpacity(0.1),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.6),
-                              width: 3,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 20,
-                                offset: const Offset(0, 8),
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            children: [
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    padding: EdgeInsets.all(
-                                      ResponsiveHelper.isMobile(context)
-                                          ? 8
-                                          : 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Icon(
-                                      Icons.timer,
-                                      color: Colors.white,
-                                      size: ResponsiveHelper.isMobile(context)
-                                          ? 24
-                                          : 28,
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: ResponsiveHelper.spacing(
-                                      context,
-                                      10,
-                                    ),
-                                  ),
-                                  Text(
-                                    'COUNTDOWN',
-                                    style: ResponsiveHelper.textStyle(
-                                      context,
-                                      fontSize: ResponsiveHelper.fontSize(
-                                        context,
-                                        mobile: 13,
-                                        tablet: 15,
-                                      ),
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                      letterSpacing: 3,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              SizedBox(
-                                height: ResponsiveHelper.spacing(
-                                  context,
-                                  12,
-                                ),
-                              ),
-                              Text(
-                                ctrl.countdownText.value,
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: ResponsiveHelper.fontSize(
-                                    context,
-                                    mobile: 36,
-                                    tablet: 48,
-                                  ),
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: 4,
-                                ),
-                              ),
-                              SizedBox(
-                                height: ResponsiveHelper.spacing(
-                                  context,
-                                  8,
-                                ),
-                              ),
-                              Text(
-                                'Until Festival Begins',
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: ResponsiveHelper.fontSize(
-                                    context,
-                                    mobile: 11,
-                                    tablet: 12,
-                                  ),
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white.withOpacity(0.9),
-                                  letterSpacing: 2,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLiveCountdown(
-    BuildContext context,
-    String bannerId,
-    String? startsAt,
-  ) {
+  Widget _buildLiveCountdown(BuildContext context, String bannerId, String? startsAt) {
     final countdownText = _countdowns[bannerId] ?? 'Loading...';
 
     if (countdownText == 'Ended' || countdownText == 'Loading...') {
       return const SizedBox.shrink();
     }
 
-    // Determine if banner is upcoming or ongoing
-    final isUpcoming =
-        startsAt != null && DateTime.parse(startsAt).isAfter(DateTime.now());
+    final isUpcoming = startsAt != null && DateTime.parse(startsAt).isAfter(DateTime.now());
     final labelText = isUpcoming ? 'Starts in ' : 'Ends in ';
     final iconData = isUpcoming ? Icons.schedule : Icons.timer_outlined;
 
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: ResponsiveHelper.isMobile(context) ? 8 : 10,
-        vertical: ResponsiveHelper.isMobile(context) ? 4 : 5,
+      constraints: BoxConstraints(
+        maxWidth: ResponsiveHelper.screenWidth(context) -
+            ResponsiveHelper.dim(context, mobile: 32, tablet: 60),
+      ),
+      padding: ResponsiveHelper.padding(
+        context,
+        horizontal: ResponsiveHelper.dim(context, mobile: 12, tablet: 18),
+        vertical: ResponsiveHelper.dim(context, mobile: 6, tablet: 10),
       ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(6),
+        gradient: LinearGradient(
+          colors: isUpcoming
+              ? [const Color(0xFF667EEA), const Color(0xFF764BA2)]
+              : [const Color(0xFFFF5F6D), const Color(0xFFFFC371)],
+        ),
+        borderRadius: BorderRadius.circular(
+          ResponsiveHelper.borderRadius(context, mobile: 25, tablet: 35),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.15),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: ResponsiveHelper.dim(context, mobile: 8, tablet: 12),
+            offset: Offset(0, ResponsiveHelper.dim(context, mobile: 4, tablet: 6)),
           ),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
             iconData,
-            color: isUpcoming
-                ? const Color(0xFF667EEA)
-                : const Color(0xFF764BA2),
-            size: ResponsiveHelper.isMobile(context) ? 10 : 12,
+            color: Colors.white,
+            size: ResponsiveHelper.iconSize(context, mobile: 13, tablet: 18, desktop: 20),
           ),
-          SizedBox(width: ResponsiveHelper.spacing(context, 3)),
+          SizedBox(width: ResponsiveHelper.spacing(context, 8)),
           Text(
-            labelText,
+            '$labelText$countdownText',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: ResponsiveHelper.textStyle(
               context,
-              fontSize: ResponsiveHelper.fontSize(
-                context,
-                mobile: 9,
-                tablet: 10,
-              ),
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF666666),
-            ),
-          ),
-          SizedBox(width: ResponsiveHelper.spacing(context, 2)),
-          Text(
-            countdownText,
-            style: ResponsiveHelper.textStyle(
-              context,
-              fontSize: ResponsiveHelper.fontSize(
-                context,
-                mobile: 10,
-                tablet: 11,
-              ),
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 14, desktop: 16),
               fontWeight: FontWeight.bold,
-              color: const Color(0xFF0C0F10),
+              color: Colors.white,
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildMiniCountdown(
-    BuildContext context,
-    Map<String, dynamic> countdown,
-  ) {
-    final days = countdown['days']?.toString() ?? '0';
-    final hours = countdown['hours']?.toString() ?? '0';
-    final minutes = countdown['minutes']?.toString() ?? '0';
-
-    return Row(
-      children: [
-        _buildMiniTimeUnit(context, days, 'd'),
-        SizedBox(width: 4),
-        Text(':', style: TextStyle(color: Colors.white70, fontSize: 12)),
-        SizedBox(width: 4),
-        _buildMiniTimeUnit(context, hours, 'h'),
-        SizedBox(width: 4),
-        Text(':', style: TextStyle(color: Colors.white70, fontSize: 12)),
-        SizedBox(width: 4),
-        _buildMiniTimeUnit(context, minutes, 'm'),
-      ],
-    );
-  }
-
-  Widget _buildTimeUnit(BuildContext context, String value, String unit) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
-      children: [
-        Text(
-          value,
-          style: ResponsiveHelper.textStyle(
-            context,
-            fontSize: ResponsiveHelper.fontSize(
-              context,
-              mobile: 18,
-              tablet: 22,
-            ),
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        SizedBox(width: 2),
-        Text(
-          unit,
-          style: TextStyle(
-            fontSize: ResponsiveHelper.fontSize(
-              context,
-              mobile: 10,
-              tablet: 11,
-            ),
-            fontWeight: FontWeight.w600,
-            color: Colors.white70,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMiniTimeUnit(BuildContext context, String value, String unit) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: ResponsiveHelper.fontSize(
-              context,
-              mobile: 14,
-              tablet: 16,
-            ),
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        Text(
-          unit,
-          style: TextStyle(
-            fontSize: ResponsiveHelper.fontSize(
-              context,
-              mobile: 9,
-              tablet: 10,
-            ),
-            fontWeight: FontWeight.w600,
-            color: Colors.white70,
-          ),
-        ),
-      ],
     );
   }
 }

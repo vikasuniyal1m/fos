@@ -12,6 +12,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fruitsofspirit/config/api_config.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 
+class RestorePremiumResult {
+  final bool success;
+  final String message;
+  const RestorePremiumResult({required this.success, required this.message});
+}
+
 class IAPService extends GetxService {
   final InAppPurchase _iap = InAppPurchase.instance;
   final RxList<ProductDetails> products = <ProductDetails>[].obs;
@@ -37,6 +43,17 @@ class IAPService extends GetxService {
   
   Stream<List<PurchaseDetails>>? _subscription;
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
+
+  /// True only while user tapped Buy — ignores stray store replay events.
+  bool _purchaseFlowActive = false;
+  /// True only while user tapped Restore — blocks silent auto-restore on payment open.
+  bool _explicitRestoreRequested = false;
+
+  /// Avoid hitting check_premium API on every button tap.
+  static const Duration _premiumSyncTtl = Duration(minutes: 10);
+  DateTime? _lastPremiumSyncAt;
+  bool _sessionPremiumSynced = false;
+  bool _premiumSyncInFlight = false;
 
   static const int _maxRetries = 3;
   static const Duration _retryDelay = Duration(seconds: 2);
@@ -127,30 +144,15 @@ class IAPService extends GetxService {
         errorMessage.value = 'App Store is not available. Please check your internet connection and try again.';
         debugPrint('IAP: ❌ App Store not available - possible network or device configuration issue');
         products.clear();
-        // Load current premium status
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          premiumActive.value = prefs.getBool('is_lifetime_premium') ?? false;
-        } catch (_) {}
         isInitialized.value = true;
         return;
       }
 
       await loadProducts();
-      await _checkPendingPurchase();
+      if (_purchaseFlowActive) {
+        await _checkPendingPurchase();
+      }
 
-      // Load current premium status instantly
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final isPremium = prefs.getBool('is_lifetime_premium') ?? false;
-        premiumActive.value = isPremium;
-        
-        if (isPremium) {
-          debugPrint('IAP: ✅ Premium status loaded instantly on startup');
-          // Notify listeners that premium is active
-          _notifyPremiumListeners();
-        }
-      } catch (_) {}
       isInitialized.value = true;
     } catch (e) {
       // Better error handling for StoreKit specific errors
@@ -270,8 +272,15 @@ class IAPService extends GetxService {
     }
   }
 
-  // Detect sandbox environment for iOS
+  // Detect sandbox / test environment (iOS sandbox, Android debug Play purchases)
   Future<void> _detectSandboxEnvironment() async {
+    if (Platform.isAndroid) {
+      // Backend grants without Google Play API when is_sandbox=true (debug builds)
+      isSandbox.value = kDebugMode || kProfileMode;
+      debugPrint('IAP: Android sandbox mode: ${isSandbox.value}');
+      return;
+    }
+
     if (Platform.isIOS) {
       try {
         // Check if running in simulator first
@@ -525,6 +534,11 @@ class IAPService extends GetxService {
         return false;
       }
 
+      if (await ensurePremiumFromDatabase(tryStoreRestore: false)) {
+        debugPrint('IAP: Already premium — skip purchase');
+        return true;
+      }
+
       final targetId = Platform.isIOS ? _iosProductId : _androidProductId;
 
       if (!isInitialized.value) {
@@ -545,6 +559,7 @@ class IAPService extends GetxService {
       }
 
       isLoading.value = true;
+      _purchaseFlowActive = true;
 
       // Add timeout for store availability check
       final available = await _iap.isAvailable().timeout(
@@ -623,8 +638,51 @@ class IAPService extends GetxService {
       errorMessage.value = errorMsg + '. Please try again.';
       return false;
     } finally {
+      _purchaseFlowActive = false;
       isLoading.value = false;
     }
+  }
+
+  Future<void> _completePurchaseOnPlatform(PurchaseDetails purchase) async {
+    if (Platform.isAndroid) {
+      try {
+        await _iap.completePurchase(purchase);
+        debugPrint('IAP: ✅ Purchase acknowledged on Android');
+      } catch (e) {
+        debugPrint('IAP: ❌ Error acknowledging purchase: $e');
+      }
+    }
+    if (purchase.pendingCompletePurchase) {
+      try {
+        await _iap.completePurchase(purchase);
+        debugPrint('IAP: ✅ Purchase completed on platform');
+      } catch (e) {
+        debugPrint('IAP: ❌ Error completing purchase: $e');
+      }
+    }
+  }
+
+  /// Backend verify first — premium only after server confirms (no instant local grant).
+  Future<void> _processVerifiedPurchase(PurchaseDetails purchase) async {
+    debugPrint('IAP: Verifying purchase with backend before activating...');
+
+    var verified = await _verifyOnBackend(purchase);
+    if (!verified) {
+      debugPrint('IAP: Retrying backend verification...');
+      await Future.delayed(const Duration(seconds: 2));
+      verified = await _verifyOnBackend(purchase);
+    }
+
+    if (verified) {
+      await _clearPendingPurchase();
+      debugPrint('IAP: ✅ Premium activated after backend verification');
+    } else {
+      errorMessage.value =
+          'Could not verify your purchase. Use Restore Premium or try again.';
+      debugPrint('IAP: ❌ Backend verification failed — premium NOT activated');
+    }
+
+    await _completePurchaseOnPlatform(purchase);
   }
 
   Future<void> _handlePurchases(List<PurchaseDetails> purchases) async {
@@ -635,38 +693,18 @@ class IAPService extends GetxService {
       
       switch (purchase.status) {
         case PurchaseStatus.purchased:
+          await _processVerifiedPurchase(purchase);
+          break;
+
         case PurchaseStatus.restored:
-          debugPrint('IAP: Starting backend verification...');
-          
-          // For Android: Acknowledge purchase IMMEDIATELY to prevent refunds
-          // This must happen before any other operations to avoid cancellation
-          if (Platform.isAndroid) {
-            try {
-              await _iap.completePurchase(purchase);
-              debugPrint('IAP: ✅ Purchase acknowledged and completed for Android');
-            } catch (e) {
-              debugPrint('IAP: ❌ Error acknowledging purchase: $e');
-              // Don't proceed if acknowledgment fails
-              errorMessage.value = 'Failed to acknowledge purchase. Please try again.';
-              return;
-            }
+          if (!_explicitRestoreRequested) {
+            debugPrint(
+              'IAP: Ignoring restore event — user did not tap Restore Premium',
+            );
+            await _completePurchaseOnPlatform(purchase);
+            break;
           }
-          
-          // Complete the purchase on the platform side
-          if (purchase.pendingCompletePurchase) {
-            try {
-              await _iap.completePurchase(purchase);
-              debugPrint('IAP: ✅ Purchase completed on platform');
-            } catch (e) {
-              debugPrint('IAP: ❌ Error completing purchase: $e');
-            }
-          }
-          
-          // Activate premium immediately for better user experience
-          await _activatePremiumInstantly();
-          
-          // Then verify with backend in background without blocking UI
-          _verifyOnBackendInBackground(purchase);
+          await _processVerifiedPurchase(purchase);
           break;
           
         case PurchaseStatus.error:
@@ -716,59 +754,13 @@ class IAPService extends GetxService {
   Future<void> _activatePremium() async {
     try {
       debugPrint('IAP: === Activating premium ===');
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('is_lifetime_premium', true);
-      premiumActive.value = true;
+      await setPremiumStatus(true);
       errorMessage.value = '';
       debugPrint('IAP: ✅ Premium activated successfully');
       debugPrint('IAP: premiumActive.value: ${premiumActive.value}');
     } catch (e) {
       debugPrint('IAP: ❌ Error activating premium: $e');
       debugPrint('IAP: Exception type: ${e.runtimeType}');
-    }
-  }
-
-  // Instant premium activation without UI refresh
-  Future<void> _activatePremiumInstantly() async {
-    try {
-      debugPrint('IAP: === INSTANT Premium Activation ===');
-      final prefs = await SharedPreferences.getInstance();
-      
-      // Update all premium-related values instantly
-      await prefs.setBool('is_lifetime_premium', true);
-      await prefs.setString('premium_activated_at', DateTime.now().toIso8601String());
-      await prefs.setBool('premium_verified', true);
-      
-      // Update reactive variables immediately
-      premiumActive.value = true;
-      errorMessage.value = '';
-      isLoading.value = false;
-      
-      // Trigger immediate UI updates for all premium features
-      _notifyPremiumListeners();
-      
-      debugPrint('IAP: ✅ Premium activated INSTANTLY');
-      debugPrint('IAP: User now has immediate access to all premium features');
-    } catch (e) {
-      debugPrint('IAP: ❌ Error in instant premium activation: $e');
-      debugPrint('IAP: Exception type: ${e.runtimeType}');
-    }
-  }
-
-  // Notify all premium listeners for instant UI updates
-  void _notifyPremiumListeners() {
-    try {
-      debugPrint('IAP: Notifying all premium listeners...');
-      
-      // Update any controllers or services that depend on premium status
-      // This ensures all parts of the app know premium is active immediately
-      
-      // Force refresh of premium status across the app
-      premiumActive.refresh();
-      
-      debugPrint('IAP: ✅ All premium listeners notified');
-    } catch (e) {
-      debugPrint('IAP: ❌ Error notifying premium listeners: $e');
     }
   }
 
@@ -895,8 +887,15 @@ class IAPService extends GetxService {
       
       final userIdInt = await UserStorage.getUserId();
       final userId = userIdInt?.toString() ?? '';
+      final user = await UserStorage.getUser();
+      final email = user?['email']?.toString().trim() ?? '';
       
-      debugPrint('IAP: User ID: $userId');
+      debugPrint('IAP: User ID: $userId, email: $email');
+
+      if (Platform.isAndroid && (kDebugMode || kProfileMode)) {
+        isSandbox.value = true;
+      }
+      debugPrint('IAP: is_sandbox=${isSandbox.value}');
 
       if (userId.isEmpty) {
         debugPrint('IAP: ❌ No user logged in for verification');
@@ -917,33 +916,32 @@ class IAPService extends GetxService {
       }
 
       debugPrint('IAP: Calling backend API: ${ApiConfig.verifyPurchase}');
-      
+
+      final payload = <String, dynamic>{
+        'receipt': verificationData,
+        'product_id': productId,
+        'transaction_id': transactionId,
+        'user_id': userId,
+        'email': email,
+        'platform': Platform.isIOS ? 'apple' : 'android',
+        'is_sandbox': isSandbox.value,
+      };
+      if (Platform.isAndroid) {
+        payload['purchase_token'] = verificationData;
+      }
+
       final response = await http.post(
         Uri.parse(ApiConfig.verifyPurchase),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: json.encode({
-          'receipt': verificationData,
-          'product_id': productId,
-          'transaction_id': transactionId,
-          'user_id': userId,
-          'platform': Platform.isIOS ? 'apple' : 'android',
-          'is_sandbox': isSandbox.value,
-        }),
+        body: json.encode(payload),
       ).timeout(
         const Duration(seconds: 30),
         onTimeout: () {
           debugPrint('IAP: Backend verification timed out');
-          if (isProductionMode) {
-            // In production, don't throw timeout exceptions to avoid UI errors
-            debugPrint('IAP: Production mode - suppressing backend timeout error');
-            // Return a mock success response to avoid UI errors
-            return http.Response('{"success": true, "message": "Backend verification skipped in production"}', 200);
-          } else {
-            throw TimeoutException('Backend verification timed out', const Duration(seconds: 30));
-          }
+          throw TimeoutException('Backend verification timed out', const Duration(seconds: 30));
         },
       );
 
@@ -957,9 +955,11 @@ class IAPService extends GetxService {
         
         if (responseData['success'] == true) {
           debugPrint('IAP: ✅ Backend verification successful');
-          if (!isPending) {
-            await _activatePremium();
+          final purchaseType = responseData['iap_purchase_type']?.toString();
+          if (purchaseType != null && purchaseType.isNotEmpty) {
+            await UserStorage.updateUser({'iap_purchase_type': purchaseType});
           }
+          await _activatePremium();
           return true;
         } else {
           debugPrint('IAP: ❌ Backend returned success=false');
@@ -987,17 +987,170 @@ class IAPService extends GetxService {
     }
   }
 
-  Future<bool> hasPremium() async {
+  /// Parses check_premium.php: `{ data: { is_premium: true } }` or top-level flag.
+  static bool _parseBackendIsPremium(Map<String, dynamic> body) {
+    final top = body['is_premium'];
+    if (top == true || top == 1) return true;
+
+    final nested = body['data'];
+    if (nested is Map) {
+      final flag = nested['is_premium'];
+      if (flag == true || flag == 1) return true;
+      if (flag is String && (flag == '1' || flag.toLowerCase() == 'true')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// DB / API: `is_lifetime_premium` == 1 means paid.
+  static bool isLifetimePremium(dynamic value) {
+    if (value == 1 || value == true) return true;
+    if (value is String && (value == '1' || value.toLowerCase() == 'true')) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Sync prefs + reactive flag + stored user (login / purchase / backend).
+  Future<void> setPremiumStatus(bool isPremium) async {
+    if (premiumActive.value == isPremium) {
+      _markPremiumSynced();
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('is_lifetime_premium') ?? false;
+    await prefs.setBool('is_lifetime_premium', isPremium);
+    if (isPremium) {
+      await prefs.setString('premium_activated_at', DateTime.now().toIso8601String());
+      await prefs.setBool('premium_verified', true);
+    } else {
+      await prefs.remove('premium_activated_at');
+      await prefs.remove('premium_verified');
+    }
+    premiumActive.value = isPremium;
+    await UserStorage.updateUser({'is_lifetime_premium': isPremium ? 1 : 0});
+    _markPremiumSynced();
+  }
+
+  void _markPremiumSynced() {
+    _sessionPremiumSynced = true;
+    _lastPremiumSyncAt = DateTime.now();
+  }
+
+  bool get _premiumSyncIsFresh {
+    final last = _lastPremiumSyncAt;
+    return last != null && DateTime.now().difference(last) < _premiumSyncTtl;
+  }
+
+  /// Local-only check (memory + Hive user + prefs) — no network.
+  Future<bool> hasPremiumFast() async {
+    if (premiumActive.value) return true;
+    final user = await UserStorage.getUser();
+    if (isLifetimePremium(user?['is_lifetime_premium'])) {
+      premiumActive.value = true;
+      return true;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getBool('is_lifetime_premium') ?? false;
+    if (cached) premiumActive.value = true;
+    return cached;
+  }
+
+  Future<bool> hasPremium() => hasPremiumFast();
+
+  Future<void> _syncPremiumFromBackendIfStale() async {
+    if (_premiumSyncInFlight || _premiumSyncIsFresh) return;
+    _premiumSyncInFlight = true;
+    try {
+      await _fetchPremiumStatusFromBackend();
+      _markPremiumSynced();
+    } finally {
+      _premiumSyncInFlight = false;
+    }
   }
 
   Future<bool> restorePurchases() async {
+    if (isLoading.value) return false;
+    isLoading.value = true;
+    errorMessage.value = '';
+    _explicitRestoreRequested = true;
     try {
-      isLoading.value = true;
-      errorMessage.value = '';
-      
-      // Add timeout for restore operation
+      return await _performStoreRestore();
+    } finally {
+      isLoading.value = false;
+      Future.delayed(const Duration(seconds: 5), () {
+        _explicitRestoreRequested = false;
+      });
+    }
+  }
+
+  /// Full restore: account (email/DB) first, then App Store / Play history.
+  Future<RestorePremiumResult> restorePremiumMembership() async {
+    if (isLoading.value) {
+      return const RestorePremiumResult(
+        success: false,
+        message: 'Please wait for the current request to finish.',
+      );
+    }
+
+    isLoading.value = true;
+    errorMessage.value = '';
+
+    try {
+      final userId = await UserStorage.getUserId();
+      if (userId == null || userId == 0) {
+        return const RestorePremiumResult(
+          success: false,
+          message: 'Please sign in with the same email you used when purchasing.',
+        );
+      }
+
+      await syncPremiumFromBackend();
+      if (premiumActive.value || await hasPremium()) {
+        return const RestorePremiumResult(
+          success: true,
+          message: 'Premium restored from your account.',
+        );
+      }
+
+      if (!isInitialized.value) {
+        await initialize();
+      }
+
+      final storeOk = await _performStoreRestore();
+      await Future.delayed(const Duration(seconds: 2));
+      await syncPremiumFromBackend();
+
+      if (premiumActive.value || await hasPremium()) {
+        return const RestorePremiumResult(
+          success: true,
+          message: 'Your lifetime premium has been restored on this device.',
+        );
+      }
+
+      if (!storeOk && errorMessage.isNotEmpty) {
+        return RestorePremiumResult(success: false, message: errorMessage.value);
+      }
+
+      return const RestorePremiumResult(
+        success: false,
+        message:
+            'No purchase found. Sign in with the same email and use the same App Store or Google Play account you used when buying.',
+      );
+    } catch (e) {
+      debugPrint('IAP: restorePremiumMembership error: $e');
+      return const RestorePremiumResult(
+        success: false,
+        message: 'Could not restore purchases. Please try again.',
+      );
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<bool> _performStoreRestore() async {
+    try {
       await _iap.restorePurchases().timeout(
         const Duration(seconds: 30),
         onTimeout: () {
@@ -1007,12 +1160,10 @@ class IAPService extends GetxService {
           );
         },
       );
-      
       return true;
     } on PlatformException catch (e) {
       String errorMsg = 'Restore failed';
-      
-      // Better error handling for specific StoreKit errors
+
       if (e.code == 'storekit_no_response') {
         errorMsg = 'Store error: Unable to connect to App Store. Please try again.';
       } else if (e.code == 'No active account') {
@@ -1026,7 +1177,7 @@ class IAPService extends GetxService {
       } else {
         errorMsg = 'Restore failed: ${e.code} ${e.message ?? ''}'.trim();
       }
-      
+
       errorMessage.value = errorMsg;
       return false;
     } catch (e) {
@@ -1038,11 +1189,9 @@ class IAPService extends GetxService {
       } else if (e.toString().contains('connection') || e.toString().contains('network')) {
         errorMsg = 'Network issue during restore. Check your internet and try again.';
       }
-      
-      errorMessage.value = errorMsg + '. Please try again.';
+
+      errorMessage.value = '$errorMsg. Please try again.';
       return false;
-    } finally {
-      isLoading.value = false;
     }
   }
 
@@ -1066,21 +1215,27 @@ class IAPService extends GetxService {
       debugPrint('IAP: Backend response body: ${response.body}');
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final data = json.decode(response.body) as Map<String, dynamic>;
         debugPrint('IAP: Parsed response data: $data');
-        
-        if (data['success'] == true && data['is_premium'] == true) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('is_lifetime_premium', true);
-          premiumActive.value = true;
-          debugPrint('IAP: ✅ Premium status restored from backend');
+
+        if (data['success'] == true) {
+          final isPremium = _parseBackendIsPremium(data);
+          await setPremiumStatus(isPremium);
+          final nested = data['data'];
+          if (nested is Map) {
+            final purchaseType = nested['iap_purchase_type']?.toString();
+            if (purchaseType != null && purchaseType.isNotEmpty) {
+              await UserStorage.updateUser({'iap_purchase_type': purchaseType});
+            }
+          }
+          debugPrint('IAP: ✅ Premium from backend: $isPremium');
         } else {
-          debugPrint('IAP: User is not premium or failed response');
-          debugPrint('IAP: success: ${data['success']}, is_premium: ${data['is_premium']}');
+          debugPrint('IAP: Premium check failed: ${data['message']}');
         }
       } else {
         debugPrint('IAP: Backend returned non-200 status: ${response.statusCode}');
       }
+      _markPremiumSynced();
     } catch (e) {
       debugPrint('IAP: Error fetching premium status from backend: $e');
     }
@@ -1091,18 +1246,73 @@ class IAPService extends GetxService {
     try {
       final isPremium = userData['is_lifetime_premium'] ?? 0;
       debugPrint('IAP: Updating premium status from login: is_lifetime_premium = $isPremium');
-      
-      if (isPremium == 1) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('is_lifetime_premium', true);
-        premiumActive.value = true;
-        debugPrint('IAP: ✅ Premium status updated from login response');
-      } else {
-        premiumActive.value = false;
-        debugPrint('IAP: User is not premium according to login data');
-      }
+      await setPremiumStatus(isLifetimePremium(isPremium));
+      _markPremiumSynced();
+      debugPrint('IAP: ✅ Premium flag synced from login (premium=${isLifetimePremium(isPremium)})');
     } catch (e) {
       debugPrint('IAP: Error updating premium status from login: $e');
+    }
+  }
+
+  /// Authoritative premium check for the logged-in user.
+  Future<void> syncPremiumFromBackend() async {
+    await _fetchPremiumStatusFromBackend();
+  }
+
+  /// Premium check for navigation. Uses local cache first so taps feel instant.
+  /// Pass [forceRefresh] on payment screen / after purchase / restore.
+  Future<bool> ensurePremiumFromDatabase({
+    bool tryStoreRestore = false,
+    bool forceRefresh = false,
+  }) async {
+    if (await hasPremiumFast()) {
+      if (forceRefresh) {
+        await syncPremiumFromBackend();
+      } else {
+        unawaited(_syncPremiumFromBackendIfStale());
+      }
+      debugPrint('IAP: ✅ Premium active (local cache)');
+      return true;
+    }
+
+    if (!forceRefresh && _sessionPremiumSynced) {
+      unawaited(_syncPremiumFromBackendIfStale());
+      return false;
+    }
+
+    await syncPremiumFromBackend();
+    if (premiumActive.value || await hasPremiumFast()) {
+      debugPrint('IAP: ✅ Premium active from database');
+      return true;
+    }
+
+    if (!tryStoreRestore) {
+      return false;
+    }
+
+    debugPrint('IAP: DB has no purchase — trying store restore...');
+    try {
+      await restorePurchases();
+      await Future.delayed(const Duration(seconds: 2));
+      await syncPremiumFromBackend();
+    } catch (e) {
+      debugPrint('IAP: Store restore during ensurePremium failed: $e');
+    }
+
+    final ok = premiumActive.value || await hasPremium();
+    if (ok) {
+      debugPrint('IAP: ✅ Premium restored from store + database sync');
+    }
+    return ok;
+  }
+
+  /// Clears local premium state on logout or before a new session.
+  Future<void> clearPremiumOnLogout() async {
+    try {
+      await setPremiumStatus(false);
+      debugPrint('IAP: Premium state cleared on logout');
+    } catch (e) {
+      debugPrint('IAP: Error clearing premium on logout: $e');
     }
   }
 

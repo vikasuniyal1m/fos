@@ -101,7 +101,12 @@ class BannersService {
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
       return filePath;
     }
+    
+    // Extract base domain from ApiConfig.baseUrl to ensure consistency
+    // baseUrl is usually https://admin.fosmessenger.com/api
+    String domain = ApiConfig.baseUrl.replaceFirst('/api', '');
+    
     // Otherwise prepend the base URL
-    return 'http://admin.fosmessenger.com/$filePath';
+    return '$domain/$filePath';
   }
 }

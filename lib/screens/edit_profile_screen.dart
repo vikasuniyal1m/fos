@@ -38,14 +38,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     phoneController = TextEditingController();
     passwordController = TextEditingController();
     
-    // Load profile if not already loaded
-    if (controller.profile.isEmpty) {
-      controller.loadProfile().then((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (controller.profile.isNotEmpty) {
         _updateControllers();
+        return;
+      }
+      controller.prepareProfile().then((_) {
+        if (mounted) _updateControllers();
       });
-    } else {
-      _updateControllers();
-    }
+    });
   }
 
   void _updateControllers() {

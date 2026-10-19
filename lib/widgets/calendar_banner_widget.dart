@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/calendar_banner_controller.dart';
 import '../utils/app_theme.dart';
+import '../utils/responsive_helper.dart';
 import 'dart:async';
 
 /// Calendar Banner Widget
@@ -87,21 +88,14 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
     return GetBuilder<CalendarBannerController>(
       init: CalendarBannerController(),
       builder: (controller) => Obx(() {
-        // Debug prints
-        print('Calendar Banner Debug:');
-        print('  hasAnyEvents: ${controller.hasAnyEvents}');
-        print('  todayEvents: ${controller.todayEvents.length}');
-        print('  upcomingEvents: ${controller.upcomingEvents.length}');
-        print('  isLoading: ${controller.isLoading.value}');
-        
         // Show loading or empty placeholder to verify widget is rendering
         if (controller.isLoading.value) {
           return Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            padding: const EdgeInsets.all(16),
+            margin: ResponsiveHelper.padding(context, horizontal: 8, vertical: 6),
+            padding: ResponsiveHelper.padding(context, all: 16),
             decoration: BoxDecoration(
               color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
             ),
             child: const Center(
               child: SizedBox(
@@ -115,44 +109,48 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
         
         // Don't show if no events at all (today or upcoming)
         if (!controller.hasAnyEvents) {
-          print('  -> No events to show, showing placeholder');
           // Return a placeholder to show widget is working
           return Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            padding: const EdgeInsets.all(16),
+            margin: ResponsiveHelper.padding(context, horizontal: 8, vertical: 6),
+            padding: ResponsiveHelper.padding(context, all: 16),
             decoration: BoxDecoration(
               color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
               border: Border.all(color: Colors.grey.shade300),
             ),
             child: Column(
               children: [
                 Row(
                   children: [
-                    Icon(Icons.event_busy, color: Colors.grey.shade400),
-                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.event_busy, 
+                      color: Colors.grey.shade400,
+                      size: ResponsiveHelper.iconSize(context, mobile: 24),
+                    ),
+                    SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                     Text(
                       'No upcoming festivals',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
+                      style: ResponsiveHelper.textStyle(
+                        context,
                         fontSize: 14,
+                        color: Colors.grey.shade600,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: ResponsiveHelper.spacing(context, 8)),
                 Text(
                   'Check back later for Christian feasts and holidays',
-                  style: TextStyle(
-                    color: Colors.grey.shade500,
+                  style: ResponsiveHelper.textStyle(
+                    context,
                     fontSize: 12,
+                    color: Colors.grey.shade500,
                   ),
                 ),
               ],
             ),
           );
         }
-        print('  -> Showing calendar banner!');
 
         // Combine today and upcoming events
         final allEvents = [...controller.todayEvents, ...controller.upcomingEvents];
@@ -161,7 +159,7 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
         _updateCountdowns();
         
         return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          margin: ResponsiveHelper.padding(context, horizontal: 8, vertical: 6),
           child: _buildCompactCarousel(allEvents, controller),
         );
       }),
@@ -174,7 +172,7 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
     CalendarBannerController controller,
   ) {
     return SizedBox(
-      height: 240,
+      height: ResponsiveHelper.dim(context, mobile: 280, tablet: 340, desktop: 380),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: events.length,
@@ -212,8 +210,8 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
     final isToday = countdownText == 'TODAY';
 
     return Container(
-      width: 200,
-      margin: const EdgeInsets.only(right: 12),
+      width: ResponsiveHelper.dim(context, mobile: 220, tablet: 280, desktop: 320),
+      margin: EdgeInsets.only(right: ResponsiveHelper.spacing(context, 12)),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -223,25 +221,25 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
             Colors.white,
           ],
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
         boxShadow: [
           BoxShadow(
             color: primaryColor.withOpacity(0.15),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            blurRadius: ResponsiveHelper.dim(context, mobile: 12),
+            offset: Offset(0, ResponsiveHelper.dim(context, mobile: 4)),
             spreadRadius: 0,
           ),
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: ResponsiveHelper.padding(context, all: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Church/Icon at top
             Container(
-              width: 48,
-              height: 48,
+              width: ResponsiveHelper.dim(context, mobile: 48, tablet: 54),
+              height: ResponsiveHelper.dim(context, mobile: 48, tablet: 54),
               decoration: BoxDecoration(
                 color: iconBgColor,
                 shape: BoxShape.circle,
@@ -250,16 +248,17 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
                 child: Icon(
                   isChristian ? Icons.church : Icons.celebration,
                   color: primaryColor,
-                  size: 24,
+                  size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28),
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: ResponsiveHelper.spacing(context, 12)),
             
             // Festival name
             Text(
               title,
-              style: TextStyle(
+              style: ResponsiveHelper.textStyle(
+                context,
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
                 color: const Color(0xFF2D3436),
@@ -268,20 +267,21 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: ResponsiveHelper.spacing(context, 6)),
             
             // Date with pin icon
             Row(
               children: [
                 Icon(
                   Icons.location_on,
-                  size: 14,
+                  size: ResponsiveHelper.iconSize(context, mobile: 14),
                   color: primaryColor.withOpacity(0.7),
                 ),
-                const SizedBox(width: 4),
+                SizedBox(width: ResponsiveHelper.spacing(context, 4)),
                 Text(
                   controller.formatDate(date),
-                  style: TextStyle(
+                  style: ResponsiveHelper.textStyle(
+                    context,
                     fontSize: 12,
                     color: Colors.grey.shade600,
                   ),
@@ -293,33 +293,34 @@ class _CalendarBannerWidgetState extends State<CalendarBannerWidget> {
             
             // Bottom section - Countdown badge
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: isChristian 
                     ? const Color(0xFFFFF5F5) 
                     : const Color(0xFFF0F9F7),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12, tablet: 16)),
               ),
               child: Row(
                 children: [
                   Icon(
                     Icons.schedule,
-                    size: 16,
+                    size: ResponsiveHelper.iconSize(context, mobile: 16, tablet: 20),
                     color: primaryColor,
                   ),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: ResponsiveHelper.padding(context, horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: isToday 
                           ? const Color(0xFF00B894)
                           : primaryColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8, tablet: 10)),
                     ),
                     child: Text(
                       countdownText.isNotEmpty ? countdownText : 'SOON',
-                      style: TextStyle(
-                        fontSize: 11,
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 13, desktop: 15),
                         fontWeight: FontWeight.bold,
                         color: isToday ? Colors.white : primaryColor,
                       ),

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:fruitsofspirit/services/stories_service.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/stories_controller.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/utils/time_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
-import 'package:fruitsofspirit/services/gallery_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
@@ -23,14 +23,10 @@ class StoriesScreen extends StatefulWidget {
 }
 
 class _StoriesScreenState extends State<StoriesScreen> {
-  var isLoading = false;
-  var stories = <Map<String, dynamic>>[];
+  late final StoriesController _storiesController;
   var userId = 0;
   String? userEmail;
-  String? selectedFruitTag;
-  int currentPage = 0;
-  final int itemsPerPage = 20;
-  
+
   // Fruit emojis for filtering
   var fruitEmojis = <Map<String, dynamic>>[];
   var isLoadingFruit = true;
@@ -39,10 +35,39 @@ class _StoriesScreenState extends State<StoriesScreen> {
   @override
   void initState() {
     super.initState();
+    _storiesController = Get.isRegistered<StoriesController>()
+        ? Get.find<StoriesController>()
+        : Get.put(StoriesController());
+
+    if (Get.isRegistered<HomeController>()) {
+      _storiesController.seedFromHomeIfEmpty(
+        Get.find<HomeController>().stories.toList(),
+      );
+    }
+    _storiesController.loadFromHiveIfEmpty();
+
     _loadUserId();
     _loadUserEmail();
     _loadFruitEmojis();
-    _loadStories();
+
+    if (_storiesController.stories.isEmpty) {
+      _refreshStories();
+    } else {
+      _refreshStories(refresh: true, silent: true);
+    }
+  }
+
+  Future<void> _refreshStories({bool refresh = false, bool silent = false}) async {
+    try {
+      await _storiesController.loadStories(refresh: refresh, silent: silent);
+    } catch (e) {
+      Get.snackbar(
+        'Error',
+        e.toString().replaceAll('Exception: ', ''),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
   }
 
   Future<void> _loadUserId() async {
@@ -51,6 +76,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
       setState(() {
         userId = id;
       });
+      _storiesController.userId = id;
     }
   }
 
@@ -163,119 +189,6 @@ class _StoriesScreenState extends State<StoriesScreen> {
         isLoadingFruit = false;
         fruitEmojis = [];
       });
-    }
-  }
-
-  Future<void> _loadStories({bool refresh = false}) async {
-    if (refresh) {
-      currentPage = 0;
-    }
-
-    setState(() {
-      isLoading = true;
-    });
-
-    try {
-      // Load both stories from stories table AND gallery photos with title/content/testimony
-      // (Same as home page - gallery photos that are stories/testimonies)
-      final List<Map<String, dynamic>> allStories = [];
-      
-      // 1. Load from Stories API (stories table)
-      try {
-        final storiesList = await StoriesService.getStories(
-          status: 'Approved',
-          fruitTag: selectedFruitTag,
-          limit: itemsPerPage,
-          offset: currentPage * itemsPerPage,
-        );
-        allStories.addAll(storiesList);
-      } catch (e) {
-        // If stories API fails, continue with gallery photos
-        print('Stories API error: $e');
-      }
-      
-      // 2. Load gallery photos that have title, content, or testimony (these are stories/testimonies)
-      // Same as home page - these are the stories shown on home screen
-      try {
-        final galleryPhotos = await GalleryService.getPhotos(
-          status: 'Approved',
-          fruitTag: selectedFruitTag,
-          currentUserId: userId > 0 ? userId : null,
-          limit: itemsPerPage,
-          offset: currentPage * itemsPerPage,
-        );
-        
-        // Filter gallery photos that have story/testimony content (same logic as home page)
-        final storyPhotos = galleryPhotos.where((photo) {
-          final hasTitle = photo['title'] != null && (photo['title'] as String).isNotEmpty;
-          final hasContent = photo['content'] != null && (photo['content'] as String).isNotEmpty;
-          final hasTestimony = photo['testimony'] != null && (photo['testimony'] as String).isNotEmpty;
-          return hasTitle || hasContent || hasTestimony;
-        }).toList();
-        
-        // Convert gallery photos to story format (same as home page)
-        for (var photo in storyPhotos) {
-          allStories.add({
-            'id': photo['id'],
-            'title': photo['title'] ?? photo['testimony']?.toString().split('\n').first ?? 'Untitled Story',
-            'content': photo['content'] ?? photo['testimony'] ?? '',
-            'image_url': photo['file_path'] ?? photo['thumbnail_path'], // Use image_url for consistency
-            'file_path': photo['file_path'], // Keep for navigation
-            'thumbnail_path': photo['thumbnail_path'],
-            'fruit_tag': photo['fruit_tag'],
-            'user_name': photo['user_name'],
-            'profile_photo': photo['profile_photo'],
-            'created_at': photo['created_at'],
-            'is_gallery_story': true, // Mark as gallery-based story
-          });
-        }
-      } catch (e) {
-        // If gallery API fails, continue with stories only
-        print('Gallery API error: $e');
-      }
-
-      // Client-side filtering: Ensure only selected fruit's stories are shown
-      List<Map<String, dynamic>> filteredStories = allStories;
-      if (selectedFruitTag != null && selectedFruitTag!.isNotEmpty) {
-        final normalizedSelectedTag = selectedFruitTag!.toLowerCase().trim();
-        print('🔍 Filtering stories for fruit: "$selectedFruitTag" (normalized: "$normalizedSelectedTag")');
-        print('🔍 Total stories before filter: ${allStories.length}');
-        
-        filteredStories = allStories.where((story) {
-          final storyFruitTag = (story['fruit_tag'] as String? ?? '').toLowerCase().trim();
-          final matches = storyFruitTag == normalizedSelectedTag;
-          if (allStories.length <= 10) {
-            print('   Story ${story['id']}: fruit_tag="${story['fruit_tag']}" (normalized: "$storyFruitTag") -> matches: $matches');
-          }
-          return matches;
-        }).toList();
-        
-        print('🔍 Filtered ${allStories.length} stories to ${filteredStories.length} for fruit: $selectedFruitTag');
-      } else {
-        print('🔍 Showing all stories (no filter)');
-      }
-
-      setState(() {
-        if (refresh || currentPage == 0) {
-          stories = filteredStories;
-        } else {
-          stories.addAll(filteredStories);
-        }
-        isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        isLoading = false;
-        if (refresh || currentPage == 0) {
-          stories = [];
-        }
-      });
-      Get.snackbar(
-        'Error',
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
     }
   }
 
@@ -505,46 +418,52 @@ class _StoriesScreenState extends State<StoriesScreen> {
           
           // Stories List
           Expanded(
-            child: isLoading && stories.isEmpty
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: const Color(0xFF8B4513),
-                    ),
-                  )
-                : stories.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.book_outlined,
-                              size: ResponsiveHelper.iconSize(context, mobile: 64),
-                              color: Colors.grey,
-                            ),
-                            SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                            Text(
-                              'No stories available',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: () => _loadStories(refresh: true),
-                        color: const Color(0xFF8B4513),
-                        child: ListView.builder(
-                          padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-                          itemCount: stories.length,
-                          itemBuilder: (context, index) {
-                            final story = stories[index];
-                            return _buildStoryCard(context, story);
-                          },
+            child: Obx(() {
+              final isLoading = _storiesController.isLoading.value;
+              final stories = _storiesController.stories;
+
+              if (isLoading && stories.isEmpty) {
+                return const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF8B4513),
+                  ),
+                );
+              }
+              if (stories.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.book_outlined,
+                        size: ResponsiveHelper.iconSize(context, mobile: 64),
+                        color: Colors.grey,
+                      ),
+                      SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                      Text(
+                        'No stories available',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                          color: Colors.grey,
                         ),
                       ),
+                    ],
+                  ),
+                );
+              }
+              return RefreshIndicator(
+                onRefresh: () => _refreshStories(refresh: true),
+                color: const Color(0xFF8B4513),
+                child: ListView.builder(
+                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+                  itemCount: stories.length,
+                  itemBuilder: (context, index) {
+                    return _buildStoryCard(context, stories[index]);
+                  },
+                ),
+              );
+            }),
           ),
         ],
       ),
@@ -563,27 +482,26 @@ class _StoriesScreenState extends State<StoriesScreen> {
     return GestureDetector(
       onTap: () {
         print('🖱️ Fruit button tapped: $label (ID: $fruitId)');
+        String? fruitTag;
         setState(() {
           if (fruitId == null) {
-            // "All" selected
             selectedFruitId = null;
-            selectedFruitTag = null;
-            print('🍎 Selected: All stories');
+            fruitTag = null;
           } else {
-            // Specific fruit selected
             selectedFruitId = fruitId;
-            // Extract base fruit name for filtering
-            final fruitName = (fruit?['display_name'] as String? ?? 
-                              fruit?['name'] as String? ?? 'Unknown').split(' ').first;
-            // Capitalize first letter to match database format
-            selectedFruitTag = fruitName.isNotEmpty 
-                ? fruitName[0].toUpperCase() + (fruitName.length > 1 ? fruitName.substring(1).toLowerCase() : '')
+            final fruitName = (fruit?['display_name'] as String? ??
+                    fruit?['name'] as String? ??
+                    'Unknown')
+                .split(' ')
+                .first;
+            fruitTag = fruitName.isNotEmpty
+                ? fruitName[0].toUpperCase() +
+                    (fruitName.length > 1 ? fruitName.substring(1).toLowerCase() : '')
                 : fruitName;
-            print('🍎 Selected fruit: $selectedFruitTag (ID: $fruitId)');
-            print('🍎 Fruit data: ${fruit?['name']}, emoji_char: ${fruit?['emoji_char']}, code: ${fruit?['code']}');
           }
         });
-        _loadStories(refresh: true);
+        _storiesController.setFruitTag(fruitTag);
+        _refreshStories(refresh: true, silent: _storiesController.stories.isNotEmpty);
       },
       child: Container(
         width: ResponsiveHelper.isMobile(context) ? 70 : ResponsiveHelper.isTablet(context) ? 80 : 90,

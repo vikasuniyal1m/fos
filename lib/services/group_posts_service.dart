@@ -5,6 +5,28 @@ import 'api_service.dart';
 /// Group Posts Service
 /// Handles group posts, reactions, and community interactions
 class GroupPostsService {
+  /// Get posts from all groups the user belongs to (home feed)
+  static Future<List<Map<String, dynamic>>> getGroupPostsFeed({
+    required int userId,
+    int limit = 10,
+    int offset = 0,
+  }) async {
+    final response = await ApiService.get(
+      '${ApiConfig.groups}?action=posts-feed',
+      queryParameters: {
+        'user_id': userId.toString(),
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      },
+    );
+
+    if (response['success'] == true && response['data'] != null) {
+      return List<Map<String, dynamic>>.from(response['data']);
+    } else {
+      throw ApiException(response['message'] ?? 'Failed to fetch group posts feed');
+    }
+  }
+
   /// Get Group Posts
   /// 
   /// Parameters:
@@ -174,5 +196,22 @@ class GroupPostsService {
       throw ApiException(response['message'] ?? 'Failed to edit group post'); // edit feature
     } // edit feature
   } // edit feature
+
+  static Future<void> deleteGroupPost({
+    required int userId,
+    required int postId,
+  }) async {
+    final response = await ApiService.post(
+      '${ApiConfig.groups}?action=delete-post',
+      body: {
+        'user_id': userId.toString(),
+        'post_id': postId.toString(),
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete group post');
+    }
+  }
 }
 

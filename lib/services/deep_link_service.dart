@@ -1,4 +1,7 @@
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/shorts_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
+import 'package:fruitsofspirit/services/shorts_service.dart';
 import 'package:get/get.dart';
 import 'package:app_links/app_links.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
@@ -100,7 +103,7 @@ class DeepLinkService {
         }
       }
 
-      // 2. Handling path-based /share/ or /api/share/ formats
+      // 2. Handling path-based /share/ (fosmessenger.com or legacy admin URLs)
       if (path.contains('/share/')) {
         final segments = uri.pathSegments;
         final shareIndex = segments.indexOf('share');
@@ -187,7 +190,7 @@ class DeepLinkService {
         PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: id);
         break;
       case 'video':
-        PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: id);
+        VideosController.openVideoDetail(id);
         break;
       case 'story':
       case 'testimony':
@@ -200,17 +203,44 @@ class DeepLinkService {
       case 'group':
         PaymentGate.navigateToFeature(Routes.GROUP_DETAILS, arguments: id);
         break;
+      case 'short':
+      case 'shorts':
+        await _openShort(id);
+        break;
     }
   }
 
-  /// Generate deep link URL
-  static String generateLink(String type, {int? id}) {
-    final baseUrl = 'http://admin.fosmessenger.com';
-    if (id != null) {
-      // Using a direct file in api folder as requested
-      return '$baseUrl/api/share_redirect.php?type=${type.toLowerCase()}&id=$id';
+  static Future<void> _openShort(int shortId) async {
+    try {
+      final userId = await UserStorage.getUserId() ?? 0;
+      final short = await ShortsService.getShortDetails(
+        shortId,
+        currentUserId: userId > 0 ? userId : null,
+      );
+      if (Get.isRegistered<ShortsController>()) {
+        Get.find<ShortsController>().useCommunityFeed(seed: [short]);
+      }
+      await Get.toNamed(
+        Routes.SHORTS,
+        arguments: {
+          'mode': 'community',
+          'seed': [short],
+          'startIndex': 0,
+        },
+      );
+    } catch (_) {
+      await Get.toNamed(Routes.SHORTS);
     }
-    return '$baseUrl/${type.toLowerCase()}';
+  }
+
+  /// Public share link shown to users (clean URL, no /api/ path).
+  /// Deploy repo /share folder to fosmessenger.com public_html/share/
+  static String generateLink(String type, {int? id}) {
+    const baseUrl = 'https://fosmessenger.com/share';
+    if (id != null && id > 0) {
+      return '$baseUrl/${type.toLowerCase()}/$id';
+    }
+    return 'https://fosmessenger.com';
   }
 
   /// Generate custom scheme link (more reliable for app opening)

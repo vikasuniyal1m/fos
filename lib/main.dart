@@ -1,5 +1,9 @@
+import 'dart:async' show unawaited;
+
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+// import 'package:device_preview/device_preview.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:get/get.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -10,6 +14,7 @@ import 'package:fruitsofspirit/services/push_notification_service.dart';
 import 'package:fruitsofspirit/services/analytics_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/hive_cache_service.dart';
+import 'package:fruitsofspirit/services/banners_prefetch_service.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/utils/screen_size.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -28,8 +33,6 @@ import 'bindings/InitialBinding.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-
 
   // Force the app to stay in portrait mode.
   // Only the Intro Video Overlay is allowed to rotate.
@@ -53,6 +56,10 @@ void main() async {
       child: const MyApp(),
     ),
   );
+  // DevicePreview(
+  //   enabled: !kReleaseMode,
+  //   builder: (context) => EasyLocalization(...),
+  // ),
 }
 
 Future<void> _initializeDependencies() async {
@@ -71,6 +78,9 @@ Future<void> _initializeDependencies() async {
 
   // Initialize Hive Cache Service
   await HiveCacheService.init();
+
+  // Banners: await once before UI so hive has data for first home paint
+  await BannersPrefetchService.warmCache();
 
   // Stripe: set key only here; applySettings() runs after first frame so Android theme is applied
   // Stripe.publishableKey = ApiConfig.stripePublishableKey;
@@ -166,7 +176,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Refresh notifications when app comes to foreground
     try {
       final notificationsController = Get.find<NotificationsController>();
-      notificationsController.loadNotifications();
+      notificationsController.loadNotifications(refresh: true, silent: true);
+      notificationsController.loadUnreadCount();
     } catch (e) {
       // Controller not available, ignore
     }
@@ -209,7 +220,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     final isTablet = mediaQueryData.size.width >= 600;
 
     return ScreenUtilInit(
-      designSize: isTablet ? const Size(768, 1024) : const Size(375, 812),
+      designSize: isTablet ? const Size(768, 1024) : const Size(360, 800),
       minTextAdapt: true,
       splitScreenMode: true,
       builder: (context, _) {
@@ -221,19 +232,23 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         return GetMaterialApp(
           navigatorKey: Get.key, // CRITICAL: Explicitly set Get's global key
           title: 'Fruit of the Spirit',
+          useInheritedMediaQuery: true,
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
             visualDensity: VisualDensity.adaptivePlatformDensity,
-            platform: TargetPlatform.iOS,
+            platform: defaultTargetPlatform,
           ),
           initialBinding: InitialBinding(),
           localizationsDelegates: context.localizationDelegates,
           supportedLocales: context.supportedLocales,
           locale: context.locale,
+          // locale: DevicePreview.locale(context) ?? context.locale,
           initialRoute: Routes.SPLASH,
           getPages: AppPages.routes,
           debugShowCheckedModeBanner: false,
           builder: (context, child) {
+            // child = DevicePreview.appBuilder(context, child);
+            ScreenSize.init(context);
             return MediaQuery(
               data: MediaQuery.of(context).copyWith(
                 textScaleFactor: constrainedTextScaleFactor,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/controllers/home_controller.dart';
@@ -377,7 +378,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               width: double.infinity,
               height: ResponsiveHelper.buttonHeight(context, mobile: 52),
               child: ElevatedButton(
-                onPressed: (_isSubmitting || controller.isLoading.value)
+                onPressed: (_isSubmitting || controller.isCreatingGroup.value)
                     ? null
                     : () async {
                         // Validate form
@@ -406,39 +407,21 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                           );
 
                           if (success) {
-                            // Refresh home controller groups (silent update)
-                            try {
-                              if (Get.isRegistered<HomeController>()) {
-                                try {
-                                  final homeController = Get.find<HomeController>();
-                                  homeController.loadGroups();
-                                } catch (e) {
-                                  // HomeController not found - ignore
-                                }
-                              }
-                            } catch (e) {
-                              // HomeController not available - ignore
+                            if (Get.isRegistered<HomeController>()) {
+                              unawaited(
+                                Get.find<HomeController>().loadGroups(
+                                  silent: true,
+                                ),
+                              );
                             }
-                            
-                            // Show success message and navigate back
+
                             if (mounted) {
-                              // Show simple UI success message (not from server)
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (mounted) {
-                                  _showCustomSnackbar(
-                                    context,
-                                    'Group created successfully!',
-                                    isError: false
-                                  );
-                                }
-                              });
-                              
-                              // Wait a bit for snackbar to show, then navigate
-                              Future.delayed(const Duration(milliseconds: 1000), () async {
-                                if (mounted) {
-                                  Navigator.pop(context); // Use Flutter's built-in Navigator instead of Get.back()
-                                }
-                              });
+                              _showCustomSnackbar(
+                                context,
+                                'Group created successfully!',
+                                isError: false,
+                              );
+                              Navigator.pop(context);
                             }
                           } else {
                             // Show error message
@@ -470,7 +453,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
                   ),
                 ),
-                child: (_isSubmitting || controller.isLoading.value)
+                child: (_isSubmitting || controller.isCreatingGroup.value)
                     ? const CircularProgressIndicator(color: Colors.white)
                     : Text(
                         'Create Group',

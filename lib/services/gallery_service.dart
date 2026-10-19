@@ -1,10 +1,37 @@
 import 'dart:io';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:path_provider/path_provider.dart';
 import '../config/api_config.dart';
 import 'api_service.dart';
 
 /// Gallery Service
 /// Handles photo listing and uploading
 class GalleryService {
+  /// Normalize to JPEG before upload (fixes HEIC / no-extension cache paths).
+  static Future<File> preparePhotoForUpload(File file) async {
+    try {
+      if (!await file.exists()) return file;
+
+      final dir = await getTemporaryDirectory();
+      final target =
+          '${dir.path}/gallery_upload_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final result = await FlutterImageCompress.compressAndGetFile(
+        file.absolute.path,
+        target,
+        quality: 85,
+        minWidth: 1920,
+        minHeight: 1920,
+        format: CompressFormat.jpeg,
+      );
+      if (result != null) {
+        final out = File(result.path);
+        if (await out.exists()) return out;
+      }
+    } catch (e) {
+      print('Gallery image compress failed: $e');
+    }
+    return file;
+  }
   /// Get Gallery Photos
   ///
   /// Parameters:
@@ -107,10 +134,12 @@ class GalleryService {
     if (feelingTags != null && feelingTags.isNotEmpty) fields['feeling_tags'] = feelingTags;
     if (hashtags != null && hashtags.isNotEmpty) fields['hashtags'] = hashtags;
 
+    final uploadFile = await preparePhotoForUpload(photoFile);
+
     final response = await ApiService.postMultipart(
       ApiConfig.gallery,
       fields: fields,
-      files: {'photo': photoFile},
+      files: {'photo': uploadFile},
     );
 
     if (response['success'] == true && response['data'] != null) {
@@ -302,6 +331,42 @@ class GalleryService {
       return response;
     } else {
       throw ApiException(response['message'] ?? 'Failed to edit comment');
+    }
+  }
+
+  static Future<void> deletePhoto({
+    required int userId,
+    required int mediaId,
+  }) async {
+    final response = await ApiService.post(
+      ApiConfig.gallery,
+      body: {
+        'action': 'delete',
+        'user_id': userId.toString(),
+        'media_id': mediaId.toString(),
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete photo');
+    }
+  }
+
+  static Future<void> deleteComment({
+    required int userId,
+    required int commentId,
+  }) async {
+    final response = await ApiService.post(
+      ApiConfig.gallery,
+      body: {
+        'action': 'delete-comment',
+        'user_id': userId.toString(),
+        'comment_id': commentId.toString(),
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete comment');
     }
   }
 }

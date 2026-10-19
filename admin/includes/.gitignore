@@ -1,0 +1,5 @@
+# Stripe keys - never commit
+stripe_env.php
+
+# Agora keys (if you use agora_env.php)
+agora_env.php

@@ -78,7 +78,10 @@ class CommentsService {
     );
 
     if (response['success'] == true && response['data'] != null) {
-      final commentId = response['data']['id'] as int;
+      final rawId = response['data']['id'];
+      final commentId = rawId is int
+          ? rawId
+          : int.tryParse(rawId?.toString() ?? '') ?? 0;
       final isReply = response['data']['is_reply'] == true;
       print('✅ ${isReply ? "Reply" : "Comment"} created: ID=$commentId');
       print('📊 📋 TABLE: comments - Entry saved successfully!');
@@ -269,5 +272,24 @@ class CommentsService {
       throw ApiException('Failed to edit comment: $e'); // edit feature
     } // edit feature
   } // edit feature
+
+  static Future<void> deleteComment({
+    required int userId,
+    required int commentId,
+    required String postType,
+  }) async {
+    final response = await ApiService.post(
+      '${ApiConfig.comments}?action=delete',
+      body: {
+        'user_id': userId.toString(),
+        'comment_id': commentId.toString(),
+        'post_type': postType,
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete comment');
+    }
+  }
 }
 

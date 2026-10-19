@@ -172,5 +172,23 @@ class PrayersService {
       throw ApiException(response['message'] ?? 'Failed to edit prayer'); // edit feature
     } // edit feature
   } // edit feature
+
+  static Future<void> deletePrayer({
+    required int userId,
+    required int prayerId,
+  }) async {
+    final response = await ApiService.post(
+      ApiConfig.prayers,
+      body: {
+        'action': 'delete',
+        'user_id': userId.toString(),
+        'prayer_id': prayerId.toString(),
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete prayer');
+    }
+  }
 }
 

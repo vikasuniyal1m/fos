@@ -86,7 +86,9 @@ class NotificationsService {
     );
 
     if (response['success'] == true && response['data'] != null) {
-      return response['data']['unread_count'] as int;
+      final raw = response['data']['unread_count'];
+      if (raw is int) return raw;
+      return int.tryParse(raw?.toString() ?? '') ?? 0;
     } else {
       throw ApiException(response['message'] ?? 'Failed to fetch unread count');
     }

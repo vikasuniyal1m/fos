@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
@@ -21,6 +23,7 @@ import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/report_utils.dart';
 import 'package:fruitsofspirit/utils/sticker_emoji_helper.dart';
 import 'package:fruitsofspirit/utils/time_helper.dart';
+import 'package:fruitsofspirit/utils/content_delete_helper.dart';
 
 import 'home_screen.dart';
 
@@ -198,6 +201,17 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    final prayerId = Get.arguments as int? ?? 0;
+    if (prayerId > 0) {
+      final selectedId = controller.selectedPrayer['id'];
+      final alreadyPrepared = controller.selectedPrayer.isNotEmpty &&
+          (selectedId == prayerId || int.tryParse('$selectedId') == prayerId);
+      if (alreadyPrepared) {
+        unawaited(controller.loadPrayerDetails(prayerId, silent: true));
+      } else {
+        unawaited(controller.preparePrayerDetails(prayerId));
+      }
+    }
     _loadCurrentUserId();
     _loadUserEmail();
   }
@@ -601,6 +615,79 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
     } // edit feature
   } // edit feature
 
+  Future<void> _deletePost(int prayerId) async {
+    if (currentUserId == null || currentUserId == 0) {
+      Get.snackbar('Error', 'Please login first', backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'prayer');
+    if (!confirmed) return;
+
+    final success = await controller.deletePrayer(prayerId);
+    if (!mounted) return;
+    if (success) {
+      Get.back();
+      Get.snackbar(
+        'Success',
+        'Prayer deleted successfully',
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+    } else {
+      Get.snackbar(
+        'Error',
+        controller.message.value.replaceAll('Exception: ', ''),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  int _parseCommentId(Map<String, dynamic> comment) {
+    final id = comment['id'];
+    if (id is int) return id;
+    if (id is String) return int.tryParse(id) ?? 0;
+    return 0;
+  }
+
+  Future<void> _deleteComment(int commentId, int prayerId) async {
+    if (currentUserId == null || currentUserId == 0 || commentId <= 0) return;
+
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'comment');
+    if (!confirmed) return;
+
+    final success = await controller.deletePrayerComment(prayerId, commentId);
+    if (!mounted) return;
+
+    if (success) {
+      setState(() {});
+      Get.snackbar('Success', 'Comment deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } else {
+      Get.snackbar(
+        'Error',
+        controller.message.value.replaceAll('Exception: ', ''),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  Widget _buildDeleteCommentButton(Map<String, dynamic> comment, int prayerId) {
+    if (!ContentDeleteHelper.isOwner(currentUserId, comment['user_id'])) {
+      return const SizedBox.shrink();
+    }
+    final commentId = _parseCommentId(comment);
+    if (commentId <= 0) return const SizedBox.shrink();
+
+    return Padding(
+      padding: EdgeInsets.only(left: ResponsiveHelper.spacing(context, 16)),
+      child: ContentDeleteHelper.buildDeleteAction(
+        onTap: () => _deleteComment(commentId, prayerId),
+      ),
+    );
+  }
+
   // edit feature: Edit prayer method
   Future<void> _editPost(int prayerId) async { // edit feature
     final content = postEditContentController.text.trim(); // edit feature
@@ -705,7 +792,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
   ImageProvider? _getImageProvider(String? photoUrl) {
     if (photoUrl == null || photoUrl.isEmpty) return null;
     
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'https://admin.fosmessenger.com/';
     String fixedUrl = photoUrl.trim();
     
     print('🔍 _getImageProvider: Original URL = "$fixedUrl"');
@@ -778,17 +865,6 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final prayerId = Get.arguments as int? ?? 0;
-    
-    // Load prayer details if not already loaded
-    if (prayerId > 0 && (controller.selectedPrayer.isEmpty || controller.selectedPrayer['id'] != prayerId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadPrayerDetails(prayerId);
-        controller.loadAvailableEmojis();
-        controller.loadQuickEmojis();
-      });
-    }
-
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: StandardAppBar(
@@ -901,7 +977,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
           } else if (!photoPath.startsWith('assets/') && 
               !photoPath.startsWith('file://') &&
               !photoPath.startsWith('assets/images/')) {
-            profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+            profilePhotoUrl = 'https://admin.fosmessenger.com/$photoPath';
           }
         }
 
@@ -909,14 +985,21 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
         
         return Column(
           children: [
+            if (controller.isDetailsSilentSyncing.value)
+              const LinearProgressIndicator(
+                minHeight: 2,
+                color: Color(0xFF8B4513),
+                backgroundColor: Colors.transparent,
+              ),
             // Prayer Content Section
             Expanded(
               child: RefreshIndicator(
                 onRefresh: () async {
-                  print('🔄 Pull-to-refresh triggered');
-                  // Reload prayer details (this also reloads comments automatically)
-                  await controller.loadPrayerDetails(prayerId);
-                  print('✅ Refresh completed');
+                  await controller.loadPrayerDetails(
+                    prayerId,
+                    silent: false,
+                    force: true,
+                  );
                 },
                               color: AppTheme.iconscolor,
                 backgroundColor: Colors.white,
@@ -1000,19 +1083,11 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                     ],
                                   ),
                                 ),
-                                // Three-dot menu - Exact match
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.more_vert,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
-                                    color: AppTheme.iconscolor,
+                                if (ContentDeleteHelper.isOwner(currentUserId, prayer['user_id']))
+                                  ContentDeleteHelper.buildDeleteIconButton(
+                                    onTap: () => _deletePost(prayer['id'] as int),
+                                    iconSize: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20, desktop: 22),
                                   ),
-                                  onPressed: () {
-                                    // Menu options can be added here
-                                  },
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
                               ],
                             ),
                           ),
@@ -1513,20 +1588,17 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
       
       if (success) {
         commentController.clear();
-        
-        // Reload comments to show new comment
-        await controller.loadPrayerDetails(prayerId);
-        
-        // Scroll to bottom to show latest comment
-        await Future.delayed(const Duration(milliseconds: 300));
-        if (scrollController.hasClients) {
-          scrollController.animateTo(
-            scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeOut,
-          );
-        }
-        
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (scrollController.hasClients) {
+            scrollController.animateTo(
+              scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+
         _showCustomSnackbar(
           context,
           'Success',
@@ -1572,13 +1644,9 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
         replyController.clear();
         setState(() {
           showReplyInput[parentCommentId] = false;
-          // Auto-expand parent to show the new reply
           expandedReplies.add(parentCommentId);
         });
 
-        // Force reload comments to show the new reply
-        await controller.loadPrayerComments(prayerId);
-        
         _showCustomSnackbar(
           context,
           'Success',
@@ -1621,7 +1689,8 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
     final timeAgo = TimeHelper.getTimeAgo(comment['created_at'] as String?);
       print('🕰️ Comment duration debug: comment_id=${comment['id']}, created_at=${comment['created_at']}, timeAgo="$timeAgo"'); // debug
     final profilePhoto = comment['profile_photo'] as String?;
-    final commentId = comment['id'] as int;
+    final commentId = _parseCommentId(comment);
+    if (commentId <= 0) return const SizedBox.shrink();
     String? profilePhotoUrl;
     
     if (profilePhoto != null && profilePhoto.toString().isNotEmpty) {
@@ -1632,7 +1701,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
       } else if (!photoPath.startsWith('assets/') && 
           !photoPath.startsWith('file://') &&
           !photoPath.startsWith('assets/images/')) {
-        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+        profilePhotoUrl = 'https://admin.fosmessenger.com/$photoPath';
       }
     }
     
@@ -1772,12 +1841,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                         // Like Button
                         InkWell(
                           onTap: () async {
-                            final success = await controller.toggleCommentLike(commentId);
-                            if (success) {
-                              // Reload comments to get updated like status
-                              await controller.loadPrayerComments(prayerId);
-                              setState(() {}); // Refresh UI
-                            }
+                            await controller.toggleCommentLike(commentId);
                           },
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -1853,6 +1917,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
                         // edit feature: Edit Button - Show for all comments within 15 minutes
                         _buildEditButton(context, comment, prayerId), // edit feature
+                        _buildDeleteCommentButton(comment, prayerId),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
                         // Report Button - Only show for other users' comments
                         if (currentUserId != null && (comment['user_id'] as int? ?? 0) != currentUserId)
@@ -2442,7 +2507,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                 if (!photoPath.startsWith('assets/') && 
                                     !photoPath.startsWith('file://') &&
                                     !photoPath.startsWith('assets/images/')) {
-                                  profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+                                  profilePhotoUrl = 'https://admin.fosmessenger.com/$photoPath';
                                 }
                               }
                               
@@ -2739,7 +2804,8 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
     
     final timeAgo = TimeHelper.getTimeAgo(reply['created_at'] as String?);
     final profilePhoto = reply['profile_photo'] as String?;
-    final replyId = reply['id'] as int;
+    final replyId = _parseCommentId(reply);
+    if (replyId <= 0) return const SizedBox.shrink();
     String? profilePhotoUrl;
     
     if (profilePhoto != null && profilePhoto.toString().isNotEmpty) {
@@ -2750,7 +2816,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
       } else if (!photoPath.startsWith('assets/') && 
           !photoPath.startsWith('file://') &&
           !photoPath.startsWith('assets/images/')) {
-        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+        profilePhotoUrl = 'https://admin.fosmessenger.com/$photoPath';
       }
     }
     
@@ -2901,12 +2967,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                                     // Like Button for Reply
                                     InkWell(
                                       onTap: () async {
-                                        final success = await controller.toggleCommentLike(replyId);
-                                        if (success) {
-                                          // Reload comments to get updated like status
-                                          await controller.loadPrayerComments(prayerId);
-                                          setState(() {}); // Refresh UI
-                                        }
+                                        await controller.toggleCommentLike(replyId);
                                       },
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -3238,7 +3299,7 @@ class _PrayerDetailsScreenState extends State<PrayerDetailsScreen> {
                       if (!photoPath.startsWith('assets/') && 
                           !photoPath.startsWith('file://') &&
                           !photoPath.startsWith('assets/images/')) {
-                        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+                        profilePhotoUrl = 'https://admin.fosmessenger.com/$photoPath';
                       }
                     }
                     

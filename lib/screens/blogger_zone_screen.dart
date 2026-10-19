@@ -5,6 +5,7 @@ import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/utils/time_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/widgets/blog_media_widget.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
@@ -12,8 +13,11 @@ import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
+import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/utils/role_access_helper.dart';
+import 'package:fruitsofspirit/utils/content_delete_helper.dart';
 
 /// Blogger Zone Screen - Social Media Style
 /// Professional, attractive UI with like, comment, and question functionality
@@ -33,15 +37,184 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
   void initState() {
     super.initState();
     controller = Get.find<BlogsController>();
-    
-    // Load user data and check access
-    _loadUserDataAndCheckAccess();
-    
-    // Refresh user data from server to get latest role/status
-    controller.refreshUserData();
-    
-    // Start periodic sync to check for role updates
+    controller.loadFromHiveIfEmpty();
+    controller.bootstrapBlogs();
+    _loadLocalUser();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_applyProfileNavigationArgs()) return;
+      _scheduleListSync();
+    });
+    unawaited(_refreshAccessInBackground());
     _startRoleSyncTimer();
+  }
+
+  bool _applyProfileNavigationArgs() {
+    final args = Get.arguments;
+    if (args is! Map || args['fromProfile'] != true) return false;
+
+    final rawUserId = args['filterUserId'];
+    final filterUserId = rawUserId is int
+        ? rawUserId
+        : int.tryParse('$rawUserId') ?? 0;
+    if (filterUserId <= 0) return false;
+
+    if (controller.filterUserId.value != filterUserId) {
+      controller.filterUserId.value = filterUserId;
+    }
+    controller.reapplyFilter();
+    unawaited(
+      controller.loadBlogs(
+        refresh: true,
+        silent: controller.blogs.isNotEmpty,
+      ),
+    );
+    return true;
+  }
+
+  Future<void> _loadLocalUser() async {
+    final localUser = await UserStorage.getUser();
+    if (!mounted) return;
+    setState(() {
+      _userData = localUser;
+      _isLoadingUserData = false;
+    });
+    if (localUser != null) {
+      _configureBlogFilter(localUser);
+    }
+  }
+
+  Future<void> _refreshAccessInBackground() async {
+    try {
+      final userData = await RoleAccessHelper.getCurrentUserData();
+      if (!mounted) return;
+
+      setState(() {
+        _userData = userData ?? _userData;
+        _isLoadingUserData = false;
+      });
+
+      if (!(await RoleAccessHelper.canAccessBloggerZone())) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showAccessDeniedDialog();
+        });
+        return;
+      }
+
+      _configureBlogFilter(_userData);
+      unawaited(controller.refreshUserData());
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingUserData = false);
+    }
+  }
+
+  void _scheduleListSync() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      final pendingFilter = _userData != null &&
+          RoleAccessHelper.isPendingBlogger(_userData) &&
+          controller.userId.value > 0;
+
+      if (pendingFilter && controller.filterUserId.value != controller.userId.value) {
+        controller.filterUserId.value = controller.userId.value;
+        controller.loadBlogs(
+          refresh: true,
+          silent: controller.blogs.isNotEmpty,
+        );
+        return;
+      }
+
+      if (!pendingFilter && controller.filterUserId.value != 0) {
+        controller.filterUserId.value = 0;
+        if (controller.blogs.isEmpty) {
+          controller.loadBlogs(refresh: false);
+        } else {
+          controller.loadBlogs(refresh: true, silent: true);
+        }
+      }
+    });
+  }
+
+  void _configureBlogFilter(Map<String, dynamic>? userData) {
+    if (_applyProfileNavigationArgs()) return;
+
+    if (userData == null) {
+      controller.filterUserId.value = 0;
+      return;
+    }
+    if (RoleAccessHelper.isPendingBlogger(userData)) {
+      controller.filterUserId.value = controller.userId.value;
+    } else {
+      controller.filterUserId.value = 0;
+    }
+    controller.reapplyFilter();
+  }
+
+  Widget _buildBlogList(BuildContext context) {
+    return Obx(() {
+      if (controller.isLoading.value && controller.blogs.isEmpty) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: AppTheme.iconscolor),
+              SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+              Text(
+                'Loading blogs...',
+                style: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
+      if (controller.blogs.isEmpty) {
+        return const SizedBox.shrink();
+      }
+
+      return RefreshIndicator(
+        onRefresh: () => controller.refresh(),
+        color: AppTheme.iconscolor,
+        backgroundColor: Colors.white,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (scrollInfo) {
+            if (scrollInfo is ScrollEndNotification &&
+                controller.hasMore.value &&
+                !controller.isLoading.value) {
+              if (scrollInfo.metrics.pixels >=
+                  scrollInfo.metrics.maxScrollExtent - 200) {
+                controller.loadMore();
+              }
+            }
+            return false;
+          },
+          child: ListView.builder(
+            padding: ResponsiveHelper.padding(context, vertical: 12),
+            cacheExtent: 800,
+            physics: const AlwaysScrollableScrollPhysics(),
+            itemCount: controller.blogs.length +
+                (controller.isLoading.value && controller.hasMore.value ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index >= controller.blogs.length) {
+                return Padding(
+                  padding: ResponsiveHelper.padding(context, all: 16),
+                  child: const Center(
+                    child: CircularProgressIndicator(color: AppTheme.iconscolor),
+                  ),
+                );
+              }
+              final blog = controller.blogs[index];
+              return _buildSocialMediaBlogCard(context, blog, controller);
+            },
+          ),
+        ),
+      );
+    });
   }
 
   Timer? _roleSyncTimer;
@@ -79,9 +252,8 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
           
           // Refresh controller data
           controller.refreshUserData();
-          
-          // Reload blogs with new permissions
-          _loadBlogsBasedOnRole();
+          _configureBlogFilter(freshUserData);
+          unawaited(controller.loadBlogs(refresh: true, silent: true));
           
           // Show success message
           _showCustomSnackbar(
@@ -107,74 +279,6 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
   void dispose() {
     _roleSyncTimer?.cancel();
     super.dispose();
-  }
-
-  Future<void> _loadUserDataAndCheckAccess() async {
-    setState(() {
-      _isLoadingUserData = true;
-    });
-    
-    try {
-      final userData = await RoleAccessHelper.getCurrentUserData();
-      setState(() {
-        _userData = userData;
-        _isLoadingUserData = false;
-      });
-      
-      // Check if user can access blogger zone
-      if (!(await RoleAccessHelper.canAccessBloggerZone())) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _showAccessDeniedDialog();
-          }
-        });
-      } else {
-        // User can access blogger zone (both approved and pending bloggers reach here)
-        _loadBlogsBasedOnRole();
-      }
-    } catch (e) {
-      setState(() {
-        _isLoadingUserData = false;
-      });
-    }
-  }
-
-  void _loadBlogsBasedOnRole() {
-    // Load blogs based on user role if not already loading
-    if (controller.blogs.isEmpty && !controller.isLoading.value) {
-      // Set filter based on user role
-      if (_userData != null) {
-        final isPendingBlogger = RoleAccessHelper.isPendingBlogger(_userData);
-        final isBlogger = RoleAccessHelper.isActiveBlogger(_userData);
-        
-        print('🔍 DEBUG: User role check - isPendingBlogger: $isPendingBlogger, isBlogger: $isBlogger');
-        print('🔍 DEBUG: User data: ${_userData}');
-        print('🔍 DEBUG: Controller userId: ${controller.userId.value}');
-        
-        if (isPendingBlogger) {
-          // For pending bloggers, show their own posts (pending + approved)
-          controller.filterUserId.value = controller.userId.value;
-          print('🔍 DEBUG: Setting filterUserId to ${controller.userId.value} (pending blogger)');
-        } else if (isBlogger) {
-          // For approved bloggers, show all approved posts  
-          controller.filterUserId.value = 0;
-          print('🔍 DEBUG: Setting filterUserId to 0 (approved blogger - show all posts)');
-        } else {
-          // For regular users, shouldn't reach here but set to 0
-          controller.filterUserId.value = 0;
-          print('🔍 DEBUG: Setting filterUserId to 0 (regular user fallback)');
-        }
-      } else {
-        controller.filterUserId.value = 0;
-        print('🔍 DEBUG: User data is null, setting filterUserId to 0');
-      }
-      
-      print('🔍 DEBUG: About to call loadBlogs with filterUserId: ${controller.filterUserId.value}');
-      controller.loadBlogs(refresh: true);
-    } else {
-      print('🔍 DEBUG: Not loading blogs - blogs.isEmpty: ${controller.blogs.isEmpty}, isLoading: ${controller.isLoading.value}');
-      print('🔍 DEBUG: Current blogs count: ${controller.blogs.length}');
-    }
   }
 
   void _showAccessDeniedDialog() {
@@ -481,6 +585,8 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _scheduleListSync();
+
     return Scaffold(
         backgroundColor: Colors.white,
       appBar: AppBar(
@@ -619,19 +725,101 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
     );
   }
 
+  int _parseBlogId(Map<String, dynamic> blog) {
+    final id = blog['id'];
+    if (id is int) return id;
+    return int.tryParse(id?.toString() ?? '') ?? 0;
+  }
+
+  Future<void> _deleteBlogFromList(BuildContext context, Map<String, dynamic> blog) async {
+    final blogId = _parseBlogId(blog);
+    if (blogId <= 0) return;
+
+    final ownerId = controller.userId.value > 0
+        ? controller.userId.value
+        : (_userData?['id'] is int
+            ? _userData!['id'] as int
+            : int.tryParse(_userData?['id']?.toString() ?? ''));
+
+    if (!ContentDeleteHelper.isOwner(ownerId, blog['user_id'])) return;
+
+    FocusScope.of(context).unfocus();
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'post');
+    if (!confirmed || !mounted) return;
+
+    final success = await controller.deleteBlog(blogId);
+    if (!mounted) return;
+
+    if (success) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Post deleted successfully'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(controller.message.value.replaceAll('Exception: ', '')),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Widget _buildBlogCardMenu(
+    BuildContext context,
+    Map<String, dynamic> blog,
+    BlogsController controller,
+  ) {
+    final ownerId = controller.userId.value > 0
+        ? controller.userId.value
+        : (_userData?['id'] is int
+            ? _userData!['id'] as int
+            : int.tryParse(_userData?['id']?.toString() ?? ''));
+    final isOwner = ContentDeleteHelper.isOwner(ownerId, blog['user_id']);
+
+    if (isOwner) {
+      return PopupMenuButton<String>(
+        icon: Icon(Icons.more_vert, size: 20, color: AppTheme.iconscolor),
+        padding: EdgeInsets.zero,
+        onSelected: (value) {
+          if (value == 'delete') {
+            _deleteBlogFromList(context, blog);
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'delete',
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                SizedBox(width: 8),
+                Text('Delete', style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return IconButton(
+      icon: Icon(Icons.more_vert, size: 20, color: AppTheme.iconscolor),
+      onPressed: () {
+        HomeScreen.navigateToBlogDetail(context, _parseBlogId(blog));
+      },
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+    );
+  }
+
   /// Social Media Style Blog Card - Same as home page
   Widget _buildSocialMediaBlogCard(BuildContext context, Map<String, dynamic> blog, BlogsController controller) {
-    final baseUrl = 'http://admin.fosmessenger.com/';
-    final imagePath = blog['image_url'] as String?;
-    String? imageUrl;
-    if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
-      if (imagePath.toString().startsWith('http')) {
-        imageUrl = imagePath.toString();
-      } else {
-        final cleanPath = imagePath.toString().startsWith('/') ? imagePath.toString().substring(1) : imagePath.toString();
-        imageUrl = '$baseUrl$cleanPath';
-      }
-    }
+    const baseUrl = 'https://admin.fosmessenger.com/';
+    final imageUrl = ImageHelper.resolveBlogImageUrl(blog);
     final title = AutoTranslateHelper.getTranslatedTextSync(
       text: blog['title'] ?? 'Untitled',
       sourceLanguage: blog['language'] as String?,
@@ -651,7 +839,12 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
     }
 
     return InkWell(
-      onTap: () => PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']),
+      onTap: () => HomeScreen.navigateToBlogDetail(
+        context,
+        blog['id'] is int
+            ? blog['id'] as int
+            : int.tryParse(blog['id'].toString()) ?? 0,
+      ),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 16)),
@@ -737,19 +930,8 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
                       ],
                     ),
                   ),
-                  // Three-dot menu
-                  IconButton(
-                    icon: Icon(
-                      Icons.more_vert,
-                      size: 20,
-                      color: AppTheme.iconscolor,
-                    ),
-                    onPressed: () {
-                      PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
-                    },
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
+                  // Options menu — delete own posts
+                  _buildBlogCardMenu(context, blog, controller),
                 ],
               ),
             ),
@@ -763,36 +945,19 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            // Photo at Bottom (if available) - Properly resized
+            // Media at Bottom (if available) - card cover style
             if (imageUrl != null && imageUrl.isNotEmpty)
               ClipRRect(
                 borderRadius: const BorderRadius.vertical(
                   bottom: Radius.circular(12),
                 ),
-                child: CachedImage(
-                  imageUrl: imageUrl,
+                child: BlogMediaWidget(
+                  mediaUrl: imageUrl,
+                  isVideo: ImageHelper.isVideoUrl(imageUrl),
                   width: double.infinity,
                   height: ResponsiveHelper.imageHeight(context, mobile: 220, tablet: 250, desktop: 280),
                   fit: BoxFit.cover,
-                  errorWidget: Container(
-                    width: double.infinity,
-                    height: ResponsiveHelper.imageHeight(context, mobile: 220, tablet: 250, desktop: 280),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.article_rounded,
-                      size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                      color: AppTheme.iconscolor,
-                    ),
-                  ),
+                  previewMode: true,
                 ),
               ),
             // Bottom Actions - Left: Likes count, Right: Comments count
@@ -1241,8 +1406,7 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
   }
 
   Widget _buildBody(BuildContext context) {
-    // Use our new role-based access control
-    if (_isLoadingUserData) {
+    if (_isLoadingUserData && controller.blogs.isEmpty) {
       return const Center(
         child: CircularProgressIndicator(color: AppTheme.iconscolor),
       );
@@ -1251,161 +1415,83 @@ class _BloggerZoneScreenState extends State<BloggerZoneScreen> {
     final isBlogger = RoleAccessHelper.isActiveBlogger(_userData);
     final isPendingBlogger = RoleAccessHelper.isPendingBlogger(_userData);
     final isRegularUser = RoleAccessHelper.isRegularUser(_userData);
-    
-    print('🔍 [BloggerZone] _buildBody role detection:');
-    print('  - _userData: $_userData');
-    print('  - isBlogger: $isBlogger');
-    print('  - isPendingBlogger: $isPendingBlogger');
-    print('  - isRegularUser: $isRegularUser');
-    print('  - controller.userRole: ${controller.userRole.value}');
-    print('  - controller.blogs.length: ${controller.blogs.length}');
-    print('  - controller.isLoading.value: ${controller.isLoading.value}');
-    
-    // Try to show something regardless of role detection
-    if (controller.blogs.isNotEmpty) {
-      print('🔍 [BloggerZone] Blogs are loaded, showing them regardless of role');
-      return Obx(() {
-        return RefreshIndicator(
-          onRefresh: () => controller.loadBlogs(refresh: true),
-          color: AppTheme.iconscolor,
-          backgroundColor: Colors.white,
-          child: ListView.builder(
-            padding: ResponsiveHelper.padding(context, vertical: 12),
-            itemCount: controller.blogs.length,
-            itemBuilder: (context, index) {
-              final blog = controller.blogs[index];
-              return _buildSocialMediaBlogCard(context, blog, controller);
-            },
-          ),
-        );
-      });
-    }
 
-    // If user is a regular user, show access denied view
     if (isRegularUser) {
       return _buildNonBloggerView(context);
     }
 
-    // If user is a pending blogger, show their pending posts but restrict blog creation
-    if (isPendingBlogger) {
-      return Obx(() {
-        if (controller.isLoading.value && controller.blogs.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-              strokeWidth: ResponsiveHelper.spacing(context, 3),
-            ),
-          );
-        }
+    return Obx(() {
+      if (controller.isLoading.value && controller.blogs.isEmpty) {
+        return const Center(
+          child: CircularProgressIndicator(color: AppTheme.iconscolor),
+        );
+      }
 
-        if (controller.blogs.isEmpty) {
-          return _buildPendingBloggerEmptyView(context);
-        }
+      if (controller.blogs.isEmpty) {
+        if (isPendingBlogger) return _buildPendingBloggerEmptyView(context);
+        if (isBlogger) return _buildEmptyState(context);
+        return const SizedBox.shrink();
+      }
 
+      if (isPendingBlogger) {
         return Column(
           children: [
-            // Pending status message
-            Container(
-              width: double.infinity,
-              margin: ResponsiveHelper.padding(context, all: 16),
-              padding: ResponsiveHelper.padding(context, all: 16),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
-                border: Border.all(color: Colors.orange.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.hourglass_top_rounded,
-                    color: Colors.orange,
-                    size: ResponsiveHelper.iconSize(context, mobile: 24),
-                  ),
-                  SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Blogger Request Pending',
-                          style: ResponsiveHelper.textStyle(
-                            context,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange,
-                          ),
-                        ),
-                        SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                        Text(
-                          'Your posts are waiting for admin approval. You can view posts but cannot create new ones until approved.',
-                          style: ResponsiveHelper.textStyle(
-                            context,
-                            fontSize: 14,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            // Blog list
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: () => controller.loadBlogs(refresh: true),
-                color: AppTheme.iconscolor,
-                backgroundColor: Colors.white,
-                child: ListView.builder(
-                  padding: ResponsiveHelper.padding(context, vertical: 12),
-                  itemCount: controller.blogs.length,
-                  itemBuilder: (context, index) {
-                    final blog = controller.blogs[index];
-                    return _buildSocialMediaBlogCard(context, blog, controller);
-                  },
-                ),
-              ),
-            ),
+            _buildPendingBanner(context),
+            Expanded(child: _buildBlogList(context)),
           ],
         );
-      });
-    }
+      }
 
-    // Show blog list for approved bloggers - use Obx only where needed
-    if (isBlogger) {
-      return Obx(() {
-        if (controller.isLoading.value && controller.blogs.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-              strokeWidth: ResponsiveHelper.spacing(context, 3),
-            ),
-          );
-        }
+      return _buildBlogList(context);
+    });
+  }
 
-        if (controller.blogs.isEmpty) {
-          return _buildEmptyState(context);
-        }
-
-        return RefreshIndicator(
-          onRefresh: () => controller.loadBlogs(refresh: true),
-          color: AppTheme.iconscolor,
-          backgroundColor: Colors.white,
-          child: ListView.builder(
-            padding: ResponsiveHelper.padding(context, vertical: 12),
-            itemCount: controller.blogs.length,
-            itemBuilder: (context, index) {
-              final blog = controller.blogs[index];
-              return _buildSocialMediaBlogCard(context, blog, controller);
-            },
+  Widget _buildPendingBanner(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: ResponsiveHelper.padding(context, all: 16),
+      padding: ResponsiveHelper.padding(context, all: 16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.hourglass_top_rounded,
+            color: Colors.orange,
+            size: ResponsiveHelper.iconSize(context, mobile: 24),
           ),
-        );
-      });
-    }
-
-    // Default case, should ideally not be reached if all roles are handled
-    return const SizedBox.shrink();
+          SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Blogger Request Pending',
+                  style: ResponsiveHelper.textStyle(
+                    context,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                  ),
+                ),
+                SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                Text(
+                  'Your posts are waiting for admin approval. You can view posts but cannot create new ones until approved.',
+                  style: ResponsiveHelper.textStyle(
+                    context,
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
 Widget _buildPendingBloggerEmptyView(BuildContext context) {

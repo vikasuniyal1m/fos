@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
@@ -303,15 +305,13 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
       }
       category = customPrayerTypeController.text.trim();
 
-      // Save custom prayer type to backend
-      try {
-        final userId = await UserStorage.getUserId();
-        if (userId != null) {
-          await PrayerTypesService.addPrayerType(typeName: category, userId: userId);
-        }
-      } catch (e) {
-        print('Error saving custom prayer type: $e');
-        // Continue with submission even if saving type fails
+      // Save custom type in background — don't block submit
+      final typeUserId = await UserStorage.getUserId();
+      if (typeUserId != null) {
+        unawaited(
+          PrayerTypesService.addPrayerType(typeName: category, userId: typeUserId)
+              .catchError((e) => print('Error saving custom prayer type: $e')),
+        );
       }
     }
     
@@ -349,42 +349,23 @@ class _CreatePrayerScreenState extends State<CreatePrayerScreen> {
     }
 
     if (success) {
-      // Show success message with professional text
       _showCustomSnackbar(
         'Request Submitted',
-        'Your prayer request has been submitted successfully.'
+        'Your prayer request has been submitted successfully.',
       );
 
-      // Navigate to prayer requests screen and refresh
-      // Reset filter to show all prayers
       prayersController.filterUserId.value = 0;
       prayersController.selectedCategory.value = '';
 
-             // Force refresh (fire and forget)
-      Future.delayed(const Duration(milliseconds: 100), () {
-        try {
-            if (Get.isRegistered<PrayersController>()) {
-                Get.find<PrayersController>().loadPrayers(refresh: true);
-            }
-        } catch (e) {
-            print('Error refreshing prayers: $e');
-        }
-      });
-        
-          // Update Dashboard Tab Logic if available
       if (Get.isRegistered<MainDashboardController>()) {
         try {
-          Get.find<MainDashboardController>().changeIndex(2); // Switch to Prayer Requests tab
+          Get.find<MainDashboardController>().changeIndex(2);
         } catch (e) {
           print('Error changing dashboard index: $e');
         }
       }
-      
-      // Wait briefly for snackbar
-      await Future.delayed(const Duration(milliseconds: 1500));
-      
-      // STRONG NAVIGATION: Clear stack until Dashboard
-      // This is the most reliable way to "go back" to a main tab
+
+      await Future.delayed(const Duration(milliseconds: 350));
       Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
     } else {
       // Show error message

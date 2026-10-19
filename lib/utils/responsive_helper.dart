@@ -13,9 +13,35 @@ class ResponsiveHelper {
   static const double largeTabletBreakpoint = 1200.0;  // 900-1200px = Large Tablet (iPad Pro)
   static const double desktopBreakpoint = 1200.0;  // Above 1200px = Desktop
 
-  // Base screen dimensions (iPhone 12 Pro / Common Android device)
-  static const double baseWidth = 390.0;
-  static const double baseHeight = 844.0;
+  // Reference device: OnePlus CPH2707 (~363×800 logical) — UI tuned here = scale 1.0
+  static const double baseWidth = 360.0;
+  static const double baseHeight = 800.0;
+
+  /// Small phones (iPhone SE, compact Android) — width under 340dp
+  static bool isSmallPhone(BuildContext context) {
+    return isMobile(context) && screenWidth(context) < 340;
+  }
+
+  /// Large phones (Pro Max, big Android) — width 400dp+
+  static bool isLargePhone(BuildContext context) {
+    return isMobile(context) && screenWidth(context) >= 400;
+  }
+
+  /// Unified scale: 1.0 on reference phone, smaller on tiny screens, larger on tablets.
+  static double deviceScale(BuildContext context) {
+    if (isDesktop(context)) return 1.35;
+    if (isLargeTablet(context)) return 1.28;
+    if (isTablet(context)) return 1.15;
+
+    final info = getScreenInfo(context);
+    final scaleW = info['scaleWidth']!;
+    final scaleH = info['scaleHeight']!;
+    final scale = scaleW < scaleH ? scaleW : scaleH;
+
+    if (isSmallPhone(context)) return scale.clamp(0.82, 0.94);
+    if (isLargePhone(context)) return scale.clamp(1.0, 1.12);
+    return scale.clamp(0.92, 1.08);
+  }
 
   // Max content width for tablets to prevent content from being too wide
   // Following Material Design guidelines: max content width should be 840px for tablets
@@ -134,15 +160,13 @@ class ResponsiveHelper {
       return ScreenSize.headingLarge;
     }
     
-    // Mobile: Use original size with scale factor (unchanged - don't touch)
-    final screenInfo = getScreenInfo(context);
-    final scale = screenInfo['scale']!;
+    // Mobile: scale from reference device (OnePlus baseline)
+    final scale = deviceScale(context);
     final baseSize = mobile * scale;
     
-    // Mobile: Apply scaling with limits
     final width = screenWidth(context);
     if (baseSize < 10) return 10;
-    final maxSize = width * 0.05;
+    final maxSize = width * 0.055;
     if (baseSize > maxSize) return maxSize;
     
     return baseSize;
@@ -176,24 +200,10 @@ class ResponsiveHelper {
         if (value <= 15) return ScreenSize.spacingMedium;
         return ScreenSize.spacingLarge;
       } else {
-        // Mobile: Use consistent scale factor across all responsive helpers
-        final screenInfo = getScreenInfo(context);
-        final scale = screenInfo['scale']!;
-        
-        // Apply scale factor consistently
-        final scaledValue = value * scale;
-        
-        // Ensure minimum value to prevent too small elements
-        if (scaledValue < value * 0.7) {
-          return value * 0.7;
-        }
-        
-        // Ensure maximum value to prevent overflow
-        final maxWidth = screenInfo['width']!;
-        if (scaledValue > maxWidth * 0.9) {
-          return maxWidth * 0.9;
-        }
-        
+        final scaledValue = value * deviceScale(context);
+        final maxWidth = screenWidth(context);
+        if (scaledValue > maxWidth * 0.9) return maxWidth * 0.9;
+        if (scaledValue < value * 0.82) return value * 0.82;
         return scaledValue;
       }
     }
@@ -230,24 +240,7 @@ class ResponsiveHelper {
 
   /// Get responsive value based on actual screen size (prevents overflow)
   static double _getResponsiveValue(BuildContext context, double value) {
-    final screenInfo = getScreenInfo(context);
-    final scale = screenInfo['scale']!;
-    
-    // Use scale factor to make everything proportional to actual screen
-    final scaledValue = value * scale;
-    
-    // Ensure minimum value to prevent too small elements
-    if (scaledValue < value * 0.7) {
-      return value * 0.7;
-    }
-    
-    // Ensure maximum value to prevent overflow
-    final maxWidth = screenInfo['width']!;
-    if (scaledValue > maxWidth * 0.9) {
-      return maxWidth * 0.9;
-    }
-    
-    return scaledValue;
+    return value * deviceScale(context);
   }
 
   /// Get responsive icon size
@@ -342,17 +335,13 @@ class ResponsiveHelper {
       return ScreenSize.spacingLarge;
     }
     
-    // Mobile: Use scale factor (unchanged - don't touch)
-    final screenInfo = getScreenInfo(context);
-    final scale = screenInfo['scale']!;
+    // Mobile: scale spacing from reference device
+    final scale = deviceScale(context);
     final scaledValue = baseSpacing * scale;
     
-    // Ensure spacing doesn't cause overflow
     if (scaledValue > width * 0.3) {
       return width * 0.3;
     }
-    
-    // Ensure minimum spacing
     if (scaledValue < 4) return 4;
     
     return scaledValue;
@@ -435,14 +424,65 @@ class ResponsiveHelper {
   /// Get responsive horizontal padding for content
   /// For tablets, provides more padding for better readability
   static double contentPadding(BuildContext context) {
+    return screenHorizontalInset(context);
+  }
+
+  /// Device-aware side inset — compact on phones for more content width.
+  static double screenHorizontalInset(BuildContext context) {
     if (isDesktop(context)) {
-      return 48.0;
-    } else if (isLargeTablet(context)) {
-      return 40.0;
-    } else if (isTablet(context)) {
-      return 32.0;
+      return dim(context, mobile: 20, tablet: 24, min: 16, max: 28);
     }
-    return 16.0;
+    if (isLargeTablet(context)) {
+      return dim(context, mobile: 16, tablet: 20, min: 14, max: 24);
+    }
+    if (isTablet(context)) {
+      return dim(context, mobile: 14, tablet: 18, min: 12, max: 22);
+    }
+    if (isSmallPhone(context)) {
+      return dim(context, mobile: 8, min: 6, max: 10);
+    }
+    if (isLargePhone(context)) {
+      return dim(context, mobile: 12, min: 10, max: 14);
+    }
+    return dim(context, mobile: 10, min: 8, max: 12);
+  }
+
+  /// Compact top gap below app bar / above first home section.
+  static double screenTopInset(BuildContext context) {
+    if (isTablet(context)) {
+      return dim(context, mobile: 6, tablet: 8, min: 4, max: 10);
+    }
+    if (isSmallPhone(context)) {
+      return dim(context, mobile: 2, min: 0, max: 3);
+    }
+    return dim(context, mobile: 3, min: 2, max: 5);
+  }
+
+  /// Vertical gap between home sections — scales down on small phones.
+  static double homeSectionGap(BuildContext context, {double mobile = 4}) {
+    if (isTablet(context)) {
+      return dim(context, mobile: mobile + 2, tablet: mobile + 4);
+    }
+    if (isSmallPhone(context)) {
+      return dim(context, mobile: mobile * 0.5, min: 2, max: mobile);
+    }
+    return dim(context, mobile: mobile * 0.75, min: 2, max: mobile + 1);
+  }
+
+  /// Standard home screen horizontal padding (no double scaling).
+  static EdgeInsets homeScreenPadding(
+    BuildContext context, {
+    double vertical = 0,
+    bool top = false,
+    bool bottom = false,
+  }) {
+    final h = screenHorizontalInset(context);
+    return EdgeInsets.only(
+      left: h,
+      right: h,
+      top: top ? (vertical > 0 ? homeSectionGap(context, mobile: vertical) : screenTopInset(context)) : 0,
+      bottom: bottom ? homeSectionGap(context, mobile: vertical > 0 ? vertical : 4) : 0,
+    );
   }
 
   /// Get max content width for tablets to prevent content from being too wide
@@ -458,37 +498,118 @@ class ResponsiveHelper {
     return screenWidth(context); // Mobile: use full width
   }
 
+  /// Get responsive bottom navigation bar height
+  static double bottomNavBarHeight(BuildContext context) {
+    return dim(context, mobile: 56, tablet: 62, desktop: 68, min: 48, max: 72);
+  }
+
   /// Get responsive vertical padding for content
   static double contentVerticalPadding(BuildContext context) {
+    return homeSectionGap(context, mobile: isTablet(context) ? 12 : 6);
+  }
+
+  /// Generic responsive dimension from a mobile base (scales on every device).
+  static double dim(BuildContext context, {
+    required double mobile,
+    double? tablet,
+    double? desktop,
+    double? min,
+    double? max,
+  }) {
+    double value;
     if (isDesktop(context)) {
-      return 32.0;
+      value = desktop ?? tablet ?? mobile * 1.35;
+    } else if (isLargeTablet(context)) {
+      value = tablet ?? mobile * 1.28;
     } else if (isTablet(context)) {
-      return 24.0;
+      value = tablet ?? mobile * 1.15;
+    } else {
+      value = mobile * deviceScale(context);
     }
-    return 16.0;
+    if (min != null && value < min) value = min;
+    if (max != null && value > max) value = max;
+    return value;
+  }
+
+  /// Toolbar height without BuildContext (for PreferredSizeWidget).
+  static double scaledToolbarHeight([BuildContext? context]) {
+    if (context != null) return appBarHeight(context);
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return kToolbarHeight;
+    final width = MediaQueryData.fromView(views.first).size.width;
+    
+    if (width >= desktopBreakpoint) return 88.0;
+    if (width >= tabletBreakpoint) return 84.0;
+    if (width >= mobileBreakpoint) {
+       // Consistent fluid scale for tablets
+       return (74.0 + (width - 600) / 600 * 8).clamp(74.0, 82.0);
+    }
+    
+    return 56.0;
+  }
+
+  /// Bottom nav icons — scaled and capped to avoid overflow in the bar.
+  static double bottomNavIconSize(BuildContext context) {
+    final base = isTablet(context) ? 28.0 : 26.0;
+    final size = dim(context, mobile: base, tablet: 30, desktop: 32);
+    final max = kBottomNavigationBarHeight * (isTablet(context) ? 0.46 : 0.44);
+    return size > max ? max : size;
+  }
+
+  static double bottomNavActiveIconSize(BuildContext context) {
+    final active = bottomNavIconSize(context) * 1.06;
+    final max = kBottomNavigationBarHeight * 0.48;
+    return active > max ? max : active;
+  }
+
+  /// Circular action button in app bar (search, profile, etc.).
+  static double appBarActionSize(BuildContext context) {
+    return dim(context, mobile: 40, tablet: 48, desktop: 52, min: 36, max: 56);
   }
 
   /// Get responsive app bar height
   static double appBarHeight(BuildContext context) {
-    if (isDesktop(context)) {
-      return 80.0;
-    } else if (isTablet(context)) {
-      return 70.0;
+    final width = screenWidth(context);
+    if (isDesktop(context)) return 88.0;
+    if (isLargeTablet(context)) return 84.0;
+    if (isTablet(context)) {
+      // Fluid scale for tablets: starts at 74 for 600px width, reaches 82 for 1200px
+      return (74.0 + (width - 600) / 600 * 8).clamp(74.0, 82.0);
     }
-    return 56.0;
+    // Mobile: scale between 56 and 70
+    return (56.0 * deviceScale(context)).clamp(56.0, 70.0);
   }
 
-  /// Get responsive bottom navigation bar height
-  static double bottomNavBarHeight(BuildContext context) {
-    if (isDesktop(context)) {
-      return 70.0;
-    } else if (isTablet(context)) {
-      return 65.0;
+  /// Notch / status bar inset (works without BuildContext).
+  static double statusBarHeight([BuildContext? context]) {
+    if (context != null) {
+      return MediaQuery.of(context).padding.top;
     }
-    return 60.0;
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return 47;
+    return MediaQueryData.fromView(views.first).padding.top;
   }
 
-  /// Check if platform is iOS
+  /// Home indicator / gesture bar inset.
+  static double bottomSafeHeight([BuildContext? context]) {
+    if (context != null) {
+      return MediaQuery.of(context).padding.bottom;
+    }
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return 34;
+    return MediaQueryData.fromView(views.first).padding.bottom;
+  }
+
+  /// Status bar + toolbar — for StandardAppBar preferredSize.
+  static double totalAppBarHeight(BuildContext context) {
+    return statusBarHeight(context) + appBarHeight(context);
+  }
+
+  /// Bottom nav bar + home indicator — for bottomNavigationBar slot.
+  static double totalBottomNavHeight(BuildContext context) {
+    return bottomSafeHeight(context) + bottomNavBarHeight(context);
+  }
+
   static bool isIOS(BuildContext context) {
     return Platform.isIOS;
   }
@@ -859,6 +980,19 @@ class ResponsiveHelper {
         ),
       ),
     );
+  }
+
+  /// Shorter screens (small phones, landscape) — tighter vertical layout.
+  static bool isCompactHeight(BuildContext context) {
+    return screenHeight(context) < dim(context, mobile: 700, tablet: 750);
+  }
+
+  static Widget vGap(BuildContext context, double mobile, {double? tablet}) {
+    return SizedBox(height: spacing(context, mobile));
+  }
+
+  static Widget hGap(BuildContext context, double mobile) {
+    return SizedBox(width: spacing(context, mobile));
   }
 }
 

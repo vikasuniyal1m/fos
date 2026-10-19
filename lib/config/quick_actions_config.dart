@@ -59,6 +59,15 @@ class QuickActionsConfig {
         imagePath: 'assets/reading-book.png',
       ),
       QuickAction(
+        id: 'shorts',
+        icon: Icons.play_circle_fill,
+        iconColor: const Color(0xFFD4AF37),
+        backgroundColor: const Color(0xFFD4AF37).withOpacity(0.1),
+        label: 'Grace Moments',
+        route: Routes.SHORTS,
+        description: 'Watch grace moments',
+      ),
+      QuickAction(
         id: 'church_locator',
         icon: Icons.map,
         iconColor: const Color(0xFF5F4628), // Dark brown

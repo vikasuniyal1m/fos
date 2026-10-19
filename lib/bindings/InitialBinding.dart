@@ -7,6 +7,7 @@ import 'package:fruitsofspirit/controllers/fruit_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/stories_controller.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/controllers/main_dashboard_controller.dart';
 import 'package:fruitsofspirit/controllers/banners_controller.dart';
@@ -21,6 +22,7 @@ import 'package:fruitsofspirit/controllers/reset_password_controller.dart';
 import 'package:fruitsofspirit/controllers/church_locator_controller.dart';
 import 'package:fruitsofspirit/controllers/denominations_controller.dart';
 import 'package:fruitsofspirit/controllers/live_stream_controller.dart';
+import 'package:fruitsofspirit/controllers/shorts_controller.dart';
 import 'package:fruitsofspirit/services/iap_service.dart';
 
 class InitialBinding extends Bindings {
@@ -37,12 +39,23 @@ class InitialBinding extends Bindings {
       Get.put(ProfileController(), permanent: true);
     }
 
-    // 2. Feature Controllers (Lazy loading with fenix:true for auto-recreation after deletion)
+    // 2. Dashboard tab controllers — eager put so IndexedStack tabs never miss Get.find
+    if (!Get.isRegistered<PrayersController>()) {
+      Get.put(PrayersController(), permanent: true);
+    }
+    if (!Get.isRegistered<VideosController>()) {
+      Get.put(VideosController(), permanent: true);
+    }
+    if (!Get.isRegistered<GalleryController>()) {
+      Get.put(GalleryController(), permanent: true);
+    }
+    if (!Get.isRegistered<FruitController>()) {
+      Get.put(FruitController(), permanent: true);
+    }
+
+    // 3. Other feature controllers (lazy — opened from routes)
     if (!Get.isRegistered<NotificationsController>()) {
       Get.lazyPut(() => NotificationsController(), fenix: true);
-    }
-    if (!Get.isRegistered<PrayersController>()) {
-      Get.lazyPut(() => PrayersController(), fenix: true);
     }
     if (!Get.isRegistered<PrayerRemindersController>()) {
       Get.lazyPut(() => PrayerRemindersController(), fenix: true);
@@ -50,29 +63,26 @@ class InitialBinding extends Bindings {
     if (!Get.isRegistered<GroupsController>()) {
       Get.lazyPut(() => GroupsController(), fenix: true);
     }
+    if (!Get.isRegistered<StoriesController>()) {
+      Get.lazyPut(() => StoriesController(), fenix: true);
+    }
     if (!Get.isRegistered<GroupChatController>()) {
       Get.lazyPut(() => GroupChatController(), fenix: true);
     }
     if (!Get.isRegistered<GroupPostsController>()) {
       Get.lazyPut(() => GroupPostsController(), fenix: true);
     }
-    if (!Get.isRegistered<FruitController>()) {
-      Get.lazyPut(() => FruitController(), fenix: true);
-    }
     if (!Get.isRegistered<BlogsController>()) {
       Get.lazyPut(() => BlogsController(), fenix: true);
     }
-    if (!Get.isRegistered<VideosController>()) {
-      Get.lazyPut(() => VideosController(), fenix: true);
-    }
-    if (!Get.isRegistered<GalleryController>()) {
-      Get.lazyPut(() => GalleryController(), fenix: true);
+    if (!Get.isRegistered<ShortsController>()) {
+      Get.lazyPut(() => ShortsController(), fenix: true);
     }
     if (!Get.isRegistered<BannersController>()) {
       Get.put(BannersController(), permanent: true);
     }
 
-    // 3. Auth & Onboarding Controllers
+    // 4. Auth & Onboarding Controllers
     if (!Get.isRegistered<OnboardingController>()) {
       Get.lazyPut(() => OnboardingController(), fenix: true);
     }
@@ -86,7 +96,7 @@ class InitialBinding extends Bindings {
       Get.lazyPut(() => ResetPasswordController(), fenix: true);
     }
 
-    // 4. Additional Feature Controllers
+    // 5. Additional Feature Controllers
     if (!Get.isRegistered<ChurchLocatorController>()) {
       Get.lazyPut(() => ChurchLocatorController(), fenix: true);
     }
@@ -97,7 +107,7 @@ class InitialBinding extends Bindings {
       Get.lazyPut(() => LiveStreamController(), fenix: true);
     }
 
-    // 5. Services
+    // 6. Services
     if (!Get.isRegistered<JingleService>()) {
       Get.put(JingleService(), permanent: true);
     }

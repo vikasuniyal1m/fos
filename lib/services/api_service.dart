@@ -248,8 +248,13 @@ class ApiService {
           
           // Read file bytes to detect actual file format
           final bytes = await file.readAsBytes();
-          String detectedExtension = 'mp4'; // Default for videos
-          String contentType = 'video/mp4'; // Default for videos
+          final isPhotoField = entry.key == 'photo' ||
+              entry.key == 'image' ||
+              entry.key == 'profile_photo';
+          String detectedExtension =
+              isPhotoField ? 'jpg' : 'mp4'; // Default by upload type
+          String contentType =
+              isPhotoField ? 'image/jpeg' : 'video/mp4';
           
           // Get original filename and extension first (for fallback)
           final originalFileName = filePath.split('/').last;
@@ -281,10 +286,55 @@ class ApiService {
               detectedExtension = 'webp';
               contentType = 'image/webp';
             }
-            // Check for MP4: ftyp box at offset 4 (00 00 00 XX 66 74 79 70)
-            else if (bytes.length >= 8 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70) {
-              detectedExtension = 'mp4';
-              contentType = 'video/mp4';
+            // Check for MP4/MOV/QuickTime container: ftyp box at offset 4 (00 00 00 XX 66 74 79 70)
+            else if (bytes.length >= 8 &&
+                bytes[4] == 0x66 &&
+                bytes[5] == 0x74 &&
+                bytes[6] == 0x79 &&
+                bytes[7] == 0x70) {
+              if (isPhotoField && bytes.length >= 12) {
+                final boxType = String.fromCharCodes(bytes.sublist(8, 12));
+                final heifTypes = ['heic', 'heix', 'mif1', 'msf1', 'hevx'];
+                final originalExtensionVideo = ['mp4', 'mov', 'avi', 'wmv', 'flv', 'webm']
+                    .contains(originalExtension);
+
+                if (originalExtensionVideo) {
+                  switch (originalExtension) {
+                    case 'mov':
+                      detectedExtension = 'mov';
+                      contentType = 'video/quicktime';
+                      break;
+                    case 'avi':
+                      detectedExtension = 'avi';
+                      contentType = 'video/x-msvideo';
+                      break;
+                    case 'wmv':
+                      detectedExtension = 'wmv';
+                      contentType = 'video/x-ms-wmv';
+                      break;
+                    case 'flv':
+                      detectedExtension = 'flv';
+                      contentType = 'video/x-flv';
+                      break;
+                    case 'webm':
+                      detectedExtension = 'webm';
+                      contentType = 'video/webm';
+                      break;
+                    default:
+                      detectedExtension = 'mp4';
+                      contentType = 'video/mp4';
+                  }
+                } else if (heifTypes.contains(boxType)) {
+                  detectedExtension = 'jpg';
+                  contentType = 'image/jpeg';
+                } else {
+                  detectedExtension = 'mp4';
+                  contentType = 'video/mp4';
+                }
+              } else {
+                detectedExtension = 'mp4';
+                contentType = 'video/mp4';
+              }
             }
             // Check for MOV/QuickTime: ftyp box with qt or mov
             else if (bytes.length >= 12 &&
@@ -323,6 +373,7 @@ class ApiService {
             // If no format detected, try to use original extension if it's a valid video format
             else if (originalExtension.isNotEmpty) {
               final validVideoExtensions = ['mp4', 'mov', 'avi', 'wmv', 'flv', 'webm'];
+              final validImageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
               if (validVideoExtensions.contains(originalExtension)) {
                 detectedExtension = originalExtension;
                 // Set appropriate content type based on extension
@@ -348,6 +399,27 @@ class ApiService {
                   default:
                     contentType = 'video/mp4';
                 }
+              } else if (isPhotoField &&
+                  validImageExtensions.contains(originalExtension)) {
+                detectedExtension = originalExtension == 'jpeg'
+                    ? 'jpg'
+                    : originalExtension;
+                switch (originalExtension) {
+                  case 'png':
+                    contentType = 'image/png';
+                    break;
+                  case 'gif':
+                    contentType = 'image/gif';
+                    break;
+                  case 'webp':
+                    contentType = 'image/webp';
+                    break;
+                  default:
+                    contentType = 'image/jpeg';
+                }
+              } else if (isPhotoField) {
+                detectedExtension = 'jpg';
+                contentType = 'image/jpeg';
               } else {
                 // Default to mp4 for videos if extension is not recognized
                 detectedExtension = 'mp4';

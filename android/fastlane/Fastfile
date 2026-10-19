@@ -1,0 +1,44 @@
+default_platform(:android)
+
+platform :android do
+  desc "Build and sign the Android AAB"
+  lane :build_release do
+    gradle(
+      task: "clean bundleRelease",
+      build_type: "Release",
+      print_command: true
+    )
+  end
+
+  desc "Build the Android APK"
+  lane :build_apk do
+    gradle(
+      task: "clean assembleRelease",
+      build_type: "Release",
+      print_command: true
+    )
+  end
+
+  desc "Upload AAB to Google Play Internal Testing track"
+  lane :upload_to_play_store do
+    # Requires GOOGLE_PLAY_SERVICE_ACCOUNT_JSON secret to be set
+    upload_to_play_store(
+      track: "internal",
+      release_status: "completed",
+      aab: "../build/app/outputs/bundle/release/app-release.aab"
+    )
+  end
+
+  desc "Build and upload to Google Play"
+  lane :deploy do
+    build_release
+    upload_to_play_store
+  end
+
+  desc "Increment build number"
+  lane :increment_build do
+    increment_version_code(
+      gradle_file_path: "../app/build.gradle.kts"
+    )
+  end
+end

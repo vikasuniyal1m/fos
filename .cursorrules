@@ -1,0 +1,7 @@
+Agent mode OFF
+Auto context OFF
+Max tokens 50–80
+Ask: “answer in under 50 tokens”
+Avoid “analyze/explain”
+Use specific file names only
+Disable indexing/chat history if possible

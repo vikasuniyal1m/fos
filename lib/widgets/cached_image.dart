@@ -15,6 +15,7 @@ class CachedImage extends StatelessWidget {
   final BorderRadius? borderRadius;
   final bool preload; // Whether to preload this image
   final Map<String, String>? headers; // HTTP headers for image request
+  final Duration fadeInDuration;
 
   const CachedImage({
     Key? key,
@@ -27,6 +28,7 @@ class CachedImage extends StatelessWidget {
     this.borderRadius,
     this.preload = false,
     this.headers,
+    this.fadeInDuration = const Duration(milliseconds: 200),
   }) : super(key: key);
 
   @override
@@ -165,7 +167,7 @@ class CachedImage extends StatelessWidget {
               }
               return errorWidget ?? _defaultErrorWidget(context);
             },
-            fadeInDuration: const Duration(milliseconds: 200),
+            fadeInDuration: fadeInDuration,
             fadeOutDuration: const Duration(milliseconds: 100),
             // Use 2x resolution for better quality (prevents blur on high-DPI screens)
             memCacheWidth: cacheWidth,
@@ -182,20 +184,7 @@ class CachedImage extends StatelessWidget {
                 fit: fit,
                 filterQuality: FilterQuality.high, // High quality filter for sharp images
                 errorBuilder: (context, error, stackTrace) {
-                  // Fallback error handler for Image widget
-                  print('❌ Error in Image widget: $error');
-                  if (stackTrace != null) {
-                    print('   Stack trace: $stackTrace');
-                  }
                   return errorWidget ?? _defaultErrorWidget(context);
-                },
-                // Add frameBuilder to catch errors during image loading
-                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                  if (frame == null) {
-                    // Image is still loading
-                    return placeholder ?? _defaultPlaceholder(context);
-                  }
-                  return child;
                 },
               );
             },

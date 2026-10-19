@@ -1,0 +1,45 @@
+name: Build iOS
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-ios:
+    name: Build iOS Release
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: fos
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.0'
+          cache: true
+          architecture: arm64
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign
+
+      - name: Upload iOS build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: fos/build/ios/iphoneos

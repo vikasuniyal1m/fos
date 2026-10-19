@@ -1,9 +1,11 @@
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
@@ -25,12 +27,17 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
   final BlogsController controller = Get.find<BlogsController>();
   final TextEditingController titleController = TextEditingController();
   final TextEditingController bodyController = TextEditingController();
+  bool _isSubmitting = false;
   
   // Initialize pickers once in state
   final ImagePicker _picker = ImagePicker();
   final ImageCropper _cropper = ImageCropper();
   
-  File? selectedImage;
+  File? selectedMedia;
+  bool selectedMediaIsVideo = false;
+  VideoPlayerController? _previewController;
+  bool _isPreviewInitialized = false;
+  bool _isPreviewPlaying = false;
   String selectedCategory = 'Others';  // Changed from 'Spiritual' to 'Others' as default
   String selectedLanguage = 'en';
   final TextEditingController customCategoryController = TextEditingController();  // For custom 'Others' category
@@ -49,18 +56,54 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
     titleController.dispose();
     bodyController.dispose();
     customCategoryController.dispose();  // Dispose custom category controller
+    _previewController?.removeListener(_previewListener);
+    _previewController?.dispose();
     super.dispose();
   }
 
+  Future<void> _showMediaPickerOptions() async {
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo),
+                title: const Text('Select Image'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _pickImage();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.video_library),
+                title: const Text('Select Video'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _pickVideo();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _pickImage() async {
-    // Open gallery first - this is the critical part that needs to be fast
-    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    final pickedFile = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 85,
+    );
 
     if (pickedFile != null) {
-      // Only initialize cropper if we have an image - reduces initial delay
       final croppedFile = await _cropper.cropImage(
         sourcePath: pickedFile.path,
-        // Simplified UI settings to essential options only
         uiSettings: [
           AndroidUiSettings(
             toolbarTitle: 'Crop Image',
@@ -68,30 +111,92 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
             toolbarWidgetColor: Colors.white,
             initAspectRatio: CropAspectRatioPreset.original,
             lockAspectRatio: false,
-            // Removed unnecessary settings
           ),
           IOSUiSettings(
             title: 'Crop Image',
             aspectRatioLockEnabled: false,
             doneButtonTitle: 'Done',
             cancelButtonTitle: 'Cancel',
-            // Removed unnecessary settings
           ),
         ],
       );
 
       if (croppedFile != null) {
         setState(() {
-          selectedImage = File(croppedFile.path);
+          selectedMedia = File(croppedFile.path);
+          selectedMediaIsVideo = false;
         });
       }
     }
   }
 
-  void _removeImage() {
+  Future<void> _pickVideo() async {
+    final pickedFile = await _picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: const Duration(minutes: 10),
+    );
+
+    if (pickedFile != null) {
+      final file = File(pickedFile.path);
+      await _initPreviewController(file);
+      setState(() {
+        selectedMedia = file;
+        selectedMediaIsVideo = true;
+      });
+    }
+  }
+
+  Future<void> _initPreviewController(File file) async {
+    try {
+      _previewController?.removeListener(_previewListener);
+      await _previewController?.dispose();
+      _previewController = null;
+      _isPreviewInitialized = false;
+      _isPreviewPlaying = false;
+
+      final controller = VideoPlayerController.file(file);
+      _previewController = controller;
+      await controller.initialize();
+      await controller.pause();
+      controller.addListener(_previewListener);
+      if (mounted) {
+        setState(() {
+          _isPreviewInitialized = true;
+        });
+      }
+    } catch (e) {
+      print('Preview init error: $e');
+      if (mounted) {
+        setState(() {
+          _isPreviewInitialized = false;
+        });
+      }
+    }
+  }
+
+  void _previewListener() {
+    if (!mounted || _previewController == null) return;
+    final playing = _previewController!.value.isPlaying;
+    if (playing != _isPreviewPlaying) {
+      setState(() {
+        _isPreviewPlaying = playing;
+      });
+    }
+    if (_previewController!.value.hasError) {
+      print('Preview controller error: ${_previewController!.value.errorDescription}');
+    }
+  }
+
+  void _removeMedia() {
     setState(() {
-      selectedImage = null;
+      selectedMedia = null;
+      selectedMediaIsVideo = false;
     });
+    _previewController?.removeListener(_previewListener);
+    _previewController?.dispose();
+    _previewController = null;
+    _isPreviewInitialized = false;
+    _isPreviewPlaying = false;
   }
 
   /// Show a custom snackbar using ScaffoldMessenger
@@ -129,15 +234,19 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
   }
 
   Future<void> _submitBlog() async {
-    print('[_submitBlog] function called.');
+    if (_isSubmitting) return;
+
+    FocusScope.of(context).unfocus();
 
     // Check for terms acceptance
     final hasAcceptedFactors = await TermsService.hasAcceptedTerms();
     if (!hasAcceptedFactors) {
       Get.to(() => TermsAcceptanceScreen(
         onAccepted: () {
-          Get.back(); // Pop the terms screen
-          _submitBlog(); // Retry submission
+          if (mounted) {
+            Navigator.of(context).pop();
+            _submitBlog();
+          }
         },
       ));
       return;
@@ -192,74 +301,74 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
     final String categoryToSubmit = (selectedCategory == 'Others' && customCategoryController.text.trim().isNotEmpty)
         ? customCategoryController.text.trim()
         : selectedCategory;
-    
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    final title = titleController.text.trim();
+    final body = bodyController.text.trim();
+
     final success = await controller.createBlog(
-      title: titleController.text.trim(),
-      body: bodyController.text.trim(),
+      title: title,
+      body: body,
       category: categoryToSubmit,
       language: selectedLanguage,
-      image: selectedImage,
+      media: selectedMedia,
     );
 
-  if (success) {
-      print('Blog creation successful. Mounted: $mounted');
+    if (!mounted) return;
 
-      // Show success message
-      if (mounted) {
-        _showCustomSnackbar(
-          context,
-          'Success',
-          controller.message.value.isNotEmpty
-              ? controller.message.value
-              : 'Blog created successfully! Waiting for approval.',
-          backgroundColor: AppTheme.iconscolor,
-          textColor: Colors.black,
-          duration: const Duration(seconds: 2),
-          icon: const Icon(Icons.check_circle, color: Colors.white),
-        );
-      }
-      
-      // Update Dashboard Tab if available
+    if (success) {
+      controller.filterUserId.value = 0;
+
       if (Get.isRegistered<MainDashboardController>()) {
         try {
-          Get.find<MainDashboardController>().changeIndex(0); // Switch to Home tab
+          Get.find<MainDashboardController>().changeIndex(0);
         } catch (e) {
           print('Error changing dashboard index: $e');
         }
       }
-      
-      // Wait briefly for snackbar
-      await Future.delayed(const Duration(milliseconds: 1500));
-      
-      // STRONG NAVIGATION: Clear stack until Dashboard
-      Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
-    } 
-    else {
-      print('Blog creation failed.');
-      // Show error message
-      if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            final errorMsg = controller.message.value;
-            final isModeration = errorMsg.contains('community guidelines');
 
-            _showCustomSnackbar(
-              context,
-              isModeration ? 'Community Standard' : 'Community Suggestion',
-              errorMsg.isNotEmpty 
-                  ? errorMsg 
-                  : 'Action could not be completed. Please try again.',
-              backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.orange.shade300,
-              textColor: isModeration ? Colors.white : Colors.black,
-              icon: Icon(
-                isModeration ? Icons.security_rounded : Icons.tips_and_updates_outlined,
-                color: isModeration ? const Color(0xFFC79211) : Colors.black,
-                size: 28,
-              ),
-            );
-          }
-        });
-      }
+      Get.offNamedUntil(Routes.DASHBOARD, (route) => false);
+      Get.snackbar(
+        'Success',
+        controller.message.value.isNotEmpty
+            ? controller.message.value
+            : 'Blog created successfully! Waiting for approval.',
+        backgroundColor: AppTheme.iconscolor,
+        colorText: Colors.black,
+        duration: const Duration(seconds: 2),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = false;
+    });
+
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          final errorMsg = controller.message.value;
+          final isModeration = errorMsg.contains('community guidelines');
+
+          _showCustomSnackbar(
+            context,
+            isModeration ? 'Community Standard' : 'Community Suggestion',
+            errorMsg.isNotEmpty
+                ? errorMsg
+                : 'Action could not be completed. Please try again.',
+            backgroundColor: isModeration ? const Color(0xFF5D4037) : Colors.orange.shade300,
+            textColor: isModeration ? Colors.white : Colors.black,
+            icon: Icon(
+              isModeration ? Icons.security_rounded : Icons.tips_and_updates_outlined,
+              color: isModeration ? const Color(0xFFC79211) : Colors.black,
+              size: 28,
+            ),
+          );
+        }
+      });
     }
   }
 
@@ -347,14 +456,20 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
           );
         }
 
+        final double minMediaHeight = ResponsiveHelper.imageHeight(context, mobile: 220, tablet: 250, desktop: 280);
+        final double maxMediaHeight = ResponsiveHelper.imageHeight(context, mobile: 320, tablet: 340, desktop: 380);
+        final double mediaPreviewHeight = selectedMediaIsVideo && _isPreviewInitialized && _previewController != null
+            ? (MediaQuery.of(context).size.width / _previewController!.value.aspectRatio).clamp(minMediaHeight, maxMediaHeight)
+            : minMediaHeight;
+
         return SingleChildScrollView(
           padding: ResponsiveHelper.padding(context, all: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Image Selection Section
+              // Blog Media Selection Section
               Text(
-                'Blog Image',
+                'Blog Media',
                 style: ResponsiveHelper.textStyle(
                   context,
                   fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 19, desktop: 20),
@@ -364,7 +479,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
               ),
               SizedBox(height: ResponsiveHelper.spacing(context, 8)),
               Text(
-                'Add a cover image for your blog (Optional)',
+                'Add a cover image or video for your blog (Optional)',
                 style: ResponsiveHelper.textStyle(
                   context,
                   fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
@@ -373,9 +488,9 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
               ),
               SizedBox(height: ResponsiveHelper.spacing(context, 12)),
               GestureDetector(
-                onTap: _pickImage,
+                onTap: _showMediaPickerOptions,
                 child: Container(
-                  height: ResponsiveHelper.imageHeight(context, mobile: 220, tablet: 250, desktop: 280),
+                  height: mediaPreviewHeight,
                   width: double.infinity,
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -392,7 +507,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                       ),
                     ],
                   ),
-                  child: selectedImage == null
+                  child: selectedMedia == null
                       ? Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -403,7 +518,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                             ),
                             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
                             Text(
-                              'Tap to select image',
+                              'Tap to select media',
                               style: ResponsiveHelper.textStyle(
                                 context,
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 16, tablet: 17, desktop: 18),
@@ -413,7 +528,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                             ),
                             SizedBox(height: ResponsiveHelper.spacing(context, 4)),
                             Text(
-                              'JPG, PNG, GIF (Max 5MB)',
+                              'JPG, PNG, GIF, MP4, MOV, WEBM (Max 5MB)',
                               style: ResponsiveHelper.textStyle(
                                 context,
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13, desktop: 14),
@@ -426,12 +541,63 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                           children: [
                             ClipRRect(
                               borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                              child: Image.file(
-                                selectedImage!,
-                                fit: BoxFit.contain,
-                                width: double.infinity,
-                                height: double.infinity,
-                              ),
+                              child: selectedMediaIsVideo
+                                  ? _isPreviewInitialized && _previewController != null
+                                      ? GestureDetector(
+                                          onTap: () async {
+                                            if (_previewController == null) return;
+                                            if (_previewController!.value.isPlaying) {
+                                              await _previewController!.pause();
+                                            } else {
+                                              await _previewController!.play();
+                                            }
+                                          },
+                                          child: Stack(
+                                            alignment: Alignment.center,
+                                            children: [
+                                              SizedBox(
+                                                width: double.infinity,
+                                                height: double.infinity,
+                                                child: AspectRatio(
+                                                  aspectRatio: _previewController!.value.aspectRatio,
+                                                  child: VideoPlayer(_previewController!),
+                                                ),
+                                              ),
+                                              if (!_isPreviewPlaying)
+                                                Container(
+                                                  color: Colors.black26,
+                                                  child: Center(
+                                                    child: Container(
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.black45,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                      padding: const EdgeInsets.all(12),
+                                                      child: Icon(
+                                                        Icons.play_arrow,
+                                                        color: Colors.white,
+                                                        size: ResponsiveHelper.iconSize(context, mobile: 42, tablet: 48, desktop: 56),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        )
+                                      : Container(
+                                          color: Colors.black,
+                                          child: const Center(
+                                            child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        )
+                                  : Image.file(
+                                      selectedMedia!,
+                                      fit: BoxFit.contain,
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                    ),
                             ),
                             Positioned(
                               top: ResponsiveHelper.spacing(context, 8),
@@ -454,7 +620,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                                     color: Colors.white,
                                     size: ResponsiveHelper.iconSize(context, mobile: 20),
                                   ),
-                                  onPressed: _removeImage,
+                                  onPressed: _removeMedia,
                                 ),
                               ),
                             ),
@@ -734,7 +900,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                 width: double.infinity,
                 height: ResponsiveHelper.buttonHeight(context, mobile: 56, tablet: 60, desktop: 64),
                 child: ElevatedButton(
-                  onPressed: controller.isLoading.value ? null : _submitBlog,
+                  onPressed: _isSubmitting ? null : _submitBlog,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.iconscolor,
                     elevation: 6,
@@ -743,7 +909,7 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
                       borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
                     ),
                   ),
-                  child: controller.isLoading.value
+                  child: _isSubmitting
                       ? SizedBox(
                           height: ResponsiveHelper.iconSize(context, mobile: 24),
                           width: ResponsiveHelper.iconSize(context, mobile: 24),

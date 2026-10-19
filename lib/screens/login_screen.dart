@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/bindings/InitialBinding.dart';
+import 'package:fruitsofspirit/services/auth_session_service.dart';
 import 'package:get/get.dart';
 import 'dart:io' show Platform;
 import 'package:fruitsofspirit/routes/routes.dart';
@@ -24,6 +25,8 @@ import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
 import 'package:fruitsofspirit/services/iap_service.dart';
 import 'package:fruitsofspirit/services/christian_calendar_service.dart';
+import 'package:fruitsofspirit/services/banners_prefetch_service.dart';
+import 'dart:async';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -40,6 +43,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   String? _loginError; // Store login error message
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(BannersPrefetchService.warmCache());
+    if (Get.isRegistered<BannersController>()) {
+      Get.find<BannersController>().bootstrapBanners();
+    }
+  }
 
   // Check if running on iOS Simulator
   Future<bool> _isRunningOnSimulator() async {
@@ -93,35 +105,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Future<void> _reinitializeControllers() async {
-    // Clear any existing state and reinitialize controllers
-    try {
-      // Clear any cached data before reinitializing
-      if (Get.isRegistered<HomeController>()) {
-        final homeController = Get.find<HomeController>();
-        homeController.isInitialLoading.value = true;
-      }
-      
-      // Re-initialize core controllers to load new user data
-      InitialBinding().dependencies();
-      
-      // Force refresh of critical controllers
-      if (Get.isRegistered<BannersController>()) {
-        final bannersController = Get.find<BannersController>();
-        bannersController.loadBanners();
-      }
-      
-      if (Get.isRegistered<HomeController>()) {
-        final homeController = Get.find<HomeController>();
-        homeController.refreshData();
-      }
-    } catch (e) {
-      print('Error reinitializing controllers: $e');
-      // Fallback: just reinitialize bindings
-      InitialBinding().dependencies();
-    }
-  }
-
   @override
   void dispose() {
     _emailController.dispose();
@@ -164,26 +147,7 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
 
-      // Save user data in SharedPreferences
-      await UserStorage.saveUser(user);
-
-      // Update premium status from login response
-      final iapService = Get.find<IAPService>();
-      await iapService.updatePremiumStatusFromLogin(user);
-
-      // Test Christian calendar API and print response
-      await ChristianCalendarService.testCalendarAPI();
-
-      // Re-initialize controllers to load new user data
-      await _reinitializeControllers();
-
-      // Add a small delay to ensure all controllers are properly initialized
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (mounted) {
-        // Use offAllNamed to clear all navigation stack and start fresh
-        Get.offAllNamed(Routes.DASHBOARD);
-      }
+      await AuthSessionService.finishAuthAndGoHome(user);
     } on ApprovalPendingException catch (e) {
       if (mounted) {
         // Show popup dialog for approval pending
@@ -274,15 +238,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           );
                         }
 
-                        // Save user data
-                        await UserStorage.saveUser(user);
-
-                        // Re-initialize controllers
-                        _reinitializeControllers();
-
-                        if (mounted) {
-                          Get.offAllNamed(Routes.DASHBOARD);
-                        }
+                        await AuthSessionService.finishAuthAndGoHome(user);
                       } catch (loginError) {
                         if (mounted) {
                           setState(() {
@@ -482,19 +438,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ).timeout(const Duration(seconds: 30));
       print('🍎 Apple Sign In: Backend response: $user');
 
-      // Save user data
-      await UserStorage.saveUser(user);
-
-      // Re-initialize controllers to load new user data
-      await _reinitializeControllers();
-
-      // Add a small delay to ensure all controllers are properly initialized
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (mounted) {
-        // Use offAllNamed to clear all navigation stack and start fresh
-        Get.offAllNamed(Routes.DASHBOARD);
-      }
+      await AuthSessionService.finishAuthAndGoHome(user);
     } on SignInWithAppleAuthorizationException catch (e) {
       // Handle Apple Sign In specific errors with better error messages
       print('🍎 Apple Sign In: AuthorizationException - Code: ${e.code}, Message: ${e.message}');
@@ -701,14 +645,6 @@ class _LoginScreenState extends State<LoginScreen> {
         // iOS OAuth Client ID is configured in Info.plist
       );
 
-      // Clear any existing sign-in before attempting new sign-in (prevents cached session issues)
-      try {
-        await googleSignIn.signOut();
-        await Future.delayed(const Duration(milliseconds: 300));
-      } catch (e) {
-        // Continue even if sign out fails
-      }
-
       // Sign in - will show account picker
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
       
@@ -750,19 +686,7 @@ class _LoginScreenState extends State<LoginScreen> {
         profilePicture: profilePicture,
       );
 
-      // Save user data
-      await UserStorage.saveUser(user);
-
-      // Re-initialize controllers to load new user data
-      await _reinitializeControllers();
-
-      // Add a small delay to ensure all controllers are properly initialized
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (mounted) {
-        // Use offAllNamed to clear all navigation stack and start fresh
-        Get.offAllNamed(Routes.DASHBOARD);
-      }
+      await AuthSessionService.finishAuthAndGoHome(user);
     } on ApprovalPendingException catch (e) {
       if (mounted) {
         showDialog(

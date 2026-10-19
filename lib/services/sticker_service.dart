@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
@@ -97,11 +98,16 @@ class StickerPack {
 /// Handles fetching, downloading, and managing stickers from Ecommerce panel
 class StickerService {
   // Ecommerce API base URL - FROM ECOMMERCE APP CONFIG
-  static const String _ecommerceBaseUrl = 'http://admin.fosproductions.org/api';
+  static const String _ecommerceBaseUrl = 'https://admin.fosproductions.org/api';
   
   // Storage keys
   static const String _stickerPacksKey = 'sticker_packs';
+  static const String _stickerLastSyncKey = 'sticker_last_sync_ms';
   static const String _stickersDir = 'stickers';
+  static const Duration _minStickerSyncInterval = Duration(hours: 6);
+  static DateTime? _lastStickerSyncAt;
+  static List<Sticker>? _sessionPickerStickers;
+  static bool _syncInFlight = false;
 
   /// Get all user stickers from ecommerce API with pagination support
   /// Requires user's ID and email (for cross-app security verification)
@@ -203,35 +209,135 @@ class StickerService {
 
   // Cache for sticker existence checks to avoid repeated file system calls
   static final Map<int, bool> _stickerExistenceCache = {};
-  
+  static List<Sticker>? _allStickersCache;
+  static DateTime? _allStickersCacheAt;
+  static final Map<int, Sticker> _stickerById = {};
+  static const Duration _stickersListTtl = Duration(minutes: 10);
+
+  static void _invalidateStickerListCache() {
+    _allStickersCache = null;
+    _allStickersCacheAt = null;
+    _stickerById.clear();
+    _sessionPickerStickers = null;
+  }
+
+  static Future<DateTime?> _getLastStickerSync() async {
+    if (_lastStickerSyncAt != null) return _lastStickerSyncAt;
+    final prefs = await SharedPreferences.getInstance();
+    final ms = prefs.getInt(_stickerLastSyncKey);
+    if (ms != null) {
+      _lastStickerSyncAt = DateTime.fromMillisecondsSinceEpoch(ms);
+    }
+    return _lastStickerSyncAt;
+  }
+
+  static Future<void> _markStickerSynced() async {
+    _lastStickerSyncAt = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      _stickerLastSyncKey,
+      _lastStickerSyncAt!.millisecondsSinceEpoch,
+    );
+  }
+
+  static bool _isStickerSyncStale(DateTime? last) {
+    if (last == null) return true;
+    return DateTime.now().difference(last) > _minStickerSyncInterval;
+  }
+
+  /// Instant picker stickers if already loaded this session.
+  static List<Sticker>? getPickerStickersSync() => _sessionPickerStickers;
+
+  /// Load stickers once — background sync only when stale.
+  static Future<List<Sticker>> getPickerStickers(
+    int userId, {
+    String? userEmail,
+  }) async {
+    if (_sessionPickerStickers != null && _sessionPickerStickers!.isNotEmpty) {
+      unawaited(syncStickersIfStale(userId, userEmail: userEmail));
+      return _sessionPickerStickers!;
+    }
+
+    final cached = await getAllStickers();
+    if (cached.isNotEmpty) {
+      _sessionPickerStickers = cached;
+      unawaited(syncStickersIfStale(userId, userEmail: userEmail));
+      return cached;
+    }
+
+    await syncStickers(
+      userId,
+      userEmail: userEmail,
+      page: 1,
+      limit: 50,
+      downloadAssets: false,
+    );
+    final stickers = await getAllStickers(forceRefresh: true);
+    _sessionPickerStickers = stickers;
+    return stickers;
+  }
+
+  /// Background sticker sync — skips API if cache is fresh.
+  static Future<void> syncStickersIfStale(
+    int userId, {
+    String? userEmail,
+    bool force = false,
+  }) async {
+    if (_syncInFlight) return;
+    final last = await _getLastStickerSync();
+    final existing = await getCachedStickerPacks();
+    if (!force && existing.isNotEmpty && !_isStickerSyncStale(last)) {
+      return;
+    }
+
+    _syncInFlight = true;
+    try {
+      await syncStickers(
+        userId,
+        userEmail: userEmail,
+        page: 1,
+        limit: 50,
+        downloadAssets: false,
+        force: force,
+      );
+    } finally {
+      _syncInFlight = false;
+    }
+  }
+
   /// Get all stickers as flat list (for emoji picker)
-  static Future<List<Sticker>> getAllStickers() async {
+  static Future<List<Sticker>> getAllStickers({bool forceRefresh = false}) async {
+    if (!forceRefresh &&
+        _allStickersCache != null &&
+        _allStickersCacheAt != null &&
+        DateTime.now().difference(_allStickersCacheAt!) < _stickersListTtl) {
+      return _allStickersCache!;
+    }
+
     final packs = await getCachedStickerPacks();
-    
     final allStickers = <Sticker>[];
-    
+
     for (final pack in packs) {
       for (final sticker in pack.stickers) {
-        // Add sticker if it has an image URL (will download on demand)
-        if (sticker.imageUrl.isNotEmpty) {
+        if (sticker.imageUrl.isNotEmpty || sticker.localPath != null) {
           allStickers.add(sticker);
-        } else if (sticker.localPath != null) {
-          // Check if sticker is downloaded using cache
-          bool exists = _stickerExistenceCache[sticker.id] ?? false;
-          if (!exists) {
-            final file = File(sticker.localPath!);
-            exists = await file.exists();
-            _stickerExistenceCache[sticker.id] = exists;
-          }
-          
-          if (exists) {
-            allStickers.add(sticker);
-          }
+          _stickerById[sticker.id] = sticker;
         }
       }
     }
-    
+
+    _allStickersCache = allStickers;
+    _allStickersCacheAt = DateTime.now();
     return allStickers;
+  }
+
+  static Sticker? getStickerByIdSync(int id) => _stickerById[id];
+
+  static Future<Sticker?> getStickerById(int id) async {
+    final cached = _stickerById[id];
+    if (cached != null) return cached;
+    await getAllStickers();
+    return _stickerById[id];
   }
 
   /// Get stickers grouped by pack (for sticker picker UI)
@@ -298,6 +404,47 @@ class StickerService {
     }
   }
 
+  static List<StickerPack> _mergeStickerPacks(
+    List<StickerPack> existing,
+    List<StickerPack> incoming,
+  ) {
+    final Map<int, StickerPack> byPackId = {
+      for (final pack in existing) pack.packId: pack,
+    };
+
+    for (final pack in incoming) {
+      final current = byPackId[pack.packId];
+      if (current == null) {
+        byPackId[pack.packId] = pack;
+        continue;
+      }
+
+      final Map<int, Sticker> stickersById = {
+        for (final sticker in current.stickers) sticker.id: sticker,
+      };
+      for (final sticker in pack.stickers) {
+        stickersById[sticker.id] = sticker;
+      }
+
+      byPackId[pack.packId] = StickerPack(
+        packId: pack.packId,
+        productId: pack.productId,
+        name: pack.name,
+        description: pack.description,
+        category: pack.category,
+        totalStickers: pack.totalStickers,
+        productImage: pack.productImage,
+        orderItemId: pack.orderItemId,
+        stickers: stickersById.values.toList()
+          ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder)),
+        createdAt: pack.createdAt,
+      );
+    }
+
+    return byPackId.values.toList()
+      ..sort((a, b) => a.packId.compareTo(b.packId));
+  }
+
   /// Clear all cached stickers
   static Future<void> clearCache() async {
     final prefs = await SharedPreferences.getInstance();
@@ -311,29 +458,62 @@ class StickerService {
     
     // Clear existence cache
     _stickerExistenceCache.clear();
+    _invalidateStickerListCache();
   }
 
   /// Sync stickers with ecommerce (call periodically) with pagination
   /// Requires user's ID and email from Fruits app
   /// Set testMode=true for testing without purchase
-  /// Fetches first page only (10 stickers) for fast loading
-  static Future<Map<String, dynamic>> syncStickers(int userId, {bool testMode = false, String? userEmail, int page = 1, int limit = 10}) async {
+  /// Set downloadAssets=false for fast picker open (metadata only)
+  static Future<Map<String, dynamic>> syncStickers(
+    int userId, {
+    bool testMode = false,
+    String? userEmail,
+    int page = 1,
+    int limit = 10,
+    bool downloadAssets = true,
+    bool force = false,
+  }) async {
     try {
+      if (!force && page == 1) {
+        final last = await _getLastStickerSync();
+        final existing = await getCachedStickerPacks();
+        if (existing.isNotEmpty && !_isStickerSyncStale(last)) {
+          return {
+            'packs': existing,
+            'pagination': null,
+            'total_packs': existing.length,
+          };
+        }
+      }
+
       final result = await getUserStickers(userId, testMode: testMode, userEmail: userEmail, page: page, limit: limit);
       final packs = (result['packs'] as List<dynamic>?)
           ?.map((p) => p is StickerPack ? p : StickerPack.fromJson(p as Map<String, dynamic>))
           .toList() ?? <StickerPack>[];
       final pagination = result['pagination'] as Map<String, dynamic>?;
       
-      // Save packs to cache first
-      await _saveStickerPacks(packs);
-      
-      // Download stickers for fetched packs
-      for (final pack in packs) {
-        await downloadStickerPack(pack);
+      // Merge with existing cache so paginated sync doesn't drop previous packs/stickers.
+      final existing = await getCachedStickerPacks();
+      final merged = _mergeStickerPacks(existing, packs);
+      await _saveStickerPacks(merged);
+      _invalidateStickerListCache();
+
+      if (downloadAssets) {
+        for (final pack in packs) {
+          await downloadStickerPack(pack);
+        }
+        _invalidateStickerListCache();
       }
-      
-      print('✅ Sticker sync completed. Page $page: ${packs.length} packs');
+
+      if (page == 1) {
+        await _markStickerSynced();
+        final refreshed = await getAllStickers(forceRefresh: true);
+        if (refreshed.isNotEmpty) {
+          _sessionPickerStickers = refreshed;
+        }
+      }
+
       return result;
     } catch (e) {
       print('❌ Sticker sync failed: $e');

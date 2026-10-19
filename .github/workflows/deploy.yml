@@ -1,0 +1,104 @@
+name: Deploy to Stores
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to deploy (android, ios, or both)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - android
+          - ios
+          - both
+  push:
+    tags:
+      - 'v*'  # Runs when a version tag is pushed (e.g., v1.0.0)
+
+jobs:
+  deploy-android:
+    name: Deploy Android to Google Play
+    if: ${{ github.event.inputs.platform == 'android' || github.event.inputs.platform == 'both' || github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fos
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.0'
+          cache: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: fos
+
+      - name: Run Fastlane Android Deploy
+        run: |
+          bundle exec fastlane android deploy
+        working-directory: fos/android
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+
+  deploy-ios:
+    name: Deploy iOS to TestFlight
+    if: ${{ github.event.inputs.platform == 'ios' || github.event.inputs.platform == 'both' || github.ref_type == 'tag' }}
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: fos
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.0'
+          cache: true
+          architecture: arm64
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: fos
+
+      - name: Run Fastlane iOS Deploy
+        run: |
+          bundle exec fastlane ios deploy
+        working-directory: fos/ios
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}

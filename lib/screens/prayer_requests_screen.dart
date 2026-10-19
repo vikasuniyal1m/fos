@@ -13,6 +13,7 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/report_utils.dart';
+import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Prayer Requests Screen
@@ -84,14 +85,22 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
       if (fromProfile && filterUserId != null && filterUserId > 0) {
         if (controller.filterUserId.value != filterUserId) {
           controller.filterUserId.value = filterUserId;
-          controller.loadPrayers(refresh: true);
         }
+        controller.reapplyFilter();
+        controller.loadPrayers(
+          refresh: true,
+          silent: controller.prayers.isNotEmpty,
+        );
         return;
       }
 
       if (controller.filterUserId.value != 0) {
         controller.filterUserId.value = 0;
-        controller.loadPrayers(refresh: true);
+        if (controller.prayers.isEmpty) {
+          controller.loadPrayers(refresh: false);
+        } else {
+          controller.loadPrayers(refresh: true, silent: true);
+        }
       }
     });
     
@@ -355,7 +364,12 @@ class PrayerRequestsScreen extends GetView<PrayersController> {
     final category = prayer['category'] as String? ?? prayer['type'] as String? ?? prayer['prayer_type'] as String? ?? 'Prayer Request';
     
     return InkWell(
-      onTap: () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']),
+      onTap: () => HomeScreen.navigateToPrayerDetail(
+            context,
+            prayer['id'] is int
+                ? prayer['id'] as int
+                : int.tryParse(prayer['id'].toString()) ?? 0,
+          ),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: ResponsiveHelper.safeMargin(

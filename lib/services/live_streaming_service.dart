@@ -1,6 +1,5 @@
 import '../config/api_config.dart';
 import 'api_service.dart';
-import 'cache_service.dart';
 import 'hive_cache_service.dart';
 import 'user_storage.dart';
 
@@ -108,19 +107,23 @@ class LiveStreamingService {
 
       // Clear live video cache so we don't show ended/un-updated streams from cache
       await HiveCacheService.clearKey(_liveVideosCacheKey);
-      await CacheService.clearCache(_liveVideosCacheKey);
 
-      if (response['success'] == true && response['data'] != null) {
-        return response['data'];
+      if (response['success'] == true) {
+        final data = response['data'];
+        if (data is Map<String, dynamic>) {
+          return data;
+        }
+        return <String, dynamic>{};
       } else {
-        throw ApiException(response['message'] ?? 'Failed to stop live stream.');
+        throw ApiException(
+          response['message'] ?? response['error'] ?? 'Failed to stop live stream.',
+        );
       }
     } catch (e) {
       if (e is ApiException && e.statusCode == 404) {
         // Stream already ended or not found on server; treat as success so host can leave.
         // Clear live video cache even if 404, to ensure it's removed from local display.
         await HiveCacheService.clearKey(_liveVideosCacheKey);
-        await CacheService.clearCache(_liveVideosCacheKey);
         return <String, dynamic>{};
       }
       print('Error stopping live stream: $e');
@@ -175,28 +178,34 @@ class LiveStreamingService {
   }
 
   /// Registers that an Agora live has started (broadcaster went live). So get_all_streams shows it for viewers.
-  static Future<void> startAgoraLive({
+  /// Returns true on success; throws [ApiException] on failure.
+  static Future<bool> startAgoraLive({
     required String channelName,
     required String title,
     String description = '',
   }) async {
-    try {
-      final userId = await UserStorage.getUserId();
-      if (userId == null) return;
-
-      await ApiService.postJson(
-        ApiConfig.liveStreamingAgoraStartLive,
-        body: {
-          'stream_id': channelName,
-          'channel_name': channelName,
-          'user_id': userId.toString(),
-          'title': title,
-          'description': description,
-        },
-      );
-    } catch (e) {
-      print('Error registering Agora live: $e');
+    final userId = await UserStorage.getUserId();
+    if (userId == null) {
+      throw ApiException('User not logged in.');
     }
+
+    final response = await ApiService.postJson(
+      ApiConfig.liveStreamingAgoraStartLive,
+      body: {
+        'stream_id': channelName,
+        'channel_name': channelName,
+        'user_id': userId.toString(),
+        'title': title,
+        'description': description,
+      },
+    );
+
+    if (response['success'] == true) {
+      return true;
+    }
+    throw ApiException(
+      response['message'] ?? 'Failed to register live stream.',
+    );
   }
 
   /// Add a live comment (host or viewer). Saved on server so everyone can see via getLiveComments.
@@ -268,11 +277,30 @@ class LiveStreamingService {
     }
   }
 
+  /// Fetch viewer_count from DB for a live stream (host + viewers).
+  static Future<int> fetchViewerCount(String streamId) async {
+    try {
+      final userId = await UserStorage.getUserId();
+      if (userId == null) return 0;
+
+      final response = await ApiService.get(
+        '${ApiConfig.liveStreamingGet}?stream_id=${Uri.encodeComponent(streamId)}&user_id=$userId',
+      );
+      if (response['success'] == true && response['data'] != null) {
+        final count = response['data']['viewer_count'];
+        if (count is num) return count.toInt();
+      }
+    } catch (e) {
+      print('Error fetching viewer count: $e');
+    }
+    return 0;
+  }
+
   /// Increment viewer count when a viewer joins a stream
   static Future<bool> incrementViewerCount(String streamId) async {
     try {
       final response = await ApiService.postJson(
-        '${ApiConfig.baseUrl}/live_streaming/increment_viewer.php',
+        ApiConfig.liveStreamingIncrementViewer,
         body: {'stream_id': streamId},
       );
       return response['success'] == true;
@@ -286,7 +314,7 @@ class LiveStreamingService {
   static Future<bool> decrementViewerCount(String streamId) async {
     try {
       final response = await ApiService.postJson(
-        '${ApiConfig.baseUrl}/live_streaming/decrement_viewer.php',
+        ApiConfig.liveStreamingDecrementViewer,
         body: {'stream_id': streamId},
       );
       return response['success'] == true;

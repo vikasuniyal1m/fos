@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/fruit_controller.dart';
@@ -12,7 +13,6 @@ import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/hive_cache_service.dart';
-import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 
@@ -43,6 +43,9 @@ class _FruitScreenState extends State<FruitScreen> {
   var allFruitVariants = <Map<String, dynamic>>[]; // All variants (01, 02, 03) for each fruit
   var isLoadingEmojis = true;
   String? userEmail;
+  var _isSyncingEmojis = false;
+  DateTime? _lastEmojiSyncAt;
+  static const Duration _emojiMinSyncInterval = Duration(minutes: 2);
 
   // Performance: Use static variable to persist across screen recreations
   static var _isEmojisLoaded = false;
@@ -89,79 +92,67 @@ class _FruitScreenState extends State<FruitScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUserEmail();
-    // Try to load from local storage (Hive + SharedPreferences) first for instant display
-    _loadFromLocalStorage();
-    // Always reload fresh data from API to avoid showing stale cached data
-    _loadFruitEmojis();
+    unawaited(_loadUserEmail());
+    _bootstrapFruitData();
+  }
+
+  /// Hive / memory / home seed first — then silent API sync (Prayer pattern).
+  void _bootstrapFruitData() {
+    final cachedFruit = HiveCacheService.getCachedList('fruit_screen_emojis');
+    final cachedVariants = HiveCacheService.getCachedList('fruit_screen_all_variants');
+
+    if (cachedFruit.isNotEmpty) {
+      fruitEmojis = List<Map<String, dynamic>>.from(cachedFruit);
+      allFruitVariants = List<Map<String, dynamic>>.from(cachedVariants);
+      isLoadingEmojis = false;
+      _cachedFruitEmojis = List<Map<String, dynamic>>.from(cachedFruit);
+      _cachedAllVariants = List<Map<String, dynamic>>.from(cachedVariants);
+      _isEmojisLoaded = true;
+    } else if (_cachedFruitEmojis.isNotEmpty) {
+      fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
+      allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
+      isLoadingEmojis = false;
+    } else {
+      _seedFromHomeController();
+    }
+
+    unawaited(_loadFruitEmojis(silent: fruitEmojis.isNotEmpty));
+  }
+
+  void _seedFromHomeController() {
+    if (fruitEmojis.isNotEmpty) return;
+
+    final main = homeController.emojis;
+    if (main.isEmpty) return;
+
+    fruitEmojis = main.map((e) => Map<String, dynamic>.from(e)).toList();
+    final all = homeController.allEmojis;
+    allFruitVariants = (all.isNotEmpty ? all : main)
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    isLoadingEmojis = false;
   }
 
   Future<void> _loadUserEmail() async {
     userEmail = await UserStorage.getUserEmail();
   }
 
-  /// Load fruits from local storage (Hive + SharedPreferences) for instant display
-  Future<void> _loadFromLocalStorage() async {
-    try {
-      // Try Hive cache first (faster)
-      final cachedFruit = HiveCacheService.getCachedList('fruit_screen_emojis');
-      final cachedVariants = HiveCacheService.getCachedList('fruit_screen_all_variants');
-      
-      if (cachedFruit.isNotEmpty) {
-        setState(() {
-          fruitEmojis = List<Map<String, dynamic>>.from(cachedFruit);
-          allFruitVariants = List<Map<String, dynamic>>.from(cachedVariants);
-          isLoadingEmojis = false;
-        });
-        print('✅ Loaded ${fruitEmojis.length} fruit from Hive cache (instant display)');
-        return;
-      }
-      
-      // Fallback to SharedPreferences cache
-      final prefsCachedFruit = await CacheService.getCachedList('fruit_screen_emojis');
-      final prefsCachedVariants = await CacheService.getCachedList('fruit_screen_all_variants');
-      
-      if (prefsCachedFruit.isNotEmpty) {
-        if (mounted) {
-          setState(() {
-            fruitEmojis = List<Map<String, dynamic>>.from(prefsCachedFruit);
-            allFruitVariants = List<Map<String, dynamic>>.from(prefsCachedVariants);
-            isLoadingEmojis = false;
-          });
-        }
-        print('✅ Loaded ${fruitEmojis.length} fruit from SharedPreferences cache (instant display)');
-        return;
-      }
-      
-      // If static cache is available, use it temporarily
-      if (_isEmojisLoaded && _cachedFruitEmojis.isNotEmpty) {
-        if (mounted) {
-          setState(() {
-            fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
-            allFruitVariants = List<Map<String, dynamic>>.from(_cachedAllVariants);
-            isLoadingEmojis = true; // Keep loading state to show we're refreshing
-          });
-        }
-        print('📋 Showing static cached fruit emojis temporarily (${fruitEmojis.length} items) while loading fresh data...');
-      }
-    } catch (e) {
-      print('⚠️ Error loading from local storage: $e');
-      // Continue to load from API
+  Future<void> _loadFruitEmojis({bool silent = false, bool force = false}) async {
+    if (_isSyncingEmojis) return;
+    if (silent &&
+        !force &&
+        _lastEmojiSyncAt != null &&
+        DateTime.now().difference(_lastEmojiSyncAt!) < _emojiMinSyncInterval) {
+      return;
     }
-  }
 
-  Future<void> _loadFruitEmojis() async {
+    final hasDisplayedData = fruitEmojis.isNotEmpty;
+    if (!silent && !hasDisplayedData && mounted) {
+      setState(() => isLoadingEmojis = true);
+    }
+
+    _isSyncingEmojis = true;
     try {
-      setState(() {
-        isLoadingEmojis = true;
-      });
-
-      // Clear old cache before loading new data to prevent showing stale data
-      print('🗑️ Clearing old cache before loading fresh data...');
-      _cachedFruitEmojis = [];
-      _cachedAllVariants = [];
-
-      // Load fruit from fruit table (not emojis table)
       // This ensures only fruit added in the fruit table are shown
       print('🔄 Loading fruit from fruit table (not emojis table)...');
       final fruitFromTable = await FruitService.getAllFruit();
@@ -395,17 +386,11 @@ class _FruitScreenState extends State<FruitScreen> {
       _cachedAllVariants = List<Map<String, dynamic>>.from(freshAllVariants);
       _isEmojisLoaded = true; // Performance: Mark as loaded
       
-      // Save to local storage (Hive + SharedPreferences) for persistence
+      // Save to Hive cache for persistence
       try {
-        // Save to Hive cache (fast, synchronous)
         await HiveCacheService.cacheList('fruit_screen_emojis', freshFruitEmojis);
         await HiveCacheService.cacheList('fruit_screen_all_variants', freshAllVariants);
-        
-        // Also save to SharedPreferences cache (for compatibility)
-        await CacheService.cacheList('fruit_screen_emojis', freshFruitEmojis);
-        await CacheService.cacheList('fruit_screen_all_variants', freshAllVariants);
-        
-        print('💾 Fruit cached successfully (Hive + SharedPreferences)');
+        print('💾 Fruit cached successfully (Hive)');
       } catch (e) {
         print('⚠️ Error caching fruit to local storage: $e');
       }
@@ -419,14 +404,13 @@ class _FruitScreenState extends State<FruitScreen> {
         });
       }
       
-      print('✅ Fresh fruit emojis loaded and cached (${fruitEmojis.length} items)');
-      print('✅ Cache updated with latest data');
+      _lastEmojiSyncAt = DateTime.now();
+      print('✅ Fresh fruit emojis loaded (${fruitEmojis.length} items)');
     } catch (e, stackTrace) {
       print('❌ Error loading fruit emojis: $e');
       print('❌ Stack trace: $stackTrace');
-      
-      // If we have cached data, use it even on error
-      if (_isEmojisLoaded && _cachedFruitEmojis.isNotEmpty) {
+
+      if (_cachedFruitEmojis.isNotEmpty && fruitEmojis.isEmpty) {
         if (mounted) {
           setState(() {
             fruitEmojis = List<Map<String, dynamic>>.from(_cachedFruitEmojis);
@@ -434,16 +418,17 @@ class _FruitScreenState extends State<FruitScreen> {
             isLoadingEmojis = false;
           });
         }
-        print('✅ Using cached data after error');
-      } else {
-        // No cached data - set empty list
-        if (mounted) {
-          setState(() {
-            fruitEmojis = [];
-            allFruitVariants = [];
-            isLoadingEmojis = false;
-          });
-        }
+      } else if (mounted && fruitEmojis.isEmpty) {
+        setState(() {
+          fruitEmojis = [];
+          allFruitVariants = [];
+          isLoadingEmojis = false;
+        });
+      }
+    } finally {
+      _isSyncingEmojis = false;
+      if (mounted && isLoadingEmojis && fruitEmojis.isNotEmpty) {
+        setState(() => isLoadingEmojis = false);
       }
     }
   }
@@ -458,19 +443,15 @@ class _FruitScreenState extends State<FruitScreen> {
     try {
       HiveCacheService.clearKey('fruit_screen_emojis');
       HiveCacheService.clearKey('fruit_screen_all_variants');
-      CacheService.clearCache('fruit_screen_emojis');
-      CacheService.clearCache('fruit_screen_all_variants');
-      print('🗑️ Fruit emojis cache cleared (static + local storage)');
+      print('🗑️ Fruit emojis cache cleared (static + Hive)');
     } catch (e) {
       print('⚠️ Error clearing local storage cache: $e');
       print('🗑️ Fruit emojis static cache cleared');
     }
   }
 
-  Future<void> _loadAllFruitVariants() async {
-    // This function is now redundant - _loadFruitEmojis() already loads all variants
-    // Keeping it for backward compatibility but it just calls _loadFruitEmojis
-    await _loadFruitEmojis();
+  Future<void> _loadAllFruitVariants({bool force = false}) async {
+    await _loadFruitEmojis(force: force, silent: fruitEmojis.isNotEmpty);
   }
 
 
@@ -692,7 +673,8 @@ class _FruitScreenState extends State<FruitScreen> {
       getFruitEmoji: _getFruitEmoji,
       homeController: homeController,
       showFruitVariants: (context, fruitName) => _showFruitVariantsDialog(context, fruitName, allFruitVariants, fruitEmojis),
-      loadFruitEmojis: _loadFruitEmojis,
+      loadFruitEmojis: () =>
+          _loadFruitEmojis(force: true, silent: fruitEmojis.isNotEmpty),
       loadAllFruitVariants: _loadAllFruitVariants,
       allFruitVariants: allFruitVariants,
       buildHighQualityImage: _buildHighQualityImage,
@@ -815,7 +797,6 @@ class _FruitScreenContentState extends State<_FruitScreenContent> {
 
           return RefreshIndicator(
           onRefresh: () async {
-            // Clear cache and reload
             _FruitScreenState.clearCache();
             await widget.loadFruitEmojis();
           },
@@ -935,7 +916,7 @@ class _FruitScreenContentState extends State<_FruitScreenContent> {
                 SizedBox(height: ResponsiveHelper.spacing(context, 20)),
                 
                 // Fruit Grid - Using fruitEmojis
-                if (widget.isLoadingEmojis)
+                if (widget.fruitEmojis.isEmpty && widget.isLoadingEmojis)
                   Padding(
                     padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 40)),
                     child: Center(
@@ -1215,14 +1196,18 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                                   size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28, desktop: 32),
                                 ),
                                 SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-                                Text(
-                                  '${widget.fruitName.split(' ').first} Variant',
-                                  style: ResponsiveHelper.textStyle(
-                                    context,
-                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 22, tablet: 26, desktop: 30),
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black,
-                                    letterSpacing: 0.3,
+                                Expanded(
+                                  child: Text(
+                                    '${widget.fruitName.split(' ').first} Variant',
+                                    style: ResponsiveHelper.textStyle(
+                                      context,
+                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 22, tablet: 26, desktop: 30),
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black,
+                                      letterSpacing: 0.3,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ],
@@ -1340,209 +1325,59 @@ class _FruitVariantsDialogState extends State<_FruitVariantsDialog> {
                         color: Colors.transparent,
                         child: InkWell(
                           onTap: () async {
-                            print('🖱️ Variant tapped: ${variant['name']}');
-
-                            // 1. Show Loading Dialog immediately
-                            showDialog(
-                              context: context,
-                              barrierDismissible: false,
-                              builder: (context) => Center(
-                                child: Container(
-                                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 24)),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.2),
-                                        blurRadius: 20,
-                                        spreadRadius: 5,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      SizedBox(
-                                        height: ResponsiveHelper.spacing(context, 40),
-                                        width: ResponsiveHelper.spacing(context, 40),
-                                        child: CircularProgressIndicator(
-                                          valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF8B4513)),
-                                          strokeWidth: 3,
-                                        ),
-                                      ),
-                                      SizedBox(height: ResponsiveHelper.spacing(context, 20)),
-                                      Text(
-                                        'Updating feeling...',
-                                        style: ResponsiveHelper.textStyle(
-                                          context,
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600,
-                                          color: const Color(0xFF8B4513),
-                                          letterSpacing: 0.5,
-                                        ).copyWith(
-                                          decoration: TextDecoration.none, // Isse lines hat jayengi
-                                        ),
-                                      ),
-                                      SizedBox(height: ResponsiveHelper.spacing(context, 8)),
-                                      Text(
-                                        'Please wait a moment',
-                                        style: ResponsiveHelper.textStyle(
-                                          context,
-                                          fontSize: 12,
-                                          color: Colors.grey[600],
-                                        ).copyWith(
-                                          decoration: TextDecoration.none, // Isse lines hat jayengi
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                            // Record usage
-                            try {
-                              final userId = await UserStorage.getUserId();
-                              if (userId != null) {
-                                // Extract emoji value from variant
-                                // Priority: code > emoji_char > image_url (full) > name
-                                // API accepts: code (like "meekness_grapes_03"), emoji_char, or full image_url
-                                // DO NOT use variant ID - API doesn't accept numeric IDs
-                                String? emojiValue;
-                                
-                                print('📋 Variant data: id=${variant['id']}, code=${variant['code']}, emoji_char=${variant['emoji_char']}, name=${variant['name']}, image_url=${variant['image_url']}');
-                                
-                                // Priority 1: Use code (like "meekness_grapes_03") - BEST for API
-                                final variantCode = variant['code'] as String?;
-                                final emojiChar = variant['emoji_char'] as String?;
-                                final imageUrl = variant['image_url'] as String?;
-                                final name = variant['name'] as String?;
-
-                                if (variantCode != null && variantCode.toString().trim().isNotEmpty) {
-                                  emojiValue = variantCode.toString().trim();
-                                } else if (emojiChar != null && emojiChar.toString().trim().isNotEmpty) {
-                                  emojiValue = emojiChar.toString().trim();
-                                } else if (imageUrl != null && imageUrl.toString().trim().isNotEmpty) {
-                                  emojiValue = imageUrl.toString().trim();
-                                } else {
-                                  emojiValue = name;
-                                }
-
-                                if (emojiValue != null && emojiValue.isNotEmpty) {
-                                  try {
-                                    // STEP 1: Save to database via API
-                                    print('🍎 FRUIT UPDATE: Saving to database: $emojiValue');
-
-                                    // Add a small delay so the user actually sees the loader (UX improvement)
-                                    // otherwise successful calls might be too fast and look glitchy
-                                    await Future.delayed(const Duration(milliseconds: 800));
-
-                                    await EmojisService.useEmoji(
-                                      userId: userId,
-                                      emoji: emojiValue,
-                                    );
-
-                                    // STEP 2: Update local storage
-                                    await widget.homeController.updateUserFeeling(emojiValue, emojiData: variant);
-
-                                    // Close Loading Dialog
-                                    if (mounted) {
-                                      Navigator.of(context).pop();
-                                    }
-
-                                    // Close Variants Dialog
-                                    if (mounted) {
-                                      Navigator.of(context).pop();
-                                    }
-
-                                    // Go to Dashboard
-                                    if (mounted) {
-                                      // Direct navigation to dashboard without GetX route checking
-                                      Navigator.of(context).pushNamedAndRemoveUntil(
-                                        Routes.DASHBOARD,
-                                        (route) => false,
-                                      );
-                                    }
-
-                                    // Show success message
-                                    _showCustomSnackbar(
-                                      context,
-                                      'Success',
-                                      'Feeling updated successfully!',
-                                    );
-
-                                  } catch (e) {
-                                    print('❌ API Error: $e, falling back to local storage');
-
-                                    // Fallback: save locally
-                                    try {
-                                      await widget.homeController.updateUserFeeling(emojiValue, emojiData: variant);
-                                    } catch (_) {}
-
-                                    // Close Loader
-                                    if (mounted) {
-                                      Navigator.of(context).pop();
-                                    }
-
-                                    // Close Variants Dialog
-                                    if (mounted) {
-                                      Navigator.of(context).pop();
-                                    }
-
-                                    // Go to Dashboard
-                                    if (mounted) {
-                                      Navigator.of(context).pushNamedAndRemoveUntil(
-                                        Routes.DASHBOARD,
-                                        (route) => false,
-                                      );
-                                    }
-
-                                    _showCustomSnackbar(
-                                      context,
-                                      'Saved',
-                                      'Feeling saved locally.',
-                                    );
-                                  }
-                                } else {
-                                  // Close Loader
-                                  if (mounted) {
-                                    Navigator.of(context).pop();
-                                  }
-
-                                  // Get.snackbar(
-                                  //   'Error',
-                                  //   'Invalid fruit data',
-                                  //   backgroundColor: Colors.red,
-                                  //   colorText: Colors.white,
-                                  // );
-                                }
-                              } else {
-                                // Close Loader
-                                if (mounted) {
-                                  Navigator.of(context).pop();
-                                }
-
-                                _showCustomSnackbar(
-                                  context,
-                                  'Login Required',
-                                  'Please login to select fruit.',
-                                  isError: true,
-                                );
-                              }
-                            } catch (e) {
-                              // Close Loader logic
-                              if (mounted) {
-                                Navigator.of(context).pop();
-                              }
-
-                              print('❌ Critical Error: $e');
-                              // _showCustomSnackbar(
-                              //   context,
-                              //   'Error',
-                              //   'Something went wrong. Please try again.',
-                              //   isError: true,
-                              // );
+                            final userId = await UserStorage.getUserId();
+                            if (userId == null) {
+                              _showCustomSnackbar(
+                                context,
+                                'Login Required',
+                                'Please login to select fruit.',
+                                isError: true,
+                              );
+                              return;
                             }
+
+                            final variantCode = variant['code'] as String?;
+                            final emojiChar = variant['emoji_char'] as String?;
+                            final imageUrl = variant['image_url'] as String?;
+                            final name = variant['name'] as String?;
+
+                            String? emojiValue;
+                            if (variantCode != null &&
+                                variantCode.toString().trim().isNotEmpty) {
+                              emojiValue = variantCode.toString().trim();
+                            } else if (emojiChar != null &&
+                                emojiChar.toString().trim().isNotEmpty) {
+                              emojiValue = emojiChar.toString().trim();
+                            } else if (imageUrl != null &&
+                                imageUrl.toString().trim().isNotEmpty) {
+                              emojiValue = imageUrl.toString().trim();
+                            } else {
+                              emojiValue = name?.toString().trim();
+                            }
+
+                            if (emojiValue == null || emojiValue.isEmpty) {
+                              return;
+                            }
+
+                            await widget.homeController.updateUserFeeling(
+                              emojiValue,
+                              emojiData: variant,
+                            );
+
+                            if (mounted) {
+                              Navigator.of(context).pop();
+                            }
+                            if (mounted) {
+                              Navigator.of(context).pushNamedAndRemoveUntil(
+                                Routes.DASHBOARD,
+                                (route) => false,
+                              );
+                            }
+                            _showCustomSnackbar(
+                              context,
+                              'Success',
+                              'Feeling updated successfully!',
+                            );
                           },
                               borderRadius: BorderRadius.circular(ScreenSize.borderRadiusMedium),
                           child: Container(

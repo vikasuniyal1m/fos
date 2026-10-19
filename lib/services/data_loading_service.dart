@@ -9,6 +9,7 @@ import 'package:fruitsofspirit/services/profile_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
+import 'package:fruitsofspirit/services/shorts_service.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/fruit_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
@@ -26,6 +27,7 @@ class DataLoadingService {
   static const String _cacheKeyPrayers = 'home_prayers';
   static const String _cacheKeyBlogs = 'home_blogs';
   static const String _cacheKeyVideos = 'home_videos';
+  static const String _cacheKeyShorts = 'home_shorts';
   static const String _cacheKeyLiveVideos = 'home_live_videos';
   static const String _cacheKeyGalleryPhotos = 'home_gallery_photos';
   static const String _cacheKeyGroups = 'home_groups';
@@ -86,6 +88,7 @@ class DataLoadingService {
       _loadPrayers().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
       _loadBlogs().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
       _loadVideos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
+      _loadCommunityShorts().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
       _loadLiveVideos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
       _loadGalleryPhotos().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
       _loadGroups().timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]),
@@ -98,11 +101,12 @@ class DataLoadingService {
       'prayers': results[1],
       'blogs': results[2],
       'videos': results[3],
-      'liveVideos': results[4],
-      'galleryPhotos': results[5],
-      'groups': results[6],
-      'emojis': results[7],
-      'profile': results[8],
+      'communityShorts': results[4],
+      'liveVideos': results[5],
+      'galleryPhotos': results[6],
+      'groups': results[7],
+      'emojis': results[8],
+      'profile': results[9],
     };
 
     // Cache all data
@@ -121,6 +125,7 @@ class DataLoadingService {
       CacheService.getCachedList(_cacheKeyPrayers),
       CacheService.getCachedList(_cacheKeyBlogs),
       CacheService.getCachedList(_cacheKeyVideos),
+      CacheService.getCachedList(_cacheKeyShorts),
       CacheService.getCachedList(_cacheKeyLiveVideos),
       CacheService.getCachedList(_cacheKeyGalleryPhotos),
       CacheService.getCachedList(_cacheKeyGroups),
@@ -129,7 +134,7 @@ class DataLoadingService {
     ]);
 
     // Filter cached live videos to exclude ended streams
-    final cachedLiveVideos = results[4] as List<Map<String, dynamic>>;
+    final cachedLiveVideos = results[5] as List<Map<String, dynamic>>;
     final onlyLive = cachedLiveVideos.where((s) {
       final status = (s['status'] ?? '').toString().toLowerCase();
       return status == 'live';
@@ -140,11 +145,12 @@ class DataLoadingService {
       'prayers': results[1],
       'blogs': results[2],
       'videos': results[3],
+      'communityShorts': results[4],
       'liveVideos': onlyLive,
-      'galleryPhotos': results[5],
-      'groups': results[6],
-      'emojis': results[7],
-      'profile': results[8],
+      'galleryPhotos': results[6],
+      'groups': results[7],
+      'emojis': results[8],
+      'profile': results[9],
     };
   }
 
@@ -155,6 +161,8 @@ class DataLoadingService {
       CacheService.cacheList(_cacheKeyPrayers, data['prayers'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyBlogs, data['blogs'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyVideos, data['videos'] as List<Map<String, dynamic>>),
+      CacheService.cacheList(_cacheKeyShorts, data['communityShorts'] as List<Map<String, dynamic>>),
+      CacheService.cacheList('shorts_community', data['communityShorts'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyLiveVideos, data['liveVideos'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyGalleryPhotos, data['galleryPhotos'] as List<Map<String, dynamic>>),
       CacheService.cacheList(_cacheKeyGroups, data['groups'] as List<Map<String, dynamic>>),
@@ -232,6 +240,26 @@ class DataLoadingService {
       return videosList;
     } catch (e) {
       print('❌ Error loading videos: $e');
+      return [];
+    }
+  }
+
+  /// Load community shorts for home feed (exclude current user's uploads)
+  static Future<List<Map<String, dynamic>>> _loadCommunityShorts() async {
+    try {
+      final userId = await UserStorage.getUserId();
+      final items = await ShortsService.getShorts(
+        currentUserId: userId,
+        limit: 15,
+      );
+      final filtered = items.where((short) {
+        final ownerId = int.tryParse(short['user_id']?.toString() ?? '0') ?? 0;
+        return userId == null || userId <= 0 || ownerId != userId;
+      }).toList();
+      print('✅ Loaded ${filtered.length} community shorts');
+      return filtered;
+    } catch (e) {
+      print('❌ Error loading community shorts: $e');
       return [];
     }
   }
@@ -336,6 +364,7 @@ class DataLoadingService {
       'prayers': await CacheService.getCachedList(_cacheKeyPrayers),
       'blogs': await CacheService.getCachedList(_cacheKeyBlogs),
       'videos': await CacheService.getCachedList(_cacheKeyVideos),
+      'communityShorts': await CacheService.getCachedList(_cacheKeyShorts),
       'liveVideos': await CacheService.getCachedList(_cacheKeyLiveVideos),
       'galleryPhotos': await CacheService.getCachedList(_cacheKeyGalleryPhotos),
       'groups': await CacheService.getCachedList(_cacheKeyGroups),

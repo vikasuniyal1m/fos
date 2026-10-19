@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -7,15 +8,16 @@ import 'package:get/get.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fruitsofspirit/config/api_config.dart';
+import 'package:fruitsofspirit/utils/permission_manager.dart';
 import 'package:fruitsofspirit/services/agora_service.dart';
-import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
-import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
+import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
+import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 
 /// One live comment or emoji reaction (in-memory for smooth UI; can plug backend later).
 class _LiveComment {
@@ -32,12 +34,14 @@ class _LiveComment {
 class AgoraLiveScreen extends StatefulWidget {
   final String channelName;
   final String title;
+  final String description;
   final bool isBroadcaster;
 
   const AgoraLiveScreen({
     Key? key,
     required this.channelName,
     this.title = 'Live',
+    this.description = '',
     this.isBroadcaster = false,
   }) : super(key: key);
 
@@ -55,7 +59,9 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
 
   // Viewer count tracking
   final Set<int> _remoteUids = {};
-  int get _viewerCount => _remoteUids.length;
+  int _serverViewerCount = 0;
+  int get _viewerCount => _serverViewerCount;
+  bool _viewerCountUpdated = false;
 
   // Broadcaster controls
   bool _micMuted = false;
@@ -79,53 +85,46 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
   String? _profilePhotoUrl;
   bool _showFollowerBanner = true;
   String? _myUserId;
+  bool _permissionNeedsSettings = false;
 
   Timer? _commentPollTimer;
+  Timer? _viewerCountPollTimer;
   final Set<String> _seenCommentIds = {};
 
   @override
   void initState() {
     super.initState();
+    _bootstrapEmojisFromCache();
     _loadViewerName();
-    _loadQuickFruitEmojis();
+    unawaited(_loadQuickFruitEmojis());
     _joinChannel();
     _startCommentPolling();
+    _startViewerCountPolling();
   }
 
-  /// Saare variants chahiye (har fruit ke 3) — fruit_screen_all_variants use karo, nahi to API se full list
-  Future<void> _loadQuickFruitEmojis() async {
-    try {
-      var cached = HiveCacheService.getCachedList('fruit_screen_all_variants');
-      if (cached.isEmpty) cached = await CacheService.getCachedList('fruit_screen_all_variants');
-      if (mounted && cached.isNotEmpty) {
-        setState(() => _quickFruitEmojis = List<Map<String, dynamic>>.from(cached));
+  void _bootstrapEmojisFromCache() {
+    for (final key in ['home_emojis', 'fruit_screen_all_variants']) {
+      final cached = HiveCacheService.getCachedList(key);
+      if (cached.isNotEmpty) {
+        _quickFruitEmojis = List<Map<String, dynamic>>.from(cached);
         return;
       }
-      final fruitFromTable = await FruitService.getAllFruit();
-      if (fruitFromTable.isEmpty && mounted) return;
+    }
+  }
+
+  /// Saare active emojis — cache-first, phir API se full list (no heavy filter)
+  Future<void> _loadQuickFruitEmojis() async {
+    _bootstrapEmojisFromCache();
+    if (mounted && _quickFruitEmojis.isNotEmpty) setState(() {});
+    try {
       var emojis = await EmojisService.getEmojis(status: 'Active', sortBy: 'image_url', order: 'ASC');
+      if (emojis.isEmpty && _quickFruitEmojis.isNotEmpty) return;
       if (emojis.isEmpty && mounted) return;
-      final fruitNames = fruitFromTable.map((f) => (f['name'] as String? ?? '').toLowerCase().trim()).toList();
-      emojis = emojis.where((emoji) {
-        final name = (emoji['name'] as String? ?? '').toLowerCase();
-        final category = (emoji['category'] as String? ?? '').toLowerCase();
-        final matchesTable = fruitNames.any((fn) {
-          final ew = name.split(RegExp(r'[\s_\-]+')).where((w) => w.isNotEmpty).map((w) => w.toLowerCase()).toList();
-          final fw = fn.split(RegExp(r'[\s_\-]+')).where((w) => w.isNotEmpty).map((w) => w.toLowerCase()).toList();
-          return fw.any((fw0) => ew.any((ew0) => ew0.contains(fw0) || fw0.contains(ew0) || ew0 == fw0)) || name.contains(fn) || fn.contains(name);
-        });
-        final hasFruitCat = category.isNotEmpty && (category.contains('fruit') || category.contains('spirit')) && !category.contains('opposite');
-        final generic = RegExp(r'^emoji \d+$').hasMatch(name.trim());
-        return (matchesTable || hasFruitCat) && !generic;
-      }).toList();
       final list = List<Map<String, dynamic>>.from(emojis);
-      if (list.isNotEmpty) {
-        await HiveCacheService.cacheList('fruit_screen_all_variants', list);
-        await CacheService.cacheList('fruit_screen_all_variants', list);
-      }
+      await HiveCacheService.cacheList('home_emojis', list);
       if (mounted && list.isNotEmpty) setState(() => _quickFruitEmojis = list);
     } catch (_) {
-      if (mounted) setState(() => _quickFruitEmojis = []);
+      if (mounted && _quickFruitEmojis.isEmpty) setState(() => _quickFruitEmojis = []);
     }
   }
 
@@ -147,7 +146,106 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
     }
   }
 
-  Future<void> _joinChannel() async {
+  Future<void> _trackViewerJoin() async {
+    if (_viewerCountUpdated) return;
+    _viewerCountUpdated = true;
+    await LiveStreamingService.incrementViewerCount(widget.channelName);
+    await _fetchServerViewerCount();
+  }
+
+  Future<void> _trackViewerLeave() async {
+    if (!_viewerCountUpdated) return;
+    _viewerCountUpdated = false;
+    await LiveStreamingService.decrementViewerCount(widget.channelName);
+  }
+
+  Future<void> _registerAgoraLive() async {
+    try {
+      await LiveStreamingService.startAgoraLive(
+        channelName: widget.channelName,
+        title: widget.title,
+        description: widget.description,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is ApiException ? e.message : 'Could not register live stream.';
+      Get.snackbar(
+        'Live registration failed',
+        message,
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: AppTheme.errorColor.withOpacity(0.9),
+        colorText: Colors.white,
+        duration: const Duration(seconds: 5),
+      );
+      setState(() {
+        _error = 'Could not register live stream. Viewers may not see you.';
+      });
+    }
+  }
+
+  Future<bool> _showLivePermissionRationale() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Camera & Microphone'),
+        content: const Text(
+          'To go live, FOS Messenger needs access to your camera and microphone so viewers can see and hear you.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Continue')),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  Future<bool> _ensureLivePermissions() async {
+    final camera = await Permission.camera.status;
+    final microphone = await Permission.microphone.status;
+    if (camera.isGranted && microphone.isGranted) {
+      _permissionNeedsSettings = false;
+      return true;
+    }
+
+    final firstAsk = !camera.isGranted &&
+        !microphone.isGranted &&
+        !camera.isPermanentlyDenied &&
+        !microphone.isPermanentlyDenied &&
+        !camera.isDenied &&
+        !microphone.isDenied;
+
+    if (Platform.isIOS && firstAsk) {
+      final proceed = await _showLivePermissionRationale();
+      if (!proceed) return false;
+    }
+
+    final result = await PermissionManager.requestLivePermissions();
+    _permissionNeedsSettings = result.needsSettings;
+    return result.granted;
+  }
+
+  Future<void> _retryLivePermissions() async {
+    setState(() {
+      _error = null;
+      _isLoading = true;
+      _permissionNeedsSettings = false;
+    });
+    final ok = await _ensureLivePermissions();
+    if (!ok) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Camera and microphone are required to go live.';
+        _isLoading = false;
+        _permissionNeedsSettings = true;
+      });
+      return;
+    }
+    await _joinChannel(skipPermissionCheck: true);
+  }
+
+  Future<void> _joinChannel({bool skipPermissionCheck = false}) async {
     try {
       final userId = await UserStorage.getUserId();
       if (userId == null) {
@@ -159,14 +257,14 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
       }
       _myUserId = userId.toString();
 
-      if (widget.isBroadcaster) {
-        final cameraStatus = await Permission.camera.request();
-        final micStatus = await Permission.microphone.request();
-        if (!cameraStatus.isGranted || !micStatus.isGranted) {
+      if (widget.isBroadcaster && !skipPermissionCheck) {
+        final allowed = await _ensureLivePermissions();
+        if (!allowed) {
           if (mounted) {
             setState(() {
-              _error = 'Camera and microphone are required to go live. Please allow in Settings.';
+              _error = 'Camera and microphone are required to go live.';
               _isLoading = false;
+              _permissionNeedsSettings = true;
             });
           }
           return;
@@ -203,10 +301,9 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
                 _isLoading = false;
               });
               if (widget.isBroadcaster) {
-                LiveStreamingService.startAgoraLive(
-                  channelName: widget.channelName,
-                  title: widget.title,
-                );
+                _registerAgoraLive();
+              } else {
+                _trackViewerJoin();
               }
               _fetchCommentsOnce();
             }
@@ -335,11 +432,14 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
   @override
   void dispose() {
     _commentPollTimer?.cancel();
+    _viewerCountPollTimer?.cancel();
     _commentScrollController.dispose();
     _commentController.dispose();
     _commentFocusNode.dispose();
     if (widget.isBroadcaster) {
       LiveStreamingService.stopStream(widget.channelName).catchError((_) {});
+    } else {
+      _trackViewerLeave();
     }
     AgoraService.leaveAndDispose();
     super.dispose();
@@ -386,8 +486,11 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
       try {
         await LiveStreamingService.stopStream(widget.channelName);
       } catch (_) {
-        // Ignore: no Overlay on this screen for snackbar; host still leaves and pops.
+        // Ignore: host still leaves and pops.
       }
+      AgoraService.leaveAndDispose();
+    } else {
+      await _trackViewerLeave();
       AgoraService.leaveAndDispose();
     }
     if (mounted) Get.back();
@@ -396,6 +499,20 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
   void _startCommentPolling() {
     _commentPollTimer?.cancel();
     _commentPollTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) => _fetchCommentsOnce());
+  }
+
+  void _startViewerCountPolling() {
+    _viewerCountPollTimer?.cancel();
+    _fetchServerViewerCount();
+    _viewerCountPollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _fetchServerViewerCount());
+  }
+
+  Future<void> _fetchServerViewerCount() async {
+    if (!mounted) return;
+    final count = await LiveStreamingService.fetchViewerCount(widget.channelName);
+    if (mounted && count != _serverViewerCount) {
+      setState(() => _serverViewerCount = count);
+    }
   }
 
   Future<void> _fetchCommentsOnce() async {
@@ -464,8 +581,23 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
     LiveStreamingService.addLiveComment(channelName: widget.channelName, userName: _viewerName, text: t, isEmoji: isEmoji);
   }
 
-  /// Sirf text comments (strip mein emoji nahi dikhate)
-  List<_LiveComment> get _textComments => _comments.where((c) => !c.isEmoji).toList();
+  List<_LiveComment> get _stripComments => _comments;
+
+  String _commentDisplayText(_LiveComment c) {
+    if (!c.isEmoji) return c.text;
+    try {
+      final data = jsonDecode(c.text);
+      if (data is Map) {
+        final url = data['image_url']?.toString();
+        if (url != null && url.isNotEmpty) return url;
+        final char = data['emoji_char']?.toString();
+        if (char != null && char.isNotEmpty) return char;
+        final name = data['name']?.toString();
+        if (name != null && name.isNotEmpty) return name;
+      }
+    } catch (_) {}
+    return c.text;
+  }
 
   /// Known fruit words — name me jo bhi word ye ho, usi se group (Grapes Meekness 3 / Meekness Grapes 1 dono -> grapes)
   static const Set<String> _fruitWords = {
@@ -658,15 +790,38 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
                     ],
                   ),
                 ),
+                if (isPermissionError) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    PermissionManager.livePermissionSettingsHint(),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.75),
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
                 const SizedBox(height: 28),
                 if (isPermissionError)
                   ElevatedButton.icon(
+                    onPressed: _retryLivePermissions,
+                    icon: const Icon(Icons.videocam),
+                    label: const Text('Allow Camera & Microphone'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                if (isPermissionError) const SizedBox(height: 12),
+                if (isPermissionError)
+                  OutlinedButton.icon(
                     onPressed: () => openAppSettings(),
                     icon: const Icon(Icons.settings),
                     label: const Text('Open Settings'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
+                    style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white54),
                     ),
                   ),
                 if (isPermissionError) const SizedBox(height: 12),
@@ -947,7 +1102,7 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: _textComments.isEmpty
+                child: _stripComments.isEmpty
                     ? Center(
                         child: Text(
                           'Comments',
@@ -958,26 +1113,35 @@ class _AgoraLiveScreenState extends State<AgoraLiveScreen> {
                         controller: _commentScrollController,
                         reverse: true,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        itemCount: _textComments.length,
+                        itemCount: _stripComments.length,
                         itemBuilder: (context, index) {
-                          final c = _textComments[_textComments.length - 1 - index];
+                          final c = _stripComments[_stripComments.length - 1 - index];
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 4),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                Expanded(
-                                  child: RichText(
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    text: TextSpan(
-                                      style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.2),
-                                      children: [
-                                        TextSpan(text: '${c.userName}: ', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white.withValues(alpha: 0.95))),
-                                        TextSpan(text: c.text),
-                                      ],
-                                    ),
+                                Text(
+                                  '${c.userName}: ',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white.withValues(alpha: 0.95),
+                                    fontSize: 12,
                                   ),
+                                ),
+                                Expanded(
+                                  child: c.isEmoji
+                                      ? FruitEmojiHelper.buildCommentText(
+                                          context,
+                                          _commentDisplayText(c),
+                                          style: const TextStyle(fontSize: 22, height: 1.1),
+                                        )
+                                      : Text(
+                                          c.text,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.2),
+                                        ),
                                 ),
                               ],
                             ),

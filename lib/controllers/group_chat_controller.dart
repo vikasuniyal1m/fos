@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/services/group_chat_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart' as us;
 import 'package:fruitsofspirit/services/content_moderation_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
 
 import '../routes/app_pages.dart';
 import '../utils/app_theme.dart';
@@ -25,6 +27,68 @@ class GroupChatController extends GetxController {
   Timer? _pollingTimer;
   int _lastMessageCount = 0;
   int _currentOffset = 0;
+  bool isChatScreenActive = false;
+  Duration _pollInterval = const Duration(seconds: 5);
+  int _emptyPollStreak = 0;
+  static const Duration _minPollInterval = Duration(seconds: 5);
+  static const Duration _maxPollInterval = Duration(seconds: 15);
+  static const Duration _messagesMinSyncInterval = Duration(minutes: 2);
+  DateTime? _messagesLastSyncedAt;
+  bool _messagesSyncing = false;
+
+  static String _chatHiveKey(int groupId) => 'group_chat_$groupId';
+
+  void bootstrapMessages(int groupId) {
+    if (currentGroupId == groupId && messages.isNotEmpty) return;
+
+    final cached = HiveCacheService.getCachedList(_chatHiveKey(groupId));
+    if (cached.isEmpty) return;
+
+    currentGroupId = groupId;
+    messages.value = cached.map((m) => _normalizeChatMessage(m, groupId)).toList();
+    _updateLastMessageIdFromMessages();
+    _lastMessageCount = messages.length;
+  }
+
+  void _updateLastMessageIdFromMessages() {
+    if (messages.isEmpty) return;
+    var newest = 0;
+    for (final msg in messages) {
+      final idVal = msg['id'];
+      final parsed = idVal is int
+          ? idVal
+          : int.tryParse(idVal?.toString() ?? '') ?? 0;
+      if (parsed > newest) newest = parsed;
+    }
+    if (newest > 0 &&
+        (lastMessageId == null || newest > lastMessageId!)) {
+      lastMessageId = newest;
+    }
+  }
+
+  Map<String, dynamic> _normalizeChatMessage(
+    Map<String, dynamic> msg,
+    int groupId,
+  ) {
+    final normalized = Map<String, dynamic>.from(msg);
+    if (normalized['group_id'] == null) {
+      normalized['group_id'] = groupId;
+    }
+    final resolved = ImageHelper.resolveChatFileUrl(normalized);
+    if (resolved != null) {
+      normalized['file_url'] = resolved;
+    }
+    return normalized;
+  }
+
+  Future<void> _cacheMessages(int groupId) async {
+    if (messages.isEmpty) return;
+    await HiveCacheService.cacheList(
+      _chatHiveKey(groupId),
+      messages.map((m) => Map<String, dynamic>.from(m)).toList(),
+      expiryHours: 24,
+    );
+  }
 
   @override
   void onInit() {
@@ -51,44 +115,57 @@ class GroupChatController extends GetxController {
     }
   }
 
-  /// Load chat messages
-  Future<void> loadMessages(int groupId, {bool refresh = false}) async {
-    print('🔄 GroupChatController: loadMessages() called - groupId: $groupId, refresh: $refresh');
-    print('🔄 GroupChatController: Current userId: ${userId.value}');
-    
+  /// Load chat messages — Hive first, silent background sync.
+  Future<void> loadMessages(
+    int groupId, {
+    bool refresh = false,
+    bool silent = false,
+    bool force = false,
+  }) async {
     if (userId.value == 0) {
-      print('🔄 GroupChatController: userId is 0, loading userId...');
       await _loadUserId();
     }
 
     if (userId.value == 0) {
-      print('❌ GroupChatController: userId is still 0 after loading');
       message.value = 'Please login first';
       return;
     }
 
-    // If switching to a different group, clear messages and reset
     if (currentGroupId != null && currentGroupId != groupId) {
-      _stopPolling(); // Stop polling for previous group
+      _stopPolling();
       messages.value = [];
-      messages.refresh();
       lastMessageId = null;
       hasMore.value = true;
       _lastMessageCount = 0;
       _currentOffset = 0;
     }
 
-    if (isLoading.value && !refresh) return;
+    bootstrapMessages(groupId);
 
-    // Always clear messages on refresh to force fresh load from backend
-    if (refresh) {
+    if (silent &&
+        !force &&
+        messages.isNotEmpty &&
+        _messagesLastSyncedAt != null &&
+        DateTime.now().difference(_messagesLastSyncedAt!) <
+            _messagesMinSyncInterval) {
+      currentGroupId = groupId;
+      if (isChatScreenActive) _startPolling(groupId);
+      return;
+    }
+
+    if (_messagesSyncing && !force) return;
+    if (isLoading.value && !refresh && !force) return;
+
+    if (refresh && !silent && messages.isEmpty) {
       messages.value = [];
-      messages.refresh();
       lastMessageId = null;
       _currentOffset = 0;
     }
 
-    isLoading.value = true;
+    _messagesSyncing = true;
+    if (!silent && messages.isEmpty) {
+      isLoading.value = true;
+    }
     currentGroupId = groupId;
     message.value = '';
 
@@ -130,24 +207,25 @@ class GroupChatController extends GetxController {
         if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
           msg['message_type'] = 'emoji';
         }
-        return msg;
+        return _normalizeChatMessage(msg, groupId);
       }).toList();
 
-      // Always replace messages on refresh, append on load more
-      if (refresh) {
-        // Create completely new list instance to ensure GetX detects change
-        messages.value = [];
-        messages.refresh();
-        await Future.delayed(const Duration(milliseconds: 50));
-        // Create deep copy to ensure GetX detects change
-        messages.value = filteredMessages.map((msg) => Map<String, dynamic>.from(msg)).toList();
+      if (messages.isEmpty || (refresh && !silent)) {
+        messages.value = filteredMessages
+            .map((msg) => Map<String, dynamic>.from(msg))
+            .toList();
       } else {
-        // Check for duplicates before adding
-        final existingMessageIds = messages.map((m) => m['id'].toString()).toSet();
-        final newMessages = filteredMessages.where((msg) => !existingMessageIds.contains(msg['id'].toString())).toList();
+        final existingMessageIds =
+            messages.map((m) => m['id'].toString()).toSet();
+        final newMessages = filteredMessages
+            .where((msg) => !existingMessageIds.contains(msg['id'].toString()))
+            .toList();
         if (newMessages.isNotEmpty) {
           messages.insertAll(0, newMessages);
-          print('🔄 GroupChatController: Added ${newMessages.length} new messages, skipped ${filteredMessages.length - newMessages.length} duplicates');
+        } else if (silent && filteredMessages.isNotEmpty) {
+          messages.value = filteredMessages
+              .map((msg) => Map<String, dynamic>.from(msg))
+              .toList();
         }
       }
       
@@ -171,31 +249,76 @@ class GroupChatController extends GetxController {
       }
 
       hasMore.value = filteredMessages.length >= 50;
-      
-      // Start polling for new messages if message count changed
-      if (_lastMessageCount != filteredMessages.length) {
-        _lastMessageCount = filteredMessages.length;
+      _lastMessageCount = messages.length;
+
+      _messagesLastSyncedAt = DateTime.now();
+      unawaited(_cacheMessages(groupId));
+
+      if (isChatScreenActive) {
         _startPolling(groupId);
       }
     } catch (e) {
       print('❌ GroupChatController: Error in loadMessages: $e');
-      print('❌ GroupChatController: Stack trace: ${StackTrace.current}');
-      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      if (!silent || messages.isEmpty) {
+        message.value =
+            'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      }
     } finally {
-      print('✅ GroupChatController: loadMessages() completed, isLoading set to false');
+      _messagesSyncing = false;
       isLoading.value = false;
     }
   }
 
-  /// Start polling for new messages
+  /// Chat screen visible — start incremental sync; hidden — stop all polling.
+  void setChatScreenActive(bool active, {int? groupId}) {
+    isChatScreenActive = active;
+    if (!active) {
+      _stopPolling();
+      return;
+    }
+
+    final id = groupId ?? currentGroupId;
+    if (id == null) return;
+
+    _emptyPollStreak = 0;
+    _pollInterval = _minPollInterval;
+    _startPolling(id);
+    unawaited(_checkForNewMessages(id));
+  }
+
+  /// Start adaptive polling (incremental after_id only).
   void _startPolling(int groupId) {
-    _stopPolling(); // Stop any existing timer
-    
-    // Poll every 3 seconds for new messages
-    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (currentGroupId == groupId && !isLoading.value && !isSending.value) {
-        _checkForNewMessages(groupId);
+    if (!isChatScreenActive) return;
+    _stopPolling();
+    _scheduleNextPoll(groupId);
+  }
+
+  void _scheduleNextPoll(int groupId) {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer(_pollInterval, () async {
+      if (!isChatScreenActive || currentGroupId != groupId) {
+        return;
       }
+      if (isLoading.value || isSending.value) {
+        _scheduleNextPoll(groupId);
+        return;
+      }
+
+      final hadNew = await _checkForNewMessages(groupId);
+      if (!isChatScreenActive || currentGroupId != groupId) {
+        return;
+      }
+
+      if (hadNew) {
+        _emptyPollStreak = 0;
+        _pollInterval = _minPollInterval;
+      } else {
+        _emptyPollStreak++;
+        if (_emptyPollStreak >= 3) {
+          _pollInterval = _maxPollInterval;
+        }
+      }
+      _scheduleNextPoll(groupId);
     });
   }
 
@@ -211,9 +334,9 @@ class GroupChatController extends GetxController {
   }
 
   /// Sync new messages from database (incremental update, no refresh)
-  Future<void> _checkForNewMessages(int groupId) async {
+  Future<bool> _checkForNewMessages(int groupId) async {
     if (userId.value == 0 || currentGroupId != groupId || isLoading.value) {
-      return;
+      return false;
     }
 
     try {
@@ -228,7 +351,7 @@ class GroupChatController extends GetxController {
       );
 
       if (chatMessages.isEmpty) {
-        return;
+        return false;
       }
 
       // Process and add only new messages
@@ -255,7 +378,7 @@ class GroupChatController extends GetxController {
         if ((mType == null || mType == 'text') && FruitEmojiHelper.isFruit(content)) {
           msg['message_type'] = 'emoji';
         }
-        return msg;
+        return _normalizeChatMessage(msg, groupId);
       }).toList();
 
       // Get existing message IDs to avoid duplicates - check both msg_id and id
@@ -329,9 +452,12 @@ class GroupChatController extends GetxController {
           lastMessageId = newestId;
         }
         _lastMessageCount = messages.length;
+        return true;
       }
+      return false;
     } catch (e) {
       // Silently fail - don't show error for polling
+      return false;
     }
   }
 
@@ -530,7 +656,7 @@ class GroupChatController extends GetxController {
       _stopPolling();
       // Restart polling after a short delay to allow the message to be fully processed
       Future.delayed(const Duration(seconds: 5), () {
-        if (currentGroupId == groupId) {
+        if (currentGroupId == groupId && isChatScreenActive) {
           _startPolling(groupId);
         }
       });
@@ -632,7 +758,7 @@ class GroupChatController extends GetxController {
         if (msg['message'] == null || msg['message'] == 'null') {
           msg['message'] = '';
         }
-        return msg;
+        return _normalizeChatMessage(msg, groupId);
       }).toList();
 
       // Get existing message IDs

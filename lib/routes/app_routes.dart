@@ -55,6 +55,10 @@ abstract class Routes {
   static const PAYMENT = _Paths.PAYMENT;
   static const DENOMINATIONS = _Paths.DENOMINATIONS;
   static const CHURCH_LOCATOR = _Paths.CHURCH_LOCATOR;
+  static const SHORTS = _Paths.SHORTS;
+  static const UPLOAD_SHORT = _Paths.UPLOAD_SHORT;
+  static const SAVED_SHORTS = _Paths.SAVED_SHORTS;
+  static const MY_SHORTS = _Paths.MY_SHORTS;
 }
 
 abstract class _Paths {
@@ -108,4 +112,8 @@ abstract class _Paths {
   static const PAYMENT = '/payment';
   static const DENOMINATIONS = '/denominations';
   static const CHURCH_LOCATOR = '/church-locator';
+  static const SHORTS = '/shorts';
+  static const UPLOAD_SHORT = '/upload-short';
+  static const SAVED_SHORTS = '/saved-shorts';
+  static const MY_SHORTS = '/my-shorts';
 }

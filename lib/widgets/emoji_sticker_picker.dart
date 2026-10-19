@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -26,11 +27,12 @@ class EmojiStickerPicker extends StatefulWidget {
   State<EmojiStickerPicker> createState() => _EmojiStickerPickerState();
 }
 
-class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
+class _EmojiStickerPickerState extends State<EmojiStickerPicker>
+    with SingleTickerProviderStateMixin {
   var availableEmojis = <Map<String, dynamic>>[].obs;
   var isLoadingEmojis = true.obs;
   var stickers = <Sticker>[].obs;
-  var isLoadingStickers = true.obs;
+  var isLoadingStickers = false.obs;
   var isLoadingMore = false.obs;
   
   // Pagination state
@@ -40,13 +42,32 @@ class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
   
   // User email for API authentication
   String? userEmail;
+  TabController? _tabController;
+  bool _stickersTabLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _loadUserEmail();
     _loadEmojis();
+    if (widget.showStickers) {
+      _tabController = TabController(length: 2, vsync: this);
+      _tabController!.addListener(_onTabChanged);
+    }
+  }
+
+  void _onTabChanged() {
+    if (_tabController == null || _tabController!.index != 1) return;
+    if (_stickersTabLoaded) return;
+    _stickersTabLoaded = true;
     _loadStickers(page: 1);
+  }
+
+  @override
+  void dispose() {
+    _tabController?.removeListener(_onTabChanged);
+    _tabController?.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserEmail() async {
@@ -54,13 +75,17 @@ class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
   }
 
   Future<void> _loadEmojis() async {
+    final cached = EmojisService.getPickerEmojisSync();
+    if (cached != null && cached.isNotEmpty) {
+      availableEmojis.value = cached;
+      isLoadingEmojis.value = false;
+      return;
+    }
+
     try {
       isLoadingEmojis.value = true;
       final userEmail = await _getCurrentUserEmail();
-      availableEmojis.value = await EmojisService.getEmojis(
-        status: 'Active',
-        sortBy: 'usage_count',
-        order: 'DESC',
+      availableEmojis.value = await EmojisService.getPickerEmojis(
         userEmail: userEmail,
       );
     } catch (e) {
@@ -72,54 +97,64 @@ class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
 
   Future<void> _loadStickers({int page = 1, bool append = false}) async {
     try {
-      if (page == 1) {
-        isLoadingStickers.value = true;
-      } else {
-        isLoadingMore.value = true;
+      if (page == 1 && !append) {
+        final sessionStickers = StickerService.getPickerStickersSync();
+        if (sessionStickers != null && sessionStickers.isNotEmpty) {
+          stickers.value = sessionStickers;
+          isLoadingStickers.value = false;
+          final userId = await _getCurrentUserId();
+          final userEmail = await _getCurrentUserEmail();
+          unawaited(
+            StickerService.syncStickersIfStale(userId, userEmail: userEmail),
+          );
+          return;
+        }
+
+        isLoadingStickers.value = stickers.isEmpty;
+        final userId = await _getCurrentUserId();
+        final userEmail = await _getCurrentUserEmail();
+        final loaded = await StickerService.getPickerStickers(
+          userId,
+          userEmail: userEmail,
+        );
+        stickers.value = loaded;
+        totalPacks.value = loaded.isNotEmpty ? 1 : 0;
+        currentPage.value = 1;
+        hasMoreStickers.value = false;
+        return;
       }
-      
-      // Get current user ID and email from auth system
-      int userId = await _getCurrentUserId();
-      String? userEmail = await _getCurrentUserEmail();
-      
-      print('🔄 Loading stickers page $page for user $userId...');
-      
-      // Fetch from API with pagination (testMode enabled to bypass email requirement)
+
+      isLoadingMore.value = true;
+      final userId = await _getCurrentUserId();
+      final userEmail = await _getCurrentUserEmail();
       final result = await StickerService.syncStickers(
-        userId, 
-        testMode: true, // Enable testMode to bypass email requirement
+        userId,
+        testMode: false,
         userEmail: userEmail,
         page: page,
-        limit: 10,
+        limit: 50,
+        downloadAssets: false,
+        force: true,
       );
-      
+
       final packs = result['packs'] as List<StickerPack>;
       final pagination = result['pagination'] as Map<String, dynamic>?;
-      
-      // Update total count
-      totalPacks.value = result['total_packs'] ?? 0;
-      
-      // Convert packs to flat sticker list
       final newStickers = <Sticker>[];
       for (final pack in packs) {
         newStickers.addAll(pack.stickers);
       }
-      
-      // Update stickers list
+
       if (append) {
         stickers.addAll(newStickers);
       } else {
         stickers.value = newStickers;
       }
-      
-      // Update pagination state
+
+      totalPacks.value = result['total_packs'] ?? 0;
       currentPage.value = page;
       hasMoreStickers.value = pagination?['has_next'] ?? false;
-      
-      print('✅ Loaded ${newStickers.length} stickers (total: ${stickers.length})');
     } catch (e) {
-      print('❌ Error loading stickers: $e');
-      if (page == 1) {
+      if (page == 1 && stickers.isEmpty) {
         stickers.value = [];
       }
     } finally {
@@ -160,42 +195,38 @@ class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
         ],
       ),
       child: widget.showStickers
-          ? DefaultTabController(
-              length: 2,
-              child: Column(
-                children: [
-                  // Handle bar
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+          ? Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  const SizedBox(height: 8),
-                  // Tab Bar
-                  TabBar(
-                    labelColor: const Color(0xFF8B4513),
-                    unselectedLabelColor: Colors.grey[600],
-                    indicatorColor: const Color(0xFF8B4513),
-                    tabs: const [
-                      Tab(icon: Icon(Icons.emoji_emotions), text: 'Emojis'),
-                      Tab(icon: Icon(Icons.sticky_note_2), text: 'My Stickers'),
+                ),
+                const SizedBox(height: 8),
+                TabBar(
+                  controller: _tabController,
+                  labelColor: const Color(0xFF8B4513),
+                  unselectedLabelColor: Colors.grey[600],
+                  indicatorColor: const Color(0xFF8B4513),
+                  tabs: const [
+                    Tab(icon: Icon(Icons.emoji_emotions), text: 'Emojis'),
+                    Tab(icon: Icon(Icons.sticky_note_2), text: 'My Stickers'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildEmojiGrid(),
+                      _buildStickerGrid(),
                     ],
                   ),
-                  // Tab Content
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _buildEmojiGrid(),
-                        _buildStickerGrid(),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             )
           : _buildEmojiGrid(),
     );
@@ -221,34 +252,22 @@ class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
         itemCount: availableEmojis.length,
         itemBuilder: (context, index) {
           final emoji = availableEmojis[index];
-          print('🔍 Emoji data at index $index: $emoji');
-
-          // Prioritize emoji_char (actual emoji character) over image_url
-          // This prevents URLs from being concatenated with text
           String emojiChar = '';
-          if (emoji['emoji_char'] != null && emoji['emoji_char'].toString().isNotEmpty) {
+          if (emoji['emoji_char'] != null &&
+              emoji['emoji_char'].toString().isNotEmpty) {
             emojiChar = emoji['emoji_char'].toString();
-            print('✅ Using emoji_char: $emojiChar');
-          } else if (emoji['code'] != null && emoji['code'].toString().isNotEmpty) {
+          } else if (emoji['code'] != null &&
+              emoji['code'].toString().isNotEmpty) {
             emojiChar = emoji['code'].toString();
-            print('✅ Using code: $emojiChar');
-          } else if (emoji['image_url'] != null && emoji['image_url'].toString().isNotEmpty) {
+          } else if (emoji['image_url'] != null &&
+              emoji['image_url'].toString().isNotEmpty) {
             emojiChar = emoji['image_url'].toString();
-            print('✅ Using image_url: $emojiChar');
           } else if (emoji['id'] != null) {
-            // Generate code from ID as fallback
             emojiChar = ':emoji_${emoji['id']}:';
-            print('✅ Generated code from ID: $emojiChar');
-          } else {
-            print('❌ No valid emoji field found!');
           }
 
           return InkWell(
-            onTap: () {
-              print('🙂 Emoji selected: "$emojiChar" from emoji data: $emoji');
-              print('🙂 Calling widget.onEmojiSelected with: "$emojiChar"');
-              widget.onEmojiSelected(emojiChar);
-            },
+            onTap: () => widget.onEmojiSelected(emojiChar),
             borderRadius: BorderRadius.circular(8),
             child: Container(
               decoration: BoxDecoration(
@@ -359,34 +378,7 @@ class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
                   onTap: () => widget.onEmojiSelected(sticker.emojiCode),
                   onLongPress: () => _showStickerOptions(context, sticker),
                   borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    // No background, no border - just like emojis
-                    child: FutureBuilder<bool>(
-                      future: _checkStickerFileExists(sticker),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                        }
-                        
-                        final fileExists = snapshot.data ?? false;
-                        
-                        if (fileExists && sticker.localPath != null) {
-                          return Image.file(
-                            File(sticker.localPath!),
-                            width: 28,
-                            height: 28,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              print('❌ Error loading local file: $error');
-                              return _buildNetworkImage(sticker);
-                            },
-                          );
-                        } else {
-                          return _buildNetworkImage(sticker);
-                        }
-                      },
-                    ),
-                  ),
+                  child: _buildStickerThumb(sticker),
                 );
               },
             ),
@@ -423,14 +415,17 @@ class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
     });
   }
 
-  Future<bool> _checkStickerFileExists(Sticker sticker) async {
-    if (sticker.localPath == null) return false;
-    try {
-      final file = File(sticker.localPath!);
-      return await file.exists();
-    } catch (e) {
-      return false;
+  Widget _buildStickerThumb(Sticker sticker) {
+    if (sticker.localPath != null && sticker.localPath!.isNotEmpty) {
+      return Image.file(
+        File(sticker.localPath!),
+        width: 28,
+        height: 28,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => _buildNetworkImage(sticker),
+      );
     }
+    return _buildNetworkImage(sticker);
   }
 
   Widget _buildNetworkImage(Sticker sticker) {
@@ -455,7 +450,6 @@ class _EmojiStickerPickerState extends State<EmojiStickerPicker> {
         );
       },
       errorBuilder: (context, error, stackTrace) {
-        print('❌ Network image failed: $error');
         return Icon(Icons.image_not_supported, size: 28, color: Colors.grey[400]);
       },
     );
@@ -547,17 +541,18 @@ void showEmojiStickerPicker({
   required BuildContext context,
   required Function(String) onEmojiSelected,
   double height = 350,
+  bool useRootNavigator = true,
 }) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useRootNavigator: useRootNavigator,
     backgroundColor: Colors.transparent,
-    builder: (context) => EmojiStickerPicker(
+    builder: (sheetContext) => EmojiStickerPicker(
       onEmojiSelected: (emoji) {
         onEmojiSelected(emoji);
-        // Check if the widget is still mounted before popping
-        if (Navigator.canPop(context)) {
-          Navigator.pop(context);
+        if (Navigator.of(sheetContext, rootNavigator: useRootNavigator).canPop()) {
+          Navigator.of(sheetContext, rootNavigator: useRootNavigator).pop();
         }
       },
       height: height,

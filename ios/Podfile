@@ -45,10 +45,18 @@ post_install do |installer|
       config.build_settings['GCC_OPTIMIZATION_LEVEL'] = 's'
       config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
       config.build_settings['STRIP_INSTALLED_PRODUCT'] = 'NO'
-      
+
+      # permission_handler: enable iOS permission APIs (without these, dialogs never show)
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_CAMERA=1'
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_MICROPHONE=1'
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_PHOTOS=1'
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_LOCATION=1'
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_NOTIFICATIONS=1'
+
       # Fix for iris_method_channel compilation error
       if target.name == 'iris_method_channel'
-        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', 'FLUTTER_FRAMEWORK=1']
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'FLUTTER_FRAMEWORK=1'
         config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
         config.build_settings['SWIFT_INCLUDE_PATHS'] ||= ['$(inherited)']
       end

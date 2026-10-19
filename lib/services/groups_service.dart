@@ -146,6 +146,28 @@ class GroupsService {
     }
   }
 
+  /// Remove Member (group owner only)
+  static Future<String> removeMember({
+    required int userId,
+    required int groupId,
+    required int memberId,
+  }) async {
+    final response = await ApiService.post(
+      '${ApiConfig.groups}?action=remove-member',
+      body: {
+        'user_id': userId.toString(),
+        'group_id': groupId.toString(),
+        'member_id': memberId.toString(),
+      },
+    );
+
+    if (response['success'] == true) {
+      return response['message'] ?? 'Member removed successfully';
+    } else {
+      throw ApiException(response['message'] ?? 'Failed to remove member');
+    }
+  }
+
   /// Leave Group
   /// 
   /// Parameters:

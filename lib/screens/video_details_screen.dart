@@ -14,6 +14,8 @@ import 'package:fruitsofspirit/utils/image_helper.dart';
 import 'package:fruitsofspirit/widgets/live_video_player.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
+import 'package:fruitsofspirit/services/videos_service.dart';
+import 'package:fruitsofspirit/utils/content_delete_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
@@ -55,8 +57,10 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   final showReplyInput = <int, bool>{};
   final expandedReplies = <int>{}; // Track which replies are expanded
   var userId = 0;
-  var isLoading = false;
+  var commentsLoading = false;
   var _isSendingComment = false;
+  Worker? _commentsWorker;
+  Worker? _videoDataWorker;
   final Set<int> _sendingReplies = {};
   var comments = <Map<String, dynamic>>[];
   String? userEmail;
@@ -117,13 +121,13 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     );
   }
 
-  static const String baseUrl = 'http://admin.fosmessenger.com/';
-
   // Video player state
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
   bool _hasVideoError = false;
   String? _videoError;
+  String? _initializingVideoUrl;
+  bool _videoInitInProgress = false;
   bool _showControls = true;
   bool _isFullScreen = false;
   double _videoAspectRatio = 16 / 9;
@@ -148,98 +152,171 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     _loadUserId();
     _loadUserEmail();
     final videoId = Get.arguments as int? ?? 0;
-    if (videoId > 0 && (controller.selectedVideo.isEmpty || controller.selectedVideo['id'] != videoId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await controller.loadVideoDetails(videoId);
-        controller.loadAvailableEmojis(); // Load all available emojis for reactions mapping
-        controller.loadQuickEmojis();
-        _loadComments(videoId);
-        
-      // Initialize video after video details are loaded
-        if (controller.selectedVideo.isNotEmpty) {
-          final video = controller.selectedVideo;
-          final filePath = video['file_path'] as String? ?? '';
-          if (filePath.isNotEmpty) {
-            final videoUrl = filePath.startsWith('http') 
-                ? filePath 
-                : baseUrl + (filePath.startsWith('/') ? filePath.substring(1) : filePath);
-            if (videoUrl.isNotEmpty && !videoUrl.contains('Live')) {
-              _initializeVideo(videoUrl);
-            }
-          }
-        }
+    if (videoId <= 0) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _commentsWorker?.dispose();
+      _videoDataWorker?.dispose();
+      _commentsWorker = ever(controller.videoComments, (_) {
+        _syncCommentsFromController();
       });
-    } else if (controller.selectedVideo.isNotEmpty) {
-      final videoId = controller.selectedVideo['id'] as int? ?? 0;
-      if (videoId > 0) {
-        _loadComments(videoId);
+      _videoDataWorker = ever(controller.selectedVideo, (_) {
+        _tryInitVideoFromSelected();
+      });
+
+      if (controller.preparedDetailVideoId != videoId ||
+          controller.selectedVideo.isEmpty) {
+        controller.bootstrapVideoDetail(videoId);
       }
-      
-      // Initialize video if already loaded
-      final video = controller.selectedVideo;
-      final filePath = video['file_path'] as String? ?? '';
-      if (filePath.isNotEmpty) {
-        final videoUrl = filePath.startsWith('http') 
-            ? filePath 
-            : baseUrl + (filePath.startsWith('/') ? filePath.substring(1) : filePath);
-        if (videoUrl.isNotEmpty && !videoUrl.contains('Live')) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _initializeVideo(videoUrl);
-          });
+
+      _tryInitVideoFromSelected();
+      _syncCommentsFromController();
+      unawaited(controller.prepareVideoDetails(videoId));
+    });
+  }
+
+  String? _resolveVideoPlayUrl(Map<String, dynamic> video) {
+    return VideosService.getVideoUrl(video);
+  }
+
+  void _tryInitVideoFromSelected() {
+    if (!mounted || controller.selectedVideo.isEmpty) return;
+
+    final videoUrl = _resolveVideoPlayUrl(controller.selectedVideo);
+    if (videoUrl == null || videoUrl.isEmpty || videoUrl.contains('Live')) {
+      return;
+    }
+
+    if (_isVideoInitialized && _initializingVideoUrl == videoUrl) return;
+    if (_videoInitInProgress && _initializingVideoUrl == videoUrl) return;
+    _initializeVideo(videoUrl);
+  }
+
+  void _syncCommentsFromController() {
+    if (!mounted) return;
+
+    final flattened = <Map<String, dynamic>>[];
+    void flatten(List<Map<String, dynamic>> list, {int? parentId}) {
+      for (final comment in list) {
+        final map = Map<String, dynamic>.from(comment);
+        if (parentId != null) {
+          map['parent_comment_id'] = parentId;
+        }
+        flattened.add(map);
+        final replies = comment['replies'];
+        if (replies is List && replies.isNotEmpty) {
+          flatten(
+            replies
+                .whereType<Map>()
+                .map((r) => Map<String, dynamic>.from(r))
+                .toList(),
+            parentId: comment['id'] as int?,
+          );
         }
       }
     }
+
+    flatten(controller.videoComments.toList());
+
+    final deletedIds = <int>{};
+    void collectDeleted(List<Map<String, dynamic>> list) {
+      for (final comment in list) {
+        final id = comment['id'];
+        final parsed = id is int ? id : int.tryParse('$id') ?? 0;
+        final isDeleted = comment['is_deleted'] == 1 ||
+            comment['is_deleted'] == true ||
+            comment['is_deleted'] == '1';
+        if (isDeleted && parsed > 0) deletedIds.add(parsed);
+        final replies = comment['replies'];
+        if (replies is List) {
+          collectDeleted(
+            replies
+                .whereType<Map>()
+                .map((r) => Map<String, dynamic>.from(r))
+                .toList(),
+          );
+        }
+      }
+    }
+    collectDeleted(controller.videoComments.toList());
+
+    flattened.removeWhere((comment) {
+      final id = comment['id'];
+      final parsed = id is int ? id : int.tryParse('$id') ?? 0;
+      if (parsed > 0 && deletedIds.contains(parsed)) return true;
+      final parentId = comment['parent_comment_id'];
+      final parsedParent = parentId is int
+          ? parentId
+          : int.tryParse('$parentId') ?? 0;
+      return parsedParent > 0 && deletedIds.contains(parsedParent);
+    });
+
+    setState(() {
+      comments = flattened;
+      commentsLoading = false;
+    });
   }
   
   Future<void> _initializeVideo(String videoUrl) async {
     if (!mounted) return;
+    if (_videoInitInProgress && _initializingVideoUrl == videoUrl) return;
+
+    _videoInitInProgress = true;
+    _initializingVideoUrl = videoUrl;
+
+    setState(() {
+      _hasVideoError = false;
+      _videoError = null;
+      _isVideoInitialized = false;
+    });
+
+    final previous = _videoController;
+    _videoController = null;
+    previous?.dispose();
+
     try {
-      setState(() {
-        _hasVideoError = false;
-        _videoError = null;
-        _isVideoInitialized = false;
-      });
-      
-      print('🎥 Initializing video from URL: $videoUrl');
-      
-      // Dispose previous controller if exists
-      await _videoController?.dispose();
-      
-      _videoController = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
-      await _videoController!.initialize();
-      
-      // Listen to video player state changes
-      _videoController!.addListener(_videoPlayerListener);
-      
-      // Auto-play video
-      await _videoController!.play();
-      
-      if (!mounted) return;
+      final player = VideoPlayerController.networkUrl(
+        Uri.parse(videoUrl),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+      );
+      _videoController = player;
+      await player.initialize();
+
+      if (!mounted || _initializingVideoUrl != videoUrl) {
+        await player.dispose();
+        return;
+      }
+
+      player.addListener(_videoPlayerListener);
+      player.play();
+
       setState(() {
         _isVideoInitialized = true;
         _hasVideoError = false;
-        _videoAspectRatio = _videoController!.value.aspectRatio;
+        _videoAspectRatio = player.value.aspectRatio;
       });
-      
-      print('✅ Video initialized successfully with AspectRatio: $_videoAspectRatio');
     } catch (e) {
-      print('❌ Error initializing video: $e');
-      
-      // If it's a MediaCodec/ExoPlayer error, it might be a hardware capability issue
-      String userFriendlyError = e.toString();
-      if (userFriendlyError.contains('MediaCodecVideoRenderer') || 
+      if (!mounted || _initializingVideoUrl != videoUrl) return;
+
+      var userFriendlyError = e.toString();
+      if (userFriendlyError.contains('MediaCodecVideoRenderer') ||
           userFriendlyError.contains('ExoPlaybackException')) {
-        userFriendlyError = 'The video format is not supported by your device hardware. This can happen with 60fps videos on some devices.';
+        userFriendlyError =
+            'The video format is not supported by your device hardware. This can happen with 60fps videos on some devices.';
       } else if (userFriendlyError.contains('VideoError')) {
-        userFriendlyError = 'Video player encountered an error. Please check your internet connection and try again.';
+        userFriendlyError =
+            'Video player encountered an error. Please check your internet connection and try again.';
       }
 
-      if (!mounted) return;
       setState(() {
         _hasVideoError = true;
         _videoError = userFriendlyError;
         _isVideoInitialized = false;
       });
+    } finally {
+      if (_initializingVideoUrl == videoUrl) {
+        _videoInitInProgress = false;
+      }
     }
   }
   
@@ -361,6 +438,8 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
 
   @override
   void dispose() {
+    _commentsWorker?.dispose();
+    _videoDataWorker?.dispose();
     // Reset orientations when leaving the screen
     try {
       SystemChrome.setPreferredOrientations([
@@ -409,30 +488,20 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   }
 
   Widget _buildVideoPlayer(String videoUrl) {
-    // Initialize video if not already initialized
-    if (_videoController == null && !_hasVideoError) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _initializeVideo(videoUrl);
-      });
-    }
-    
     if (_hasVideoError) {
       return _buildVideoErrorState(videoUrl);
     }
-    
+
     if (!_isVideoInitialized || _videoController == null) {
       return _buildVideoLoadingState();
     }
-    
+
     return _buildVideoPlayerWithControls();
   }
-  
+
   Widget _buildVideoLoadingState() {
     final video = controller.selectedVideo;
-    final thumbnailPath = video['thumbnail_path'] as String?;
-    final thumbnailUrl = thumbnailPath != null && thumbnailPath.isNotEmpty
-        ? (thumbnailPath.startsWith('http') ? thumbnailPath : baseUrl + (thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath))
-        : null;
+    final thumbnailUrl = VideosService.getThumbnailUrl(video);
 
     return Container(
       color: Colors.black,
@@ -447,29 +516,26 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               height: double.infinity,
               errorWidget: const SizedBox.shrink(),
             ),
-          Container(
-            color: Colors.black.withOpacity(thumbnailUrl != null ? 0.4 : 1.0),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    color: AppTheme.iconscolor,
-                    strokeWidth: 3,
-                  ),
-                  SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                  Text(
-                    'Loading video...',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
+          if (thumbnailUrl == null)
+            Center(
+              child: CircularProgressIndicator(
+                color: AppTheme.iconscolor,
+                strokeWidth: 3,
+              ),
+            )
+          else
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  color: Colors.white.withOpacity(0.9),
+                  strokeWidth: 2,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -477,11 +543,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   
   Widget _buildVideoErrorState(String videoUrl) {
     final video = controller.selectedVideo;
-    final thumbnailPath = video['thumbnail_path'] as String?;
-    final baseUrl = 'http://admin.fosmessenger.com/';
-    final thumbnailUrl = thumbnailPath != null && thumbnailPath.isNotEmpty
-        ? (thumbnailPath.startsWith('http') ? thumbnailPath : baseUrl + (thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath))
-        : null;
+    final thumbnailUrl = VideosService.getThumbnailUrl(video);
 
     return Container(
       color: Colors.black87,
@@ -705,49 +767,19 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     return '$minutes:$seconds';
   }
 
-  Future<void> _loadComments(int videoId) async {
+  void _dismissKeyboard() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
+  }
+
+  Future<void> _refreshComments(int videoId) async {
     if (!mounted) return;
-    setState(() {
-      isLoading = true;
-    });
-
-    try {
-      final commentsList = await CommentsService.getComments(
-        postType: 'video',
-        postId: videoId,
-        userId: userId > 0 ? userId : null,
-      );
-
-      // Flatten nested comments structure for easier UI rendering
-      final flattenedComments = <Map<String, dynamic>>[];
-      void flattenComments(List<dynamic> commentsList, {int? parentId}) {
-        for (var comment in commentsList) {
-          final commentMap = Map<String, dynamic>.from(comment);
-          if (parentId != null) {
-            commentMap['parent_comment_id'] = parentId;
-          }
-          flattenedComments.add(commentMap);
-          
-          // If comment has replies, flatten them recursively
-          if (comment['replies'] != null && (comment['replies'] as List).isNotEmpty) {
-            flattenComments(comment['replies'] as List, parentId: comment['id'] as int);
-          }
-        }
-      }
-
-      flattenComments(commentsList);
-      
-      if (!mounted) return;
-      setState(() {
-        comments = flattenedComments;
-        isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        isLoading = false;
-      });
-      print('Error loading comments: $e');
+    if (comments.isEmpty) {
+      setState(() => commentsLoading = true);
     }
+    await controller.loadVideoComments(videoId);
+    if (!mounted) return;
+    _syncCommentsFromController();
   }
 
   Future<void> _addComment(int videoId, {int? parentCommentId}) async {
@@ -756,17 +788,15 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         : commentController.text.trim();
 
     if (content.isEmpty) return;
-    
-    // Check if already sending this comment/reply
+
     if (parentCommentId != null) {
       if (_sendingReplies.contains(parentCommentId)) return;
-    } else {
-      if (_isSendingComment) return;
+    } else if (_isSendingComment) {
+      return;
     }
 
-    // FIX: Dismiss keyboard immediately
-    FocusScope.of(context).unfocus();
-    
+    _dismissKeyboard();
+
     setState(() {
       if (parentCommentId != null) {
         _sendingReplies.add(parentCommentId);
@@ -774,7 +804,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         _isSendingComment = true;
       }
     });
-    
+
     if (userId == 0) {
       _showCustomSnackbar(
         context,
@@ -782,60 +812,53 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         'Please login first',
         isError: true,
       );
+      setState(() {
+        if (parentCommentId != null) {
+          _sendingReplies.remove(parentCommentId);
+        } else {
+          _isSendingComment = false;
+        }
+      });
       return;
     }
 
     try {
-      await CommentsService.addComment(
-        userId: userId,
-        postType: 'video',
-        postId: videoId,
-        content: content,
+      final success = await controller.addComment(
+        videoId,
+        content,
         parentCommentId: parentCommentId,
       );
 
-      // Show success message
-      if (mounted) {
+      if (!success) {
         _showCustomSnackbar(
           context,
-          'Success',
-          parentCommentId != null ? 'Reply added successfully' : 'Comment added successfully',
+          'Error',
+          controller.message.value.isNotEmpty
+              ? controller.message.value
+              : 'Failed to add comment',
+          isError: true,
         );
+        return;
       }
 
-      // Clear controllers
       if (parentCommentId != null) {
         replyControllers[parentCommentId]?.clear();
         showReplyInput[parentCommentId] = false;
+        expandedReplies.add(parentCommentId);
       } else {
         commentController.clear();
       }
 
-      // Wait a bit for backend to update
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // Reload comments
-      await _loadComments(videoId);
-      
-      // Expand parent comment if it's a reply
-      if (parentCommentId != null) {
-        expandedReplies.add(parentCommentId);
-      } else {
-        // Scroll to bottom to show latest comment
-        await Future.delayed(const Duration(milliseconds: 300));
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeOut,
-          );
-        }
+      _syncCommentsFromController();
+
+      if (parentCommentId == null) {
+        _scrollToBottom();
       }
 
       _showCustomSnackbar(
         context,
         'Success',
-        'Comment added successfully',
+        parentCommentId != null ? 'Reply added successfully' : 'Comment added successfully',
       );
     } catch (e) {
       _showCustomSnackbar(
@@ -874,7 +897,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         // Reload comments to update like status
         final videoId = controller.selectedVideo['id'] as int? ?? 0;
         if (videoId > 0) {
-          await _loadComments(videoId);
+          await _refreshComments(videoId);
         }
       }
     } catch (e) {
@@ -949,6 +972,56 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   } // edit feature
 
   // edit feature: Build edit button widget
+  Future<void> _deleteVideo(int videoId) async {
+    if (userId == 0) {
+      _showCustomSnackbar(context, 'Error', 'Please login first', isError: true);
+      return;
+    }
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'video');
+    if (!confirmed) return;
+    try {
+      await VideosService.deleteVideo(userId: userId, videoId: videoId);
+      await controller.loadVideos(refresh: true);
+      Navigator.of(context).pop();
+      _showCustomSnackbar(context, 'Success', 'Video deleted successfully');
+    } catch (e) {
+      _showCustomSnackbar(context, 'Error', e.toString().replaceAll('Exception: ', ''), isError: true);
+    }
+  }
+
+  Future<void> _deleteComment(int commentId, int videoId) async {
+    if (userId == 0) return;
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'comment');
+    if (!confirmed) return;
+
+    _dismissKeyboard();
+    final deleted = await controller.deleteVideoComment(videoId, commentId);
+    if (!mounted) return;
+
+    if (deleted) {
+      _syncCommentsFromController();
+      setState(() {});
+      _showCustomSnackbar(context, 'Success', 'Comment deleted successfully');
+    } else {
+      _showCustomSnackbar(
+        context,
+        'Error',
+        controller.message.value.isNotEmpty
+            ? controller.message.value
+            : 'Failed to delete comment',
+        isError: true,
+      );
+    }
+  }
+
+  Widget _buildDeleteCommentButton(Map<String, dynamic> comment, int videoId) {
+    if (!ContentDeleteHelper.isOwner(userId, comment['user_id'])) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(left: ResponsiveHelper.spacing(context, 16)),
+      child: ContentDeleteHelper.buildDeleteAction(onTap: () => _deleteComment(comment['id'] as int, videoId)),
+    );
+  }
+
   Widget _buildEditButton(BuildContext context, Map<String, dynamic> comment, int videoId) { // edit feature
     if (!_canEditComment(comment)) return const SizedBox.shrink(); // edit feature
     final commentId = comment['id'] as int; // edit feature
@@ -1119,7 +1192,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       }); // edit feature
 
       // Reload comments
-      await _loadComments(videoId); // edit feature
+      await _refreshComments(videoId); // edit feature
 
       ScaffoldMessenger.of(context).showSnackBar( // edit feature
         SnackBar( // edit feature
@@ -1171,10 +1244,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
           }
 
           final video = controller.selectedVideo;
-          final filePath = video['file_path'] as String? ?? '';
-          final videoUrl = filePath.isNotEmpty
-              ? (filePath.startsWith('http') ? filePath : baseUrl + (filePath.startsWith('/') ? filePath.substring(1) : filePath))
-              : '';
+          final videoUrl = _resolveVideoPlayUrl(video) ?? '';
           final isLiveVideo = video['status'] == 'Live' ||
               video['stream_key'] != null ||
               video['hls_url'] != null ||
@@ -1184,7 +1254,13 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               ? LiveVideoPlayer(liveStream: video, autoPlay: true, showControls: true)
               : videoUrl.isNotEmpty
                   ? _buildVideoPlayer(videoUrl)
-                  : Center(child: Image.network(ImageConfig.videoThumbnail, fit: BoxFit.cover));
+                  : Center(
+                      child: Icon(
+                        Icons.video_library_outlined,
+                        size: 64,
+                        color: Colors.grey[400],
+                      ),
+                    );
 
           return Stack(
             children: [
@@ -1280,9 +1356,9 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
         children: [
           CircleAvatar(
             radius: 24,
-            backgroundImage: video['profile_photo'] != null && (video['profile_photo'] as String).isNotEmpty
-                ? NetworkImage(video['profile_photo'].startsWith('http') ? video['profile_photo'] : baseUrl + video['profile_photo'])
-                : null,
+            backgroundImage: ImageHelper.getProfileImageProvider(
+              video['profile_photo']?.toString(),
+            ),
             child: video['profile_photo'] == null ? const Icon(Icons.person) : null,
           ),
           const SizedBox(width: 12),
@@ -1295,6 +1371,16 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               ],
             ),
           ),
+          if (ContentDeleteHelper.isOwner(userId, video['user_id'])) ...[
+            ContentDeleteHelper.buildDeleteIconButton(
+              onTap: () {
+                if (videoId > 0) _deleteVideo(videoId);
+              },
+            ),
+            const SizedBox(width: 4),
+          ] else
+            _buildVideoOptions(context, video),
+          const SizedBox(width: 4),
           _buildShareButton(videoId),
         ],
       ),
@@ -1305,12 +1391,8 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
     return InkWell(
       onTap: () {
         final video = controller.selectedVideo;
-        final baseUrl = 'http://admin.fosmessenger.com/';
-        final thumbnailPath = video['thumbnail_path'] as String? ?? '';
-        final filePath = video['file_path'] as String? ?? '';
-        final mediaUrl = thumbnailPath.isNotEmpty 
-            ? baseUrl + thumbnailPath 
-            : (filePath.isNotEmpty ? baseUrl + filePath : null);
+        final mediaUrl = VideosService.getThumbnailUrl(video) ??
+            VideosService.getVideoUrl(video);
 
         ShareHelper.shareContent(
           context: context,
@@ -1331,11 +1413,34 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   }
 
   Widget _buildVideoDetails(Map<String, dynamic> video) {
+    final isPending = video['status'] == 'Pending' || video['status'] == 'pending';
+
     return Padding(
       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (isPending)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withOpacity(0.4)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.pending, size: 14, color: Colors.orange),
+                  SizedBox(width: 4),
+                  Text(
+                    'Pending Approval',
+                    style: TextStyle(fontSize: 12, color: Colors.orange, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
           Text(video['title'] ?? 'Untitled', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if ((video['description'] ?? '').isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -1354,7 +1459,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Text('Comments (${comments.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ),
-        if (isLoading)
+        if (commentsLoading && comments.isEmpty)
           const Center(child: CircularProgressIndicator())
         else if (comments.isEmpty)
           const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('No comments yet')))
@@ -1438,7 +1543,6 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       return false;
     }).toList();
 
-    final baseUrl = 'http://admin.fosmessenger.com/';
     final profilePhoto = comment['profile_photo'] as String?;
     final userName = comment['user_name'] as String? ?? 'Anonymous';
     final content = comment['content'] as String? ?? '';
@@ -1487,12 +1591,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               CircleAvatar(
                 radius: ResponsiveHelper.isMobile(context) ? 18 : 20,
                 backgroundColor: Colors.transparent,
-                backgroundImage: profilePhoto != null &&
-                        profilePhoto.isNotEmpty &&
-                        !profilePhoto.startsWith('assets/')
-                    ? NetworkImage(
-                        profilePhoto.startsWith('http') ? profilePhoto : baseUrl + profilePhoto)
-                    : null,
+                backgroundImage: ImageHelper.getProfileImageProvider(profilePhoto),
                 child: profilePhoto == null ||
                         profilePhoto.isEmpty ||
                         profilePhoto.startsWith('assets/')
@@ -1702,6 +1801,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               if (comment['user_id'] == userId) ...[
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 _buildEditButton(context, comment, videoId),
+                _buildDeleteCommentButton(comment, videoId),
               ],
               const Spacer(),
               // Report Button
@@ -1966,7 +2066,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
               Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: () => _showEmojiPicker(context, videoId, commentController),
+                  onTap: () => _showReactionEmojiPicker(context, videoId),
                   borderRadius: BorderRadius.circular(40),
                   child: Padding(
                     padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 4)),
@@ -2531,43 +2631,90 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   }
 
 
-  /// Show emoji picker for video comments - sends emoji directly without showing in input field
-  void _showEmojiPicker(BuildContext context, int videoId, TextEditingController controller, {int? parentCommentId}) {
+  /// Emoji picker — sends emoji/sticker directly as comment or reply.
+  void _showEmojiPicker(
+    BuildContext context,
+    int videoId,
+    TextEditingController textController, {
+    int? parentCommentId,
+  }) {
     showEmojiStickerPicker(
       context: context,
       onEmojiSelected: (emoji) async {
-        // Send emoji directly as comment - no preview in text field!
-        await _sendEmojiDirectly(videoId, emoji, parentCommentId: parentCommentId);
+        await _sendEmojiDirectly(
+          videoId,
+          emoji,
+          parentCommentId: parentCommentId,
+        );
       },
       height: 350,
     );
   }
 
-  /// Send emoji/sticker directly as comment without showing in input field
+  void _showReactionEmojiPicker(BuildContext context, int videoId) {
+    _showEmojiPicker(context, videoId, commentController);
+  }
+
   Future<void> _sendEmojiDirectly(int videoId, String emoji, {int? parentCommentId}) async {
-    if (emoji.isEmpty || userId == 0) return;
+    if (emoji.isEmpty) return;
 
-    FocusScope.of(context).unfocus();
+    _dismissKeyboard();
 
-    setState(() => _isSendingComment = true);
+    if (parentCommentId != null) {
+      if (_sendingReplies.contains(parentCommentId)) return;
+    } else if (_isSendingComment) {
+      return;
+    }
+
+    setState(() {
+      if (parentCommentId != null) {
+        _sendingReplies.add(parentCommentId);
+      } else {
+        _isSendingComment = true;
+      }
+    });
 
     try {
-      await CommentsService.addComment(
-        userId: userId,
-        postType: 'video',
-        postId: videoId,
-        content: emoji,
+      final success = await controller.addComment(
+        videoId,
+        emoji,
         parentCommentId: parentCommentId,
       );
+      if (!success) {
+        _showCustomSnackbar(
+          context,
+          'Error',
+          controller.message.value.isNotEmpty
+              ? controller.message.value
+              : 'Failed to send emoji',
+          isError: true,
+        );
+        return;
+      }
 
-      // Clear and reload
-      commentController.clear();
-      await _loadComments(videoId);
+      if (parentCommentId != null) {
+        replyControllers[parentCommentId]?.clear();
+        showReplyInput[parentCommentId] = false;
+        expandedReplies.add(parentCommentId);
+      } else {
+        commentController.clear();
+      }
+
+      _syncCommentsFromController();
       _scrollToBottom();
+      _showCustomSnackbar(context, 'Success', 'Comment added successfully');
     } catch (e) {
-      print('Error sending emoji comment: $e');
+      _showCustomSnackbar(context, 'Error', 'Failed to send emoji', isError: true);
     } finally {
-      setState(() => _isSendingComment = false);
+      if (mounted) {
+        setState(() {
+          if (parentCommentId != null) {
+            _sendingReplies.remove(parentCommentId);
+          } else {
+            _isSendingComment = false;
+          }
+        });
+      }
     }
   }
 
@@ -2635,7 +2782,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
                       try {
                         await UserBlockingService.blockUser(userId);
                         _showCustomSnackbar(context, 'Success', 'User blocked');
-                        _loadComments(controller.selectedVideo['id']);
+                        _refreshComments(controller.selectedVideo['id']);
                       } catch (e) {
                         _showCustomSnackbar(context, 'Error', 'Failed to block user', isError: true);
                       }
@@ -2660,15 +2807,13 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
   Widget _buildVideoOptions(BuildContext context, Map<String, dynamic> video) {
     final userIdRaw = video['user_id'] ?? video['created_by'];
     final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
-    
-    // Check if we have any options to show
-    final hasOptions = posterId != null && posterId != this.userId;
-    
-    // Only show the PopupMenuButton if there are options
-    if (!hasOptions) {
-      return SizedBox(width: 40); // Empty placeholder for alignment
+
+    final canReportOrBlock = posterId != null && posterId != this.userId;
+
+    if (!canReportOrBlock) {
+      return const SizedBox(width: 40);
     }
-    
+
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
@@ -2718,8 +2863,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
       },
       itemBuilder: (context) {
         final List<PopupMenuEntry<String>> items = [];
-        
-        // Only show options if it's NOT the current user's video
+
         if (posterId != null && posterId != this.userId) {
           items.add(
             const PopupMenuItem(
@@ -2746,7 +2890,7 @@ class _VideoDetailsScreenState extends State<VideoDetailsScreen> with SingleTick
             ),
           );
         }
-        
+
         return items;
       },
     );

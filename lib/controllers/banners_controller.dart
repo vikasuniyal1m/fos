@@ -1,22 +1,40 @@
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/services/banners_prefetch_service.dart';
 import 'package:fruitsofspirit/services/banners_service.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'dart:async';
 
-/// Banners Controller
-/// Manages banner data for the homepage carousel
+/// Banners Controller — cache-first, silent background sync (no flicker).
 class BannersController extends GetxController {
+  static const String _cacheKey = 'home_banners';
+
   var activeBanners = <Map<String, dynamic>>[].obs;
   var upcomingBanners = <Map<String, dynamic>>[].obs;
   var isLoading = false.obs;
+  var hasInitialLoad = false.obs;
   var currentBannerIndex = 0.obs;
   var countdownText = ''.obs;
   var countdownData = <String, dynamic>{}.obs;
+
   Timer? _countdownTimer;
+  DateTime? _lastSyncedAt;
+  bool _countdownReloadPending = false;
+  static const Duration _minSyncInterval = Duration(minutes: 2);
 
   @override
   void onInit() {
     super.onInit();
-    loadBanners();
+    bootstrapBanners();
+    unawaited(_initBanners());
+  }
+
+  Future<void> _initBanners() async {
+    await BannersPrefetchService.warmCache();
+    bootstrapBanners();
+    await loadBanners(
+      silent: hasInitialLoad.value,
+      force: !hasInitialLoad.value,
+    );
   }
 
   @override
@@ -25,56 +43,122 @@ class BannersController extends GetxController {
     super.onClose();
   }
 
-  /// Load banners from API
-  Future<void> loadBanners() async {
-    if (isLoading.value) return;
-    isLoading.value = true;
-    print('🎯 BannersController: Loading banners...');
-    try {
-      final result = await BannersService.getBanners();
-      print('🎯 BannersController: API Result: $result');
-      
-      // Safely cast lists to Map<String, dynamic>
-      final activeList = result['active_banners'] as List<dynamic>? ?? [];
-      final upcomingList = result['upcoming_banners'] as List<dynamic>? ?? [];
-      
-      activeBanners.value = activeList.cast<Map<String, dynamic>>();
-      upcomingBanners.value = upcomingList.cast<Map<String, dynamic>>();
-      countdownData.value = result['countdown'] as Map<String, dynamic>? ?? {};
-      
-      print('🎯 BannersController: Active banners loaded: ${activeBanners.length}');
-      print('🎯 BannersController: Upcoming banners loaded: ${upcomingBanners.length}');
-      print('🎯 BannersController: Countdown data: ${countdownData.value}');
+  void bootstrapBanners() {
+    final cached = HiveCacheService.getCachedMap(_cacheKey);
+    if (cached.isEmpty) return;
+    ingestCachedBanners(cached);
+  }
+
+  /// Apply hive / prefetch payload without toggling loading UI.
+  void ingestCachedBanners(Map<String, dynamic> cached) {
+    final active = cached['active_banners'];
+    final upcoming = cached['upcoming_banners'];
+    if (active is List && active.isNotEmpty) {
+      activeBanners.value = List<Map<String, dynamic>>.from(
+        active.cast<Map<String, dynamic>>(),
+      );
+    }
+    if (upcoming is List && upcoming.isNotEmpty) {
+      upcomingBanners.value = List<Map<String, dynamic>>.from(
+        upcoming.cast<Map<String, dynamic>>(),
+      );
+    }
+    final countdown = cached['countdown'];
+    if (countdown is Map) {
+      countdownData.value = Map<String, dynamic>.from(countdown);
+    }
+    if (activeBanners.isNotEmpty || upcomingBanners.isNotEmpty) {
+      hasInitialLoad.value = true;
       _startCountdown();
-    } catch (e) {
-      print('❌ BannersController Error: $e');
-      print('❌ BannersController Stack trace: ${StackTrace.current}');
-      // Don't set empty lists on error - keep existing banners
-      // Retry immediately if empty
-      if (activeBanners.isEmpty && upcomingBanners.isEmpty) {
-        print('🔄 BannersController: Retrying immediately...');
-        isLoading.value = false; // Reset to allow retry
-        await loadBanners();
-        return;
-      }
-    } finally {
-      isLoading.value = false;
-      print('🎯 BannersController: Loading complete');
     }
   }
 
-  /// Refresh banners
-  Future<void> refreshBanners() async {
-    isLoading.value = false; // Reset to allow reload
-    await loadBanners();
+  bool _sameBannerLists(
+    List<Map<String, dynamic>> a,
+    List<Map<String, dynamic>> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i]['id']?.toString() != b[i]['id']?.toString()) return false;
+      if (a[i]['file_path'] != b[i]['file_path']) return false;
+      if (a[i]['updated_at'] != b[i]['updated_at']) return false;
+    }
+    return true;
   }
 
-  /// Update current banner index (for dot indicator)
+  Future<void> _persistBanners(Map<String, dynamic> result) async {
+    await HiveCacheService.cacheMap(_cacheKey, {
+      'active_banners': result['active_banners'] ?? activeBanners.toList(),
+      'upcoming_banners': result['upcoming_banners'] ?? upcomingBanners.toList(),
+      'countdown': result['countdown'] ?? countdownData,
+    }, expiryHours: 12);
+  }
+
+  /// Load banners from API (silent = no loading flag, skip if data unchanged).
+  Future<void> loadBanners({bool silent = false, bool force = false}) async {
+    if (isLoading.value && !force) return;
+    if (silent &&
+        !force &&
+        _lastSyncedAt != null &&
+        DateTime.now().difference(_lastSyncedAt!) < _minSyncInterval) {
+      return;
+    }
+
+    if (!silent && !hasInitialLoad.value) {
+      isLoading.value = true;
+    }
+
+    try {
+      final result = await BannersService.getBanners();
+
+      final activeList = (result['active_banners'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>();
+      final upcomingList = (result['upcoming_banners'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>();
+      final newCountdown =
+          result['countdown'] as Map<String, dynamic>? ?? <String, dynamic>{};
+
+      final activeChanged = !_sameBannerLists(activeBanners, activeList);
+      final upcomingChanged = !_sameBannerLists(upcomingBanners, upcomingList);
+
+      if (activeChanged) activeBanners.value = activeList;
+      if (upcomingChanged) upcomingBanners.value = upcomingList;
+      if (newCountdown.isNotEmpty) {
+        countdownData.value = Map<String, dynamic>.from(newCountdown);
+      }
+
+      hasInitialLoad.value = true;
+      _lastSyncedAt = DateTime.now();
+      await _persistBanners(result);
+
+      if (activeChanged || upcomingChanged || newCountdown.isNotEmpty) {
+        _startCountdown();
+      }
+    } catch (e) {
+      if (activeBanners.isEmpty && upcomingBanners.isEmpty) {
+        bootstrapBanners();
+        Future.delayed(const Duration(seconds: 3), () {
+          if (activeBanners.isEmpty && upcomingBanners.isEmpty) {
+            loadBanners(silent: true, force: true);
+          }
+        });
+      }
+    } finally {
+      isLoading.value = false;
+      if (activeBanners.isNotEmpty || upcomingBanners.isNotEmpty) {
+        hasInitialLoad.value = true;
+      }
+    }
+  }
+
+  Future<void> refreshBanners() async {
+    await loadBanners(silent: hasInitialLoad.value, force: true);
+  }
+
   void updateBannerIndex(int index) {
     currentBannerIndex.value = index;
   }
 
-  /// Start countdown timer for next upcoming banner
   void _startCountdown() {
     _countdownTimer?.cancel();
     if (upcomingBanners.isEmpty || countdownData.isEmpty) {
@@ -82,7 +166,6 @@ class BannersController extends GetxController {
       return;
     }
 
-    // Use countdown data from API
     final totalSeconds = countdownData['total_seconds'] as int? ?? 0;
     if (totalSeconds <= 0) {
       countdownText.value = '';
@@ -91,15 +174,20 @@ class BannersController extends GetxController {
 
     _updateCountdownFromData(totalSeconds);
 
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       final currentSeconds = countdownData['total_seconds'] as int? ?? 0;
-      if (currentSeconds > 0) {
+      if (currentSeconds > 1) {
         countdownData['total_seconds'] = currentSeconds - 1;
         _updateCountdownFromData(currentSeconds - 1);
       } else {
         countdownText.value = '';
-        _countdownTimer?.cancel();
-        loadBanners();
+        timer.cancel();
+        if (!_countdownReloadPending) {
+          _countdownReloadPending = true;
+          loadBanners(silent: true, force: true).whenComplete(() {
+            _countdownReloadPending = false;
+          });
+        }
       }
     });
   }

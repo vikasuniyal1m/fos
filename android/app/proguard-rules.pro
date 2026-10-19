@@ -107,6 +107,12 @@
 -dontwarn com.google.android.play.core.**
 -keep class com.google.android.play.core.** { *; }
 
+# Google Play Billing / IAP (release minify must not strip billing)
+-keep class com.android.billingclient.** { *; }
+-keep class com.android.vending.billing.** { *; }
+-keep class io.flutter.plugins.inapppurchase.** { *; }
+-dontwarn com.android.vending.billing.**
+
 # Optimization
 -optimizationpasses 5
 -dontusemixedcaseclassnames

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
@@ -8,6 +10,7 @@ import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/widgets/see_translation_widget.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/widgets/blog_media_widget.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
@@ -18,6 +21,8 @@ import 'package:fruitsofspirit/utils/sticker_emoji_helper.dart';
 import 'package:fruitsofspirit/widgets/emoji_sticker_picker.dart';
 import 'package:fruitsofspirit/services/blogs_service.dart'; // edit feature
 import 'package:fruitsofspirit/utils/time_helper.dart';
+import 'package:fruitsofspirit/utils/content_delete_helper.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
 
 /// Blog Details Screen
 /// User-friendly and attractive UI with like, comment, and ask questions functionality
@@ -52,7 +57,6 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   var showQuestionInput = false.obs;
   int? currentUserId;
   String? userEmail;
-  int? _loadedBlogId; // Track which blog is currently loaded
   // edit feature: Edit mode state
   final editControllers = <int, TextEditingController>{}; // edit feature
   final showEditInput = <int, bool>{}; // edit feature
@@ -68,16 +72,25 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    final blogId = Get.arguments as int? ?? 0;
+    if (blogId > 0) {
+      if (controller.preparedDetailBlogId != blogId) {
+        unawaited(controller.prepareBlogDetails(blogId));
+      }
+    }
     _loadCurrentUserId();
     _loadUserEmail();
   }
 
   Future<void> _loadCurrentUserId() async {
     final user = await UserStorage.getUser();
-    if (user != null) {
+    if (user != null && mounted) {
       final id = user['id'];
-      if (id is int) {
-        currentUserId = id;
+      final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (parsed != null && parsed > 0) {
+        setState(() {
+          currentUserId = parsed;
+        });
       }
     }
   }
@@ -190,68 +203,31 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   // edit feature: Configurable edit time window in minutes
   static const int _editTimeWindowMinutes = 15; // edit feature
 
-  // edit feature: Check if comment can be edited (within 15 minutes only)
-  bool _canEditComment(Map<String, dynamic> comment) { // edit feature
-    print('🔍 Edit check - created_at: ${comment['created_at']}'); // debug
-    
-    // Check if user is logged in
-    final currentUserId = controller.userId.value;
-    if (currentUserId == 0) {
-      print('❌ Edit blocked: user not logged in'); // debug
-      return false;
-    }
-    
-    // Check if user owns the comment
-    if (comment['user_id'] != currentUserId) {
-      print('❌ Edit blocked: not comment owner'); // debug
-      return false;
-    }
-    
+  int? _activeUserId() => currentUserId ?? controller.userId.value;
+
+  bool _isWithinEditWindow(dynamic createdAt) {
+    if (createdAt == null) return false;
     try {
-      // CRITICAL FIX: Use same logic as TimeHelper.getTimeAgo for consistency
-      String formattedDate = comment['created_at'].toString();
+      var formattedDate = createdAt.toString();
       if (!formattedDate.contains('Z') && !formattedDate.contains('+')) {
         formattedDate = formattedDate.replaceAll(' ', 'T') + 'Z';
       }
+      var serverTimeUtc = DateTime.parse(formattedDate).toUtc();
+      serverTimeUtc = serverTimeUtc.add(const Duration(hours: 4));
+      final difference = DateTime.now().toUtc().difference(serverTimeUtc);
+      return difference.inMinutes < _editTimeWindowMinutes;
+    } catch (_) {
+      return false;
+    }
+  }
 
-      // Use SAME logic as backend for consistency
-      DateTime serverTimeUtc = DateTime.parse(formattedDate).toUtc();
-      serverTimeUtc = serverTimeUtc.add(const Duration(hours: 4)); // 4-hour fix (same as backend)
-      
-      // Get current UTC time (same as backend)
-      DateTime nowUtc = DateTime.now().toUtc();
-      
-      // Calculate difference in UTC (same as backend)
-      final difference = nowUtc.difference(serverTimeUtc);
-      final canEdit = difference.inMinutes < _editTimeWindowMinutes; // edit feature: Check 15-minute window
-      
-      print('  - Backend UTC time (with 4hr fix): $serverTimeUtc'); // debug
-      print('  - Current UTC time: $nowUtc'); // debug
-      print('  - UTC difference: ${difference.inMinutes} minutes'); // debug
-      print('  - Backend logic applied: UTC difference calculation'); // debug
-      print('🕐 Blog Time check (UTC): ${difference.inMinutes} minutes, canEdit: $canEdit'); // debug
-      print('🌍 Blog Device timezone: ${DateTime.now().timeZoneName} (${DateTime.now().timeZoneOffset})'); // debug
-      
-      // CRITICAL DEBUG: Show exact frontend calculation to compare with backend
-      print('🔍 BLOG FRONTEND TIME CALCULATION DEBUG:'); // debug
-      print('   - Raw created_at: ${comment['created_at']}'); // debug
-      print('   - Formatted date: $formattedDate'); // debug
-      print('   - Server time UTC (fixed): $serverTimeUtc'); // debug
-      print('   - Current UTC: $nowUtc'); // debug
-      print('   - Frontend minutes diff: ${difference.inMinutes}'); // debug
-      print('   - Frontend canEdit: $canEdit'); // debug
-      print('🔍 BLOG FRONTEND DEBUG COMPLETE'); // debug
-      
-      // CRITICAL: If difference is more than 60 minutes, it means backend time is wrong
-      if (difference.inMinutes > 60) {
-        print('⚠️ WARNING: Time difference too large (${difference.inMinutes} minutes), backend timestamp may be incorrect'); // debug
-      }
-      return canEdit; // edit feature
-    } catch (e) { // edit feature
-      print('❌ Edit blocked: date parsing error - $e'); // debug
-      return false; // edit feature
-    } // edit feature
-  } // edit feature
+  // edit feature: Check if comment can be edited (owner only, within 15 minutes)
+  bool _canEditComment(Map<String, dynamic> comment) {
+    final uid = _activeUserId();
+    if (uid == null || uid == 0) return false;
+    if (!ContentDeleteHelper.isOwner(uid, comment['user_id'])) return false;
+    return _isWithinEditWindow(comment['created_at']);
+  }
 
   // edit feature: Build edit button widget
   Widget _buildEditButton(BuildContext context, Map<String, dynamic> comment, int blogId) { // edit feature
@@ -415,8 +391,26 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   } // edit feature
 
   // edit feature: Edit comment method
-  Future<void> _editComment(int commentId, int blogId, String postType) async { // edit feature
-    final editController = editControllers[commentId]; // edit feature
+  Future<void> _editComment(int commentId, int blogId, String postType) async {
+    Map<String, dynamic>? targetComment;
+    for (final comment in controller.blogComments) {
+      if (_parseCommentId(comment) == commentId) {
+        targetComment = comment;
+        break;
+      }
+    }
+    if (targetComment == null || !_canEditComment(targetComment)) {
+      Get.snackbar(
+        'Error',
+        'You can only edit your own comments within 15 minutes',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 2),
+      );
+      return;
+    }
+
+    final editController = editControllers[commentId];
     if (editController == null) return; // edit feature
 
     final content = editController.text.trim(); // edit feature
@@ -456,7 +450,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         showEditInput[commentId] = false; // edit feature
       }); // edit feature
 
-      await controller.loadBlogDetails(blogId); // edit feature
+      await controller.loadBlogComments(blogId); // edit feature
 
       Get.snackbar( // edit feature
         'Success', // edit feature
@@ -478,15 +472,107 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     } // edit feature
   } // edit feature
 
-  // edit feature: Check if blog post can be edited (always allow editing)
-  bool _canEditPost(Map<String, dynamic> blog) { // edit feature
-    print('🔍 Edit check - always allowing editing'); // debug
-    return true; // edit feature: Always allow editing
-  } // edit feature
+  // edit feature: Check if blog post can be edited (owner only, within 15 minutes)
+  bool _canEditPost(Map<String, dynamic> blog) {
+    final uid = _activeUserId();
+    if (uid == null || uid == 0) return false;
+    if (!ContentDeleteHelper.isOwner(uid, blog['user_id'])) return false;
+    return _isWithinEditWindow(blog['created_at']);
+  }
+
+  int _parseBlogId(Map<String, dynamic> blog) {
+    final id = blog['id'];
+    if (id is int) return id;
+    return int.tryParse(id?.toString() ?? '') ?? 0;
+  }
+
+  bool _canDeletePost(Map<String, dynamic> blog) {
+    final uid = _activeUserId();
+    if (uid == null || uid == 0) return false;
+    return ContentDeleteHelper.isOwner(uid, blog['user_id']);
+  }
+
+  Future<void> _deletePost(int blogId) async {
+    final uid = _activeUserId();
+    if (uid == null || uid == 0) {
+      Get.snackbar('Error', 'Please login first', backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+    if (blogId <= 0) return;
+
+    FocusScope.of(context).unfocus();
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'post');
+    if (!confirmed || !mounted) return;
+
+    final success = await controller.deleteBlog(blogId);
+    if (!mounted) return;
+
+    if (success) {
+      Get.back();
+      Get.snackbar('Success', 'Post deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } else {
+      Get.snackbar(
+        'Error',
+        controller.message.value.replaceAll('Exception: ', ''),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  int _parseCommentId(Map<String, dynamic> comment) {
+    final id = comment['id'];
+    if (id is int) return id;
+    if (id is String) return int.tryParse(id) ?? 0;
+    return 0;
+  }
+
+  Future<void> _deleteComment(int commentId, int blogId) async {
+    if (currentUserId == null || currentUserId == 0 || commentId <= 0) return;
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'comment');
+    if (!confirmed) return;
+
+    final success = await controller.deleteBlogComment(blogId, commentId);
+    if (!mounted) return;
+
+    if (success) {
+      setState(() {});
+      Get.snackbar('Success', 'Comment deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } else {
+      Get.snackbar(
+        'Error',
+        controller.message.value.replaceAll('Exception: ', ''),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  Widget _buildDeleteCommentButton(Map<String, dynamic> comment, int blogId) {
+    if (!ContentDeleteHelper.isOwner(currentUserId, comment['user_id'])) return const SizedBox.shrink();
+    final commentId = _parseCommentId(comment);
+    if (commentId <= 0) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(left: ResponsiveHelper.spacing(context, 16)),
+      child: ContentDeleteHelper.buildDeleteAction(onTap: () => _deleteComment(commentId, blogId)),
+    );
+  }
 
   // edit feature: Edit blog post method
-  Future<void> _editPost(int blogId) async { // edit feature
-    final title = postEditTitleController.text.trim(); // edit feature
+  Future<void> _editPost(int blogId) async {
+    final blog = controller.selectedBlog;
+    if (blog.isEmpty || !_canEditPost(blog)) {
+      Get.snackbar(
+        'Error',
+        'You can only edit your own post within 15 minutes',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 2),
+      );
+      return;
+    }
+
+    final title = postEditTitleController.text.trim();
     final body = postEditBodyController.text.trim(); // edit feature
     final category = postEditCategoryController.text.trim(); // edit feature
 
@@ -524,7 +610,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
       ); // edit feature
 
       showPostEditInput.value = false; // edit feature
-      await controller.loadBlogDetails(blogId); // edit feature
+      await controller.loadBlogDetails(blogId, silent: true, force: true); // edit feature
 
       Get.snackbar( // edit feature
         'Success', // edit feature
@@ -572,7 +658,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   ImageProvider? _getImageProvider(String? photoUrl) {
     if (photoUrl == null || photoUrl.isEmpty) return null;
     
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'https://admin.fosmessenger.com/';
     String fixedUrl = photoUrl.trim();
     
     print('🔍 _getImageProvider: Original URL = "$fixedUrl"');
@@ -646,20 +732,6 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final blogId = Get.arguments as int? ?? 0;
-    
-    // Only reload if blog ID is different from the loaded blog ID
-    if (blogId > 0 && _loadedBlogId != blogId) {
-      _loadedBlogId = blogId;
-      
-      // Clear previous blog data immediately to prevent showing stale data
-      controller.selectedBlog.clear();
-      controller.blogComments.clear();
-      controller.isLoading.value = true;
-      
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadBlogDetails(blogId);
-      });
-    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAF6EC),
@@ -725,27 +797,13 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
               ),
               onPressed: () {
                 final blog = controller.selectedBlog;
-                final baseUrl = 'http://admin.fosmessenger.com/'; // Fixed base URL to match API config
-                final imagePath = blog['image_url'] as String?;
-                String? blogImageUrl;
-                if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
-                  if (imagePath.toString().startsWith('http')) {
-                    blogImageUrl = imagePath.toString();
-                  } else {
-                    final cleanPath = imagePath.toString().startsWith('/') 
-                        ? imagePath.toString().substring(1) 
-                        : imagePath.toString();
-                    blogImageUrl = '$baseUrl$cleanPath';
-                  }
-                }
-
                 ShareHelper.shareContent(
                   context: context,
                   contentType: 'blog',
                   contentId: blogId,
                   title: blog['title'] ?? 'Blog',
-                  content: blog['body'],
-                  mediaUrl: blogImageUrl,
+                  content: blog['body'] as String? ?? blog['content'] as String?,
+                  mediaUrl: ImageHelper.resolveBlogImageUrl(blog),
                 );
               },
 
@@ -801,54 +859,27 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         }
 
         final blog = controller.selectedBlog;
-        final baseUrl = 'http://admin.fosmessenger.com/'; // Fixed base URL to match API config
-        final imagePath = blog['image_url'] as String?;
-        String? imageUrl;
-        
-        print('🔍 Blog Image Debug:');
-        print('   Full blog data: $blog');
-        print('   Raw image_url from backend: $imagePath');
-        print('   Blog data keys: ${blog.keys.toList()}');
-        print('   Base URL: $baseUrl');
-        
-        if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
-          if (imagePath.toString().startsWith('http')) {
-            imageUrl = imagePath.toString();
-            print('   Using full URL: $imageUrl');
-          } else {
-            final cleanPath = imagePath.toString().startsWith('/') 
-                ? imagePath.toString().substring(1) 
-                : imagePath.toString();
-            imageUrl = '$baseUrl$cleanPath';
-            print('   Constructed URL: $imageUrl');
-          }
-        } else {
-          print('   ⚠️ Image path is null or empty');
-          
-          // Try alternative field names
-          print('   Checking alternative fields...');
-          if (blog['image'] != null) {
-            print('   Found "image" field: ${blog['image']}');
-          }
-          if (blog['featured_image'] != null) {
-            print('   Found "featured_image" field: ${blog['featured_image']}');
-          }
-          if (blog['thumbnail'] != null) {
-            print('   Found "thumbnail" field: ${blog['thumbnail']}');
-          }
-        }
+        final imageUrl = ImageHelper.resolveBlogMediaUrl(blog);
+        final hasVideoMedia = ImageHelper.isVideoUrl(imageUrl);
 
         final isLiked = blog['is_liked'] == true || blog['is_liked'] == 1;
         final likeCount = int.tryParse((blog['like_count'] ?? 0).toString()) ?? 0;
         final commentCount = controller.blogComments.length;
 
-        return RefreshIndicator(
-          onRefresh: () => controller.loadBlogDetails(blogId),
-          color: AppTheme.iconscolor,
-          backgroundColor: Colors.white,
-          child: Column(
-            children: [
-              Expanded(
+        return Column(
+          children: [
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => controller.loadBlogDetails(
+                  blogId,
+                  silent: false,
+                  force: true,
+                ),
+                color: AppTheme.iconscolor,
+                backgroundColor: Colors.white,
+                child: Column(
+                  children: [
+                    Expanded(
                 child: SingleChildScrollView(
                   controller: _scrollController,
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -856,32 +887,25 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Blog Image
+                      // Blog Media
                       if (imageUrl != null && imageUrl.isNotEmpty)
                         ClipRRect(
                           borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-                          child: CachedImage(
-                            imageUrl: imageUrl,
-                            height: ResponsiveHelper.imageHeight(context, mobile: 280, tablet: 320, desktop: 360),
+                          child: Container(
                             width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorWidget: Container(
-                              height: ResponsiveHelper.imageHeight(context, mobile: 280, tablet: 320, desktop: 360),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    const Color(0xFFFAF6EC),
-                                    const Color(0xFF9F9467).withOpacity(0.2),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
+                            color: const Color(0xFFF5F0E6),
+                            child: BlogMediaWidget(
+                              mediaUrl: imageUrl,
+                              isVideo: hasVideoMedia,
+                              width: double.infinity,
+                              height: ResponsiveHelper.imageHeight(
+                                context,
+                                mobile: 300,
+                                tablet: 340,
+                                desktop: 380,
                               ),
-                              child: Icon(
-                                Icons.image_not_supported,
-                                size: ResponsiveHelper.iconSize(context, mobile: 60),
-                                color: AppTheme.iconscolor,
-                              ),
+                              fit: BoxFit.contain,
+                              previewMode: false,
                             ),
                           ),
                         ),
@@ -1709,21 +1733,30 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                     onPressed: () => _submitComment(blogId, parentCommentId: null),
                                   ),
                                 )),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-        )],
+                  ],
                 ),
               ),
-            ],
-          ),
-        )]));
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
       }),
     );
   }
 
   /// Submit comment
   Future<void> _submitComment(int blogId, {int? parentCommentId}) async {
+    if (isSubmittingComment.value) return;
+
     // Get text from controller
     final text = parentCommentId != null
         ? (replyControllers[parentCommentId]?.text.trim() ?? '')
@@ -1757,14 +1790,8 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
 
     if (finalContent.trim().isEmpty) return;
 
-    // FIX: Dismiss keyboard immediately
     FocusScope.of(context).unfocus();
-
-    if (parentCommentId != null) {
-      isSubmittingComment.value = true;
-    } else {
-      isSubmittingComment.value = true;
-    }
+    isSubmittingComment.value = true;
     
     try {
       final success = await controller.addComment(blogId, finalContent, parentCommentId: parentCommentId);
@@ -1793,9 +1820,6 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
           });
         }
         
-        // Reload comments to show the new comment/reply
-        await controller.loadBlogDetails(blogId);
-        
         _showCustomSnackbar(
           context,
           'Success',
@@ -1816,13 +1840,13 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
 
   /// Submit question (marked with ? prefix to distinguish from comments)
   Future<void> _submitQuestion(int blogId) async {
+    if (isSubmittingQuestion.value) return;
+
     final questionText = questionController.text.trim();
     if (questionText.isEmpty) return;
 
-    isSubmittingQuestion.value = true;
-
-    // FIX: Dismiss keyboard immediately
     FocusScope.of(context).unfocus();
+    isSubmittingQuestion.value = true;
 
     try {
       // Add ? prefix to mark as question (will be used for filtering)
@@ -1840,8 +1864,6 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         }
         questionController.clear();
         showQuestionInput.value = false;
-        // Reload comments to show the new question
-        await controller.loadBlogDetails(blogId);
         _showCustomSnackbar(
           context,
           'Success',
@@ -2037,6 +2059,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
                         // edit feature: Edit Button - Show for all comments within 15 minutes
                         _buildEditButton(context, comment, blogId), // edit feature
+                        _buildDeleteCommentButton(comment, blogId),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
                         // Report Button - Only show for other users' comments
                         if (currentUserId != null && (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()))
@@ -2396,18 +2419,14 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
       return;
     }
 
-    try {
-      await CommentsService.toggleCommentLike(
-        userId: currentUserId!,
-        commentId: commentId,
-      );
-      // Reload blog details to get updated comments
-      await controller.loadBlogDetails(blogId);
-    } catch (e) {
+    final success = await controller.toggleCommentLike(commentId);
+    if (!success && mounted) {
       _showCustomSnackbar(
         context,
         'Error',
-        'Failed to like comment',
+        controller.message.value.isNotEmpty
+            ? controller.message.value
+            : 'Failed to like comment',
         isError: true,
       );
     }
@@ -2840,7 +2859,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                           Navigator.of(context).pop();
                           _showCustomSnackbar(context, 'Success', 'User blocked');
                           final currentBlogId = controller.selectedBlog['id'] is int ? controller.selectedBlog['id'] : int.parse(controller.selectedBlog['id'].toString());
-                          controller.loadBlogDetails(currentBlogId);
+                          controller.loadBlogDetails(currentBlogId, silent: true, force: true);
                         }
                       } catch (e) {
                         _showCustomSnackbar(context, 'Error', 'Failed to block user', isError: true);
@@ -3429,9 +3448,6 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
           );
         }
 
-        // Reload comments
-        await controller.loadBlogDetails(blogId);
-
         _showCustomSnackbar(context, 'Success', 'Comment added successfully');
       } else {
         _showCustomSnackbar(context, 'Error', controller.message.value, isError: true);
@@ -3442,17 +3458,23 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   }
 
   Widget _buildBlogOptions(BuildContext context, Map<String, dynamic> blog) {
+    final uid = _activeUserId();
+    final blogId = _parseBlogId(blog);
+
+    if (_canDeletePost(blog)) {
+      return ContentDeleteHelper.buildDeleteIconButton(
+        onTap: () => _deletePost(blogId),
+      );
+    }
+
     final userIdRaw = blog['user_id'] ?? blog['created_by'];
     final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
     
-    // Check if we have any options to show
-    final hasOptions = posterId != null && posterId != currentUserId;
-    
-    // Only show the PopupMenuButton if there are options
+    final hasOptions = posterId != null && posterId != uid;
     if (!hasOptions) {
-      return SizedBox(width: 40); // Empty placeholder for alignment
+      return SizedBox(width: 40);
     }
-    
+
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {

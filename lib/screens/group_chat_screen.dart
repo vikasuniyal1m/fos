@@ -9,6 +9,8 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/screens/real_group_chat_screen.dart';
+import 'package:fruitsofspirit/config/group_posts_config.dart';
+import 'package:fruitsofspirit/screens/group_posts_screen.dart';
 import 'package:fruitsofspirit/services/group_posts_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'dart:io';
@@ -125,20 +127,25 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
     }
     
-    // Otherwise show Facebook-style posts
-    print('📄 _GroupChatScreenState: Building posts interface');
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text('Group ${widget.groupId}'),
-        backgroundColor: const Color(0xFF8B4513),
-      ),
-      body: const Center(
-        child: Text(
-          'Posts functionality - Debug mode',
-          style: TextStyle(fontSize: 16, color: Colors.grey),
-        ),
-      ),
+    GroupsController postsGroupsController;
+    try {
+      postsGroupsController = Get.find<GroupsController>();
+    } catch (e) {
+      postsGroupsController = Get.put(GroupsController());
+    }
+    final postsGroupName = postsGroupsController.selectedGroup['name'] as String? ?? 'Group';
+
+    if (!GroupPostsConfig.enabled) {
+      return RealGroupChatScreen(
+        groupId: widget.groupId,
+        groupName: postsGroupName,
+        userEmail: userEmail,
+      );
+    }
+
+    return GroupPostsScreen(
+      groupId: widget.groupId,
+      groupName: postsGroupName,
     );
   }
 }

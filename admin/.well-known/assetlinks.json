@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.fruitsofspirit.android",
+      "sha256_cert_fingerprints": [
+        "6F:6B:48:46:A2:B8:BB:CE:D6:49:DD:B2:07:D6:7E:18:D3:5A:FE:0C:3A:AF:27:CF:53:92:25:25:E7:64:8D:D3"
+      ]
+    }
+  }
+]

@@ -9,6 +9,7 @@ import 'package:fruitsofspirit/screens/phone_auth_screen.dart';
 import 'package:fruitsofspirit/screens/forgot_password_screen.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/bindings/home_binding.dart';
+import 'package:fruitsofspirit/bindings/InitialBinding.dart';
 import 'package:fruitsofspirit/screens/fruit_screen.dart';
 import 'package:fruitsofspirit/screens/prayer_requests_screen.dart';
 import 'package:fruitsofspirit/screens/create_prayer_screen.dart';
@@ -49,6 +50,11 @@ import '../screens/live_stream_viewer_screen.dart';
 import '../screens/payment_screen.dart';
 import 'package:fruitsofspirit/screens/denominations_screen.dart';
 import 'package:fruitsofspirit/screens/church_locator_screen.dart';
+import 'package:fruitsofspirit/screens/shorts_screen.dart';
+import 'package:fruitsofspirit/screens/upload_short_screen.dart';
+import 'package:fruitsofspirit/screens/saved_shorts_screen.dart';
+import 'package:fruitsofspirit/screens/my_shorts_screen.dart';
+import 'package:fruitsofspirit/bindings/shorts_binding.dart';
 
 
 part 'app_routes.dart';
@@ -67,6 +73,7 @@ class AppPages {
     GetPage(
       name: Routes.DASHBOARD,
       page: () => const MainDashboardScreen(),
+      binding: InitialBinding(),
       transition: Transition.fadeIn,
     ),
     GetPage(
@@ -284,6 +291,7 @@ class AppPages {
         return AgoraLiveScreen(
           channelName: args['channel_name'] as String? ?? '',
           title: args['title'] as String? ?? 'Live',
+          description: args['description'] as String? ?? '',
           isBroadcaster: args['is_broadcaster'] as bool? ?? false,
         );
       },
@@ -291,8 +299,9 @@ class AppPages {
     ),
     GetPage(
       name: Routes.PAYMENT,
-      page: () => PaymentScreen(),
-      transition: Transition.fadeIn,
+      page: () => const PaymentScreen(),
+      transition: Transition.rightToLeft,
+      transitionDuration: const Duration(milliseconds: 280),
     ),
 
     GetPage(
@@ -304,6 +313,30 @@ class AppPages {
       name: Routes.CHURCH_LOCATOR,
       page: () => const ChurchLocatorScreen(),
       transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.SHORTS,
+      page: () => const ShortsScreen(),
+      binding: ShortsBinding(),
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.UPLOAD_SHORT,
+      page: () => const UploadShortScreen(),
+      binding: ShortsBinding(),
+      transition: Transition.rightToLeft,
+    ),
+    GetPage(
+      name: Routes.SAVED_SHORTS,
+      page: () => const SavedShortsScreen(),
+      binding: ShortsBinding(),
+      transition: Transition.rightToLeft,
+    ),
+    GetPage(
+      name: Routes.MY_SHORTS,
+      page: () => const MyShortsScreen(),
+      binding: ShortsBinding(),
+      transition: Transition.rightToLeft,
     ),
 
   ];

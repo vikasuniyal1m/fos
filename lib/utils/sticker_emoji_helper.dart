@@ -22,8 +22,10 @@ class StickerEmojiHelper {
 
   /// Build widget for sticker emoji
   static Widget buildStickerWidget(String emojiCode, {double size = 40}) {
-    // If it's an image URL, display it directly
-    if (emojiCode.startsWith('http') && (emojiCode.contains('.png') || emojiCode.contains('.jpg') || emojiCode.contains('.jpeg'))) {
+    if (emojiCode.startsWith('http') &&
+        (emojiCode.contains('.png') ||
+            emojiCode.contains('.jpg') ||
+            emojiCode.contains('.jpeg'))) {
       return _buildNetworkImage(emojiCode, size);
     }
 
@@ -32,8 +34,13 @@ class StickerEmojiHelper {
       return Text(emojiCode, style: TextStyle(fontSize: size));
     }
 
-    return FutureBuilder<List<Sticker>>(
-      future: StickerService.getAllStickers(),
+    final cached = StickerService.getStickerByIdSync(stickerId);
+    if (cached != null) {
+      return _buildStickerImage(cached, size);
+    }
+
+    return FutureBuilder<Sticker?>(
+      future: StickerService.getStickerById(stickerId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return SizedBox(
@@ -45,51 +52,42 @@ class StickerEmojiHelper {
           );
         }
 
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return _buildPlaceholder(size, text: 'Loading...');
-        }
-
-        final sticker = snapshot.data!.firstWhere(
-          (s) => s.id == stickerId,
-          orElse: () => Sticker(
-            id: stickerId,
-            name: 'Unknown',
-            imageUrl: '',
-            emojiCode: emojiCode,
-            displayOrder: 0,
-          ),
-        );
-
-        // If sticker has no image URL, show placeholder
-        if (sticker.imageUrl.isEmpty && (sticker.localPath == null || sticker.localPath!.isEmpty)) {
+        final sticker = snapshot.data;
+        if (sticker == null) {
           return _buildPlaceholder(size, text: 'Sticker $stickerId');
         }
 
-        if (sticker.localPath != null && sticker.localPath!.isNotEmpty) {
-          return Image.file(
-            File(sticker.localPath!),
-            width: size,
-            height: size,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) {
-              print('❌ Error loading local sticker ${sticker.id}: $error');
-              // Try network as fallback
-              if (sticker.imageUrl.isNotEmpty) {
-                return _buildNetworkImage(sticker.imageUrl, size);
-              }
-              return _buildPlaceholder(size, text: 'Error');
-            },
-          );
-        }
-
-        // Fallback to network image
-        if (sticker.imageUrl.isNotEmpty) {
-          return _buildNetworkImage(sticker.imageUrl, size);
-        }
-
-        return _buildPlaceholder(size, text: 'No image');
+        return _buildStickerImage(sticker, size);
       },
     );
+  }
+
+  static Widget _buildStickerImage(Sticker sticker, double size) {
+    if (sticker.imageUrl.isEmpty &&
+        (sticker.localPath == null || sticker.localPath!.isEmpty)) {
+      return _buildPlaceholder(size, text: 'Sticker ${sticker.id}');
+    }
+
+    if (sticker.localPath != null && sticker.localPath!.isNotEmpty) {
+      return Image.file(
+        File(sticker.localPath!),
+        width: size,
+        height: size,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) {
+          if (sticker.imageUrl.isNotEmpty) {
+            return _buildNetworkImage(sticker.imageUrl, size);
+          }
+          return _buildPlaceholder(size, text: 'Error');
+        },
+      );
+    }
+
+    if (sticker.imageUrl.isNotEmpty) {
+      return _buildNetworkImage(sticker.imageUrl, size);
+    }
+
+    return _buildPlaceholder(size, text: 'No image');
   }
 
   static Widget _buildNetworkImage(String url, double size) {
@@ -115,7 +113,6 @@ class StickerEmojiHelper {
         );
       },
       errorBuilder: (context, error, stackTrace) {
-        print('❌ Error loading network image: $error');
         return _buildPlaceholder(size, text: 'Error');
       },
     );
@@ -203,31 +200,7 @@ class StickerEmojiHelper {
           border: Border.all(color: Colors.grey[300]!),
         ),
         padding: const EdgeInsets.all(8),
-        child: sticker.localPath != null && sticker.localPath!.isNotEmpty
-            ? Image.file(
-                File(sticker.localPath!),
-                width: size,
-                height: size,
-                fit: BoxFit.contain,
-              )
-            : Image.network(
-                sticker.imageUrl,
-                width: size,
-                height: size,
-                fit: BoxFit.contain,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      value: loadingProgress.expectedTotalBytes != null
-                          ? loadingProgress.cumulativeBytesLoaded /
-                              loadingProgress.expectedTotalBytes!
-                          : null,
-                    ),
-                  );
-                },
-              ),
+        child: _buildStickerImage(sticker, size),
       ),
     );
   }
@@ -266,14 +239,12 @@ class StickerEmojiHelper {
     
     var lastIndex = 0;
     for (final match in regex.allMatches(text)) {
-      // Add text before sticker
       if (match.start > lastIndex) {
         spans.add(TextSpan(
           text: text.substring(lastIndex, match.start),
         ));
       }
       
-      // Add sticker as widget span
       final emojiCode = match.group(0)!;
       spans.add(WidgetSpan(
         child: StickerEmojiHelper.buildStickerWidget(emojiCode, size: emojiSize),
@@ -283,7 +254,6 @@ class StickerEmojiHelper {
       lastIndex = match.end;
     }
     
-    // Add remaining text
     if (lastIndex < text.length) {
       spans.add(TextSpan(text: text.substring(lastIndex)));
     }

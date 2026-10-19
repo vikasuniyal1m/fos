@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
 import 'package:fruitsofspirit/utils/time_helper.dart';
+import 'package:fruitsofspirit/utils/content_delete_helper.dart';
 
 import 'package:fruitsofspirit/controllers/home_controller.dart';
 import 'package:fruitsofspirit/services/stories_service.dart';
@@ -416,6 +417,43 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
       isEditingComment.value = false; // edit feature
     } // edit feature
   } // edit feature
+
+  Future<void> _deletePost(int storyId) async {
+    if (userId == 0) {
+      Get.snackbar('Error', 'Please login first', backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'story');
+    if (!confirmed) return;
+    try {
+      await StoriesService.deleteStory(userId: userId, storyId: storyId);
+      Get.back();
+      Get.snackbar('Success', 'Story deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } catch (e) {
+      Get.snackbar('Error', e.toString().replaceAll('Exception: ', ''), backgroundColor: Colors.red, colorText: Colors.white);
+    }
+  }
+
+  Future<void> _deleteComment(int commentId, int storyId) async {
+    if (userId == 0) return;
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'comment');
+    if (!confirmed) return;
+    try {
+      await CommentsService.deleteComment(userId: userId, commentId: commentId, postType: 'story');
+      await _loadStoryDetails(storyId);
+      Get.snackbar('Success', 'Comment deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } catch (e) {
+      Get.snackbar('Error', e.toString().replaceAll('Exception: ', ''), backgroundColor: Colors.red, colorText: Colors.white);
+    }
+  }
+
+  Widget _buildDeleteCommentButton(Map<String, dynamic> comment, int storyId) {
+    if (!ContentDeleteHelper.isOwner(userId, comment['user_id'])) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(left: ResponsiveHelper.spacing(context, 16)),
+      child: ContentDeleteHelper.buildDeleteAction(onTap: () => _deleteComment(comment['id'] as int, storyId)),
+    );
+  }
 
   // edit feature: Edit story method
   Future<void> _editPost(int storyId) async { // edit feature
@@ -2595,6 +2633,7 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
                           ),
                           // edit feature: Edit Button - Show for all comments within 15 minutes
                           _buildEditButton(context, comment, storyId),
+                          _buildDeleteCommentButton(comment, storyId),
                           // View replies button (if replies exist)
                           if (replies.isNotEmpty) ...[
                             SizedBox(width: ResponsiveHelper.spacing(context, 16)),
@@ -3377,14 +3416,17 @@ class _StoryDetailsScreenState extends State<StoryDetailsScreen> {
     final userIdRaw = story['user_id'] ?? story['created_by'];
     final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
     
-    // Check if we have any options to show
-    final hasOptions = posterId != null && posterId != this.userId;
-    
-    // Only show the PopupMenuButton if there are options
-    if (!hasOptions) {
-      return SizedBox(width: 40); // Empty placeholder for alignment
+    if (ContentDeleteHelper.isOwner(this.userId, story['user_id'])) {
+      return ContentDeleteHelper.buildDeleteIconButton(
+        onTap: () => _deletePost(story['id'] as int),
+      );
     }
-    
+
+    final hasOptions = posterId != null && posterId != this.userId;
+    if (!hasOptions) {
+      return SizedBox(width: 40);
+    }
+
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {

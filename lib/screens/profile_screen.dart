@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:fruitsofspirit/controllers/profile_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/home_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/controllers/notifications_controller.dart';
@@ -19,18 +21,109 @@ import 'package:fruitsofspirit/services/payment_gate.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
+import 'package:fruitsofspirit/services/iap_service.dart';
 import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/services/translate_service.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
+import 'package:fruitsofspirit/widgets/responsive_scaffold.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/permission_manager.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:fruitsofspirit/screens/blocked_users_screen.dart';
+import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
+import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/widgets/profile_my_content_sections.dart';
 
 /// Profile Screen
 /// Displays user profile information with professional UI
 class ProfileScreen extends GetView<ProfileController> {
   const ProfileScreen({Key? key}) : super(key: key);
+
+  static Future<void> navigateToUserPrayers(
+    BuildContext context,
+    int userId,
+  ) async {
+    final prayersController = Get.isRegistered<PrayersController>()
+        ? Get.find<PrayersController>()
+        : Get.put(PrayersController(), permanent: true);
+    prayersController.filterUserId.value = userId;
+    if (Get.isRegistered<HomeController>()) {
+      prayersController.seedFromHomeIfEmpty(
+        Get.find<HomeController>().prayers.toList(),
+      );
+    }
+    prayersController.reapplyFilter();
+    unawaited(
+      prayersController.loadPrayers(
+        refresh: true,
+        silent: prayersController.prayers.isNotEmpty,
+      ),
+    );
+    await PaymentGate.navigateToFeature(
+      Routes.PRAYER_REQUESTS,
+      arguments: {'fromProfile': true, 'filterUserId': userId},
+    );
+  }
+
+  static Future<void> navigateToUserBlogs(
+    BuildContext context,
+    int userId,
+  ) async {
+    final blogsController = Get.isRegistered<BlogsController>()
+        ? Get.find<BlogsController>()
+        : Get.put(BlogsController(), permanent: true);
+    blogsController.filterUserId.value = userId;
+    blogsController.bootstrapBlogs();
+    blogsController.loadFromHiveIfEmpty();
+    if (Get.isRegistered<HomeController>()) {
+      blogsController.seedFromHomeIfEmpty(
+        Get.find<HomeController>().blogs.toList(),
+      );
+    }
+    blogsController.reapplyFilter();
+    unawaited(
+      blogsController.loadBlogs(
+        refresh: true,
+        silent: blogsController.blogs.isNotEmpty,
+      ),
+    );
+    await PaymentGate.navigateToFeature(
+      Routes.BLOGGER_ZONE,
+      arguments: {'fromProfile': true, 'filterUserId': userId},
+    );
+  }
+
+  static Future<void> navigateToUserGallery(
+    BuildContext context,
+    int userId,
+  ) async {
+    final galleryController = Get.isRegistered<GalleryController>()
+        ? Get.find<GalleryController>()
+        : Get.put(GalleryController(), permanent: true);
+    galleryController.filterUserId.value = userId;
+    galleryController.bootstrapGallery();
+    if (Get.isRegistered<HomeController>()) {
+      galleryController.seedFromHomeIfEmpty(
+        Get.find<HomeController>().galleryPhotos.toList(),
+      );
+    }
+    galleryController.loadFromHiveIfEmpty();
+    unawaited(
+      galleryController.loadPhotos(
+        refresh: true,
+        silent: galleryController.photos.isNotEmpty,
+      ),
+    );
+    await PaymentGate.navigateToFeature(
+      Routes.GALLERY,
+      arguments: {'fromProfile': true, 'filterUserId': userId},
+    );
+  }
+
+  static Future<void> navigateToMyShorts(BuildContext context) async {
+    await Get.toNamed(Routes.MY_SHORTS);
+  }
 
   /// Get ImageProvider for profile photo (handles both network and assets)
   ImageProvider? _getImageProvider(String? photoUrl) {
@@ -53,29 +146,27 @@ class ProfileScreen extends GetView<ProfileController> {
       return null;
     }
     
-    // If it's a relative path, construct full URL
-    return NetworkImage('http://admin.fosmessenger.com/$photoUrl');
+    final resolved = ImageHelper.getProfilePhotoUrl(photoUrl);
+    if (resolved != null) return NetworkImage(resolved);
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
-    // Professional responsive design for tablets/iPads
     final isTabletDevice = ResponsiveHelper.isTablet(context);
-    final double? maxContentWidthValue = isTabletDevice 
+    final double? maxContentWidthValue = isTabletDevice
         ? (ResponsiveHelper.isLargeTablet(context) ? 1200.0 : 840.0)
         : null;
-    
-    return Scaffold(
+
+    return ResponsiveScaffold(
       backgroundColor: AppTheme.themeColor,
-      appBar: StandardAppBar(
+      standardAppBar: const StandardAppBar(
         showBackButton: true,
       ),
       body: Obx(() {
         if (controller.isLoading.value && controller.profile.isEmpty) {
           return Center(
-            child: CircularProgressIndicator(
-              color: Colors.black,
-            ),
+            child: CircularProgressIndicator(color: AppTheme.iconscolor),
           );
         }
 
@@ -112,28 +203,38 @@ class ProfileScreen extends GetView<ProfileController> {
           );
         }
 
-        final profile = controller.profile;
-        final stats = profile['stats'] as Map<String, dynamic>? ?? {};
-        final fruitList = profile['fruit'] as List<dynamic>? ?? [];
-        final baseUrl = 'http://admin.fosmessenger.com/';
-        final profilePhoto = profile['profile_photo'] != null
-            ? ((profile['profile_photo'] as String).startsWith('http://') || (profile['profile_photo'] as String).startsWith('https://'))
-                ? (profile['profile_photo'] as String)
-                : baseUrl + (profile['profile_photo'] as String)
-            : null;
-
         return RefreshIndicator(
           onRefresh: () => controller.refresh(),
-                  color: AppTheme.iconscolor,
+          color: AppTheme.iconscolor,
           child: Center(
             child: ResponsiveHelper.constrainedContent(
               context: context,
               maxWidth: maxContentWidthValue,
               child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   children: [
-                // Header Section with Profile Picture
-                Container(
+                    _buildProfileHeader(context),
+                    _buildProfileContent(context),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildProfileHeader(BuildContext context) {
+    return Obx(() {
+      final profilePhoto = ImageHelper.getProfilePhotoUrl(
+        controller.profile['profile_photo'] as String?,
+      );
+      final name = controller.profile['name'] as String? ?? 'Anonymous';
+      final email = controller.profile['email'] as String?;
+
+      return Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
                     color: AppTheme.iconscolor,
@@ -167,16 +268,20 @@ class ProfileScreen extends GetView<ProfileController> {
                               child: CircleAvatar(
                                 radius: ResponsiveHelper.isMobile(context) ? 50 : ResponsiveHelper.isTablet(context) ? 55 : 60,
                                 backgroundColor: AppTheme.accentColor,
-                                backgroundImage: profilePhoto != null
-                                    ? _getImageProvider(profilePhoto)
-                                    : null,
-                                child: profilePhoto == null
-                                    ? Icon(
+                                child: profilePhoto != null
+                                    ? ClipOval(
+                                        child: CachedImage(
+                                          imageUrl: profilePhoto,
+                                          width: (ResponsiveHelper.isMobile(context) ? 50 : ResponsiveHelper.isTablet(context) ? 55 : 60) * 2,
+                                          height: (ResponsiveHelper.isMobile(context) ? 50 : ResponsiveHelper.isTablet(context) ? 55 : 60) * 2,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      )
+                                    : Icon(
                                         Icons.person,
                                         size: ResponsiveHelper.isMobile(context) ? 50 : ResponsiveHelper.isTablet(context) ? 55 : 60,
                                         color: AppTheme.iconscolor,
-                                      )
-                                    : null,
+                                      ),
                               ),
                             ),
                             // Camera icon overlay
@@ -204,9 +309,8 @@ class ProfileScreen extends GetView<ProfileController> {
                         ),
                       ),
                       SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                      // Name
                       Text(
-                        profile['name'] as String? ?? 'Anonymous',
+                        name,
                         style: ResponsiveHelper.textStyle(
                           context,
                           fontSize: ResponsiveHelper.fontSize(context, mobile: 22, tablet: 24, desktop: 26),
@@ -217,10 +321,9 @@ class ProfileScreen extends GetView<ProfileController> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
-                      // Email
-                      if (profile['email'] != null)
+                      if (email != null)
                         Text(
-                          profile['email'] as String,
+                          email,
                           style: ResponsiveHelper.textStyle(
                             context,
                             fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
@@ -229,158 +332,221 @@ class ProfileScreen extends GetView<ProfileController> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
+                      SizedBox(height: ResponsiveHelper.spacing(context, 10)),
+                      if (Get.isRegistered<IAPService>())
+                        Obx(() {
+                          final iap = Get.find<IAPService>();
+                          final isPremium = iap.premiumActive.value;
+                          return Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: isPremium
+                                  ? null
+                                  : () => Get.toNamed(Routes.PAYMENT),
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isPremium
+                                      ? Colors.green.withOpacity(0.12)
+                                      : AppTheme.iconscolor.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: isPremium
+                                        ? Colors.green
+                                        : AppTheme.iconscolor,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isPremium
+                                          ? Icons.verified_rounded
+                                          : Icons.lock_outline_rounded,
+                                      size: 16,
+                                      color: isPremium
+                                          ? Colors.green
+                                          : AppTheme.iconscolor,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      isPremium
+                                          ? 'Premium Member'
+                                          : 'Upgrade to Premium',
+                                      style: ResponsiveHelper.textStyle(
+                                        context,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: isPremium
+                                            ? Colors.green.shade800
+                                            : AppTheme.iconscolor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
                     ],
                   ),
-                ),
-                
-                // Content Section
-                Container(
-                  width: double.infinity,
-                  padding: ResponsiveHelper.padding(
-                    context,
-                    horizontal: ResponsiveHelper.isMobile(context) ? 14 : 16,
-                    top: ResponsiveHelper.isMobile(context) ? 16 : 20,
-                  ),
-                  child: Column(
-                    children: [
-                        // Stats Cards
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildStatCard(
-                                context,
-                                'Prayers',
-                                '${stats['prayers'] ?? 0}',
-                                Icons.favorite,
-                                Colors.red,
-                                onTap: () {
-                                  final currentUserId = controller.userId.value;
-                                  if (currentUserId > 0) {
-                                    PaymentGate.navigateToFeature(
-                                      Routes.PRAYER_REQUESTS,
-                                      arguments: {
-                                        'fromProfile': true,
-                                        'filterUserId': currentUserId,
-                                      },
-                                    );
-                                    return;
-                                  }
-                                  PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
-                                },
-                              ),
-                            ),
-                            SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                            Expanded(
-                              child: _buildStatCard(
-                                context,
-                                'Blogs',
-                                '${stats['blogs'] ?? 0}',
-                                Icons.article,
-                                Colors.blue,
-                                onTap: () {
-                                  final currentUserId = controller.userId.value;
-                                  if (currentUserId > 0) {
-                                    PaymentGate.navigateToFeature(
-                                      Routes.BLOGS,
-                                      arguments: {
-                                        'fromProfile': true,
-                                        'filterUserId': currentUserId,
-                                      },
-                                    );
-                                    return;
-                                  }
-                                  PaymentGate.navigateToFeature(Routes.BLOGS);
-                                },
-                              ),
-                            ),
-                            SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                            Expanded(
-                              child: _buildStatCard(
-                                context,
-                                'Media',
-                                '${stats['media'] ?? 0}',
-                                Icons.photo_library,
-                                Colors.purple,
-                                onTap: () {
-                                  final currentUserId = controller.userId.value;
-                                  if (currentUserId > 0) {
-                                    PaymentGate.navigateToFeature(
-                                      Routes.GALLERY,
-                                      arguments: {
-                                        'fromProfile': true,
-                                        'filterUserId': currentUserId,
-                                      },
-                                    );
-                                    return;
-                                  }
-                                  PaymentGate.navigateToFeature(Routes.GALLERY);
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: ResponsiveHelper.spacing(context, 24)),
-                        
-                        // Personal Information Card
-                        _buildInfoCard(
-                          context,
-                          'Personal Information',
-                          [
-                            _buildInfoRow(
-                              context,
-                              Icons.person,
-                              'Full Name',
-                              profile['name'] as String? ?? 'Not provided',
-                            ),
-                            if (profile['email'] != null)
-                              _buildInfoRow(
-                                context,
-                                Icons.email,
-                                'Email',
-                                profile['email'] as String,
-                              ),
-                            if (profile['phone'] != null)
-                              _buildInfoRow(
-                                context,
-                                Icons.phone,
-                                'Phone',
-                                profile['phone'] as String,
-                              ),
-                            if (profile['fruit_category'] != null)
-                              _buildInfoRow(
-                                context,
-                                Icons.favorite,
-                                'Primary Fruit',
-                                profile['fruit_category'] as String,
-                              ),
-                          ],
-                        ),
-                        SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                        
-                        // Selected Fruit Card
-                        if (fruitList.isNotEmpty)
-                          _buildFruitCard(context, fruitList),
-                        
-                        SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                        
-                        // Settings Card
-                        _buildSettingsCard(context),
-                        
-                        SizedBox(height: ResponsiveHelper.spacing(context, 24)),
-                      ],
-                    ),
-                  ),
+      );
+    });
+  }
 
-
-            ]
-                ),
-          ),
-        )
-          )
-        );
-
-      }),
+  Widget _buildProfileContent(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: ResponsiveHelper.padding(
+        context,
+        horizontal: ResponsiveHelper.isMobile(context) ? 14 : 16,
+        top: ResponsiveHelper.isMobile(context) ? 16 : 20,
+      ),
+      child: Column(
+        children: [
+          _buildProfileStats(context),
+          SizedBox(height: ResponsiveHelper.spacing(context, 24)),
+          _buildProfileInfo(context),
+          SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+          _buildProfileFruit(context),
+          SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+          const ProfileMyShortsSection(),
+          SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+          const ProfileSavedShortsSection(),
+          SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+          Obx(() {
+            final userId = controller.userId.value;
+            if (userId <= 0) return const SizedBox.shrink();
+            return Column(
+              children: [
+                ProfileMyPrayersSection(userId: userId),
+                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                ProfileMyBlogsSection(userId: userId),
+                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                ProfileMyMediaSection(userId: userId),
+                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+              ],
+            );
+          }),
+          _buildSettingsCard(context),
+          SizedBox(height: ResponsiveHelper.spacing(context, 24)),
+        ],
+      ),
     );
+  }
+
+  Widget _buildProfileStats(BuildContext context) {
+    return Obx(() {
+      final stats = controller.profile['stats'] as Map<String, dynamic>? ?? {};
+      return Row(
+        children: [
+          Expanded(
+            child: _buildStatCard(
+              context,
+              'Prayers',
+              '${stats['prayers'] ?? 0}',
+              Icons.favorite,
+              Colors.red,
+              onTap: () {
+                final currentUserId = controller.userId.value;
+                if (currentUserId > 0) {
+                  ProfileScreen.navigateToUserPrayers(context, currentUserId);
+                  return;
+                }
+                HomeScreen.navigateToPrayerRequests(context);
+              },
+            ),
+          ),
+          SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+          Expanded(
+            child: _buildStatCard(
+              context,
+              'Blogs',
+              '${stats['blogs'] ?? 0}',
+              Icons.article,
+              Colors.blue,
+              onTap: () {
+                final currentUserId = controller.userId.value;
+                if (currentUserId > 0) {
+                  ProfileScreen.navigateToUserBlogs(context, currentUserId);
+                  return;
+                }
+                HomeScreen.navigateToBloggerZone(context);
+              },
+            ),
+          ),
+          SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+          Expanded(
+            child: _buildStatCard(
+              context,
+              'Media',
+              '${stats['media'] ?? 0}',
+              Icons.photo_library,
+              Colors.purple,
+              onTap: () {
+                final currentUserId = controller.userId.value;
+                if (currentUserId > 0) {
+                  ProfileScreen.navigateToUserGallery(context, currentUserId);
+                  return;
+                }
+                HomeScreen.navigateToGallery(context);
+              },
+            ),
+          ),
+        ],
+      );
+    });
+  }
+
+  Widget _buildProfileInfo(BuildContext context) {
+    return Obx(() {
+      final profile = controller.profile;
+      return _buildInfoCard(
+        context,
+        'Personal Information',
+        [
+          _buildInfoRow(
+            context,
+            Icons.person,
+            'Full Name',
+            profile['name'] as String? ?? 'Not provided',
+          ),
+          if (profile['email'] != null)
+            _buildInfoRow(
+              context,
+              Icons.email,
+              'Email',
+              profile['email'] as String,
+            ),
+          if (profile['phone'] != null)
+            _buildInfoRow(
+              context,
+              Icons.phone,
+              'Phone',
+              profile['phone'] as String,
+            ),
+          if (profile['fruit_category'] != null)
+            _buildInfoRow(
+              context,
+              Icons.favorite,
+              'Primary Fruit',
+              profile['fruit_category'] as String,
+            ),
+        ],
+      );
+    });
+  }
+
+  Widget _buildProfileFruit(BuildContext context) {
+    return Obx(() {
+      final fruitList = controller.profile['fruit'] as List<dynamic>? ?? [];
+      if (fruitList.isEmpty) return const SizedBox.shrink();
+      return _buildFruitCard(context, fruitList);
+    });
   }
 
   Widget _buildStatCard(BuildContext context, String label, String value, IconData icon, Color color, {VoidCallback? onTap}) {
@@ -666,6 +832,24 @@ class ProfileScreen extends GetView<ProfileController> {
             null,
             () => Get.to(() => const BlockedUsersScreen()),
           ),
+          if (Get.isRegistered<IAPService>())
+            Obx(() {
+              final iap = Get.find<IAPService>();
+              if (iap.premiumActive.value) return const SizedBox.shrink();
+              return Column(
+                children: [
+                  Divider(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
+                  _buildSettingTile(
+                    context,
+                    Icons.restore_rounded,
+                    'Restore Premium',
+                    'Already purchased? Restore on this device',
+                    iap.isLoading.value ? '...' : null,
+                    iap.isLoading.value ? () {} : () => _restorePremium(context),
+                  ),
+                ],
+              );
+            }),
           Divider(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 24 : 32)),
           _buildSettingTile(
             context,
@@ -677,6 +861,24 @@ class ProfileScreen extends GetView<ProfileController> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _restorePremium(BuildContext context) async {
+    final iap = Get.isRegistered<IAPService>()
+        ? Get.find<IAPService>()
+        : Get.put(IAPService(), permanent: true);
+
+    final result = await iap.restorePremiumMembership();
+    if (!context.mounted) return;
+
+    Get.snackbar(
+      result.success ? 'Premium Restored' : 'Restore Failed',
+      result.message,
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: result.success ? AppTheme.successColor : AppTheme.errorColor,
+      colorText: Colors.white,
+      duration: const Duration(seconds: 4),
     );
   }
 
@@ -865,14 +1067,17 @@ class ProfileScreen extends GetView<ProfileController> {
       // Clear user data from storage
       await UserStorage.clearUser();
 
-      // Clear all cache
+      // Clear premium prefs so next login user gets their own status from DB
+      if (Get.isRegistered<IAPService>()) {
+        await Get.find<IAPService>().clearPremiumOnLogout();
+      }
+
+      // Clear all cache (Hive — single store)
       await CacheService.clearAllCache();
 
       // Clear profile controller data before deleting
       if (Get.isRegistered<ProfileController>()) {
-        final profileController = Get.find<ProfileController>();
-        profileController.profile.clear();
-        profileController.userId.value = 0;
+        Get.find<ProfileController>().clearProfile();
       }
 
       // Clear ALL controller data and reset to initial state
@@ -895,6 +1100,7 @@ class ProfileScreen extends GetView<ProfileController> {
           homeController.userId.value = 0;
           homeController.userFeeling.value = null;
           homeController.userName.value = '';
+          homeController.resetSessionState();
           homeController.isInitialLoading.value = true;
           homeController.isLoading.value = false;
           homeController.message.value = '';
@@ -923,9 +1129,7 @@ class ProfileScreen extends GetView<ProfileController> {
           notificationsController.notifications.clear();
         }
         if (Get.isRegistered<ProfileController>()) {
-          final profileController = Get.find<ProfileController>();
-          profileController.profile.clear();
-          profileController.userId.value = 0;
+          Get.find<ProfileController>().clearProfile();
         }
         if (Get.isRegistered<FruitController>()) {
           final fruitController = Get.find<FruitController>();
@@ -1574,4 +1778,3 @@ class ProfileScreen extends GetView<ProfileController> {
     }
   }
 }
-

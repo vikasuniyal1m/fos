@@ -1,0 +1,8 @@
+{
+    "name": "fruitsofspirit/api",
+    "description": "Fruits of the Spirit API",
+    "require": {
+        "agoraio/agora-dynamic-key": "dev-master",
+        "stripe/stripe-php": "^13.0"
+    }
+}

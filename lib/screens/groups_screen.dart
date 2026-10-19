@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/controllers/group_chat_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
@@ -23,12 +26,42 @@ class GroupsScreen extends StatefulWidget {
 class _GroupsScreenState extends State<GroupsScreen> {
   // Track loading state for group buttons
   final Map<int, bool> _loadingButtons = {};
+  final ScrollController _scrollController = ScrollController();
   late final GroupsController controller;
 
   @override
   void initState() {
     super.initState();
     controller = Get.find<GroupsController>();
+    if (controller.selectedCategory.value.isNotEmpty) {
+      controller.filterByCategory('');
+    }
+    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(
+        controller.startGroupsPagination(
+          force: controller.groups.length <= 6,
+        ),
+      );
+    });
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (!position.hasContentDimensions || position.maxScrollExtent <= 0) {
+      return;
+    }
+    if (position.pixels >= position.maxScrollExtent - 280) {
+      unawaited(controller.loadNextPage());
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
   }
   
   /// Show a simple snackbar using ScaffoldMessenger
@@ -90,7 +123,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
           StandardAppBar.buildActionIcon(
             context,
             icon: Icons.add_rounded,
-            onTap: () async => await PaymentGate.navigateToFeature(Routes.CREATE_GROUP),
+            onTap: () async {
+              if (!await PaymentGate.checkAndNavigate()) return;
+              await Get.toNamed(Routes.CREATE_GROUP);
+            },
           ),
         ],
       ),
@@ -176,7 +212,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
                         ),
                         SizedBox(height: ResponsiveHelper.spacing(context, 32)),
                         ElevatedButton.icon(
-                          onPressed: () async => await PaymentGate.navigateToFeature(Routes.CREATE_GROUP),
+                          onPressed: () async {
+                            if (!await PaymentGate.checkAndNavigate()) return;
+                            await Get.toNamed(Routes.CREATE_GROUP);
+                          },
                           icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 24),
                           label: Text(
                             'Create Your First Group',
@@ -233,9 +272,22 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     context: context,
                     maxWidth: maxContentWidthValue,
                     child: ListView.builder(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-                  itemCount: controller.groups.length,
+                  itemCount: controller.groups.length +
+                      (controller.isLoadingMore.value ? 1 : 0),
                   itemBuilder: (context, index) {
+                    if (index >= controller.groups.length) {
+                      return Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: ResponsiveHelper.spacing(context, 16),
+                        ),
+                        child: const Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
+                    }
                     final group = controller.groups[index];
                     return _buildGroupCard(context, group, controller);
                   },
@@ -475,56 +527,57 @@ class _GroupsScreenState extends State<GroupsScreen> {
                             });
 
                             try {
-                              // Payment gate before joining
-                              await PaymentGate.navigateToFeature(Routes.GROUP_CHAT, arguments: groupId);
-                              
-                              // If payment successful, join the group
+                              if (!await PaymentGate.checkAndNavigate()) return;
+
                               final success = await controller.joinGroup(groupId);
-                              
-                              if (success) {
-                                // Show success message
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  final messageText = controller.message.value.isNotEmpty 
-                                      ? controller.message.value 
-                                      : 'Joined group successfully';
-                                  _showCustomSnackbar(context, messageText, isError: false);
-                                });
-                                controller.refresh();
+                              if (success && context.mounted) {
+                                final messageText =
+                                    controller.message.value.isNotEmpty
+                                        ? controller.message.value
+                                        : 'Joined group successfully';
+                                _showCustomSnackbar(
+                                  context,
+                                  messageText,
+                                  isError: false,
+                                );
                               }
                             } catch (e) {
-                              print('Error in payment/join flow: $e');
+                              print('Error in join flow: $e');
                             } finally {
-                              setState(() {
-                                _loadingButtons[groupId] = false;
-                              });
+                              if (mounted) {
+                                setState(() {
+                                  _loadingButtons[groupId] = false;
+                                });
+                              }
                             }
                           } else {
-                            setState(() {
-                              _loadingButtons[groupId] = true;
-                            });
+                            controller.bootstrapGroupDetail(groupId);
+                            unawaited(controller.prepareGroupDetails(groupId));
 
-                            try {
-                              // Load group details
-                              await controller.loadGroupDetails(groupId);
+                            final chatController = Get.isRegistered<GroupChatController>()
+                                ? Get.find<GroupChatController>()
+                                : Get.put(GroupChatController());
+                            chatController.bootstrapMessages(groupId);
+                            unawaited(
+                              chatController.loadMessages(
+                                groupId,
+                                silent: true,
+                              ),
+                            );
 
-                              if (controller.selectedGroup.value != null) {
-                                // Get category and play jingle before navigation
-                                final category = group['category'] as String? ?? '';
-                                final groupName = group['name'] as String? ?? '';
-                                print('🔊 Group category: $category, Group name: $groupName');
-                                // Play jingle for the group category
-                                final jingleService = Get.find<JingleService>();
-                                await jingleService.startJingle(category, groupName: groupName);
-                                // Direct navigation to Group Chat (no payment gate for members)
-                                await Get.toNamed(Routes.GROUP_CHAT, arguments: groupId);
-                              }
-                            } catch (e) {
-                              print('Error loading group: $e');
-                            } finally {
-                              setState(() {
-                                _loadingButtons[groupId] = false;
-                              });
-                            }
+                            final category = group['category'] as String? ?? '';
+                            final groupName = group['name'] as String? ?? '';
+                            final jingleService = Get.find<JingleService>();
+                            unawaited(
+                              jingleService.startJingle(
+                                category,
+                                groupName: groupName,
+                              ),
+                            );
+                            await Get.toNamed(
+                              Routes.GROUP_CHAT,
+                              arguments: groupId,
+                            );
                           }
                         },
                         icon: _loadingButtons[group['id'] as int] == true
@@ -568,28 +621,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () async {
-                          // Show loading indicator
-                          Get.dialog(
-                            const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                            barrierDismissible: false,
-                          );
-
+                          final groupId = group['id'] as int;
                           try {
-                            // Load group details
-                            await controller.loadGroupDetails(group['id'] as int);
-                            // Dismiss loading indicator BEFORE navigating
-                            if (Get.isDialogOpen ?? false) {
-                              Get.back();
-                            }
-                            // Navigate to details page (payment gate)
-                            await Get.toNamed(Routes.GROUP_DETAILS, arguments: group['id']);
+                            controller.bootstrapGroupDetail(groupId);
+                            unawaited(controller.prepareGroupDetails(groupId));
+                            await Get.toNamed(Routes.GROUP_DETAILS, arguments: groupId);
                           } catch (e) {
-                            // Dismiss loading indicator in case of error
-                            if (Get.isDialogOpen ?? false) {
-                              Get.back();
-                            }
                             // Show error message
                           /*  Get.snackbar(
                               'Error',

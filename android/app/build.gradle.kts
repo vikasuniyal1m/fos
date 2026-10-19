@@ -7,8 +7,7 @@ if (keystorePropertiesFile.exists()) {
 }
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
     // id("com.google.gms.google-services") // DISABLED - Firebase not used
 }
@@ -58,13 +57,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-
-        // Support 16 KB page sizes for Android 15+
-        // Note: ndk.abiFilters uses setOf() in Kotlin DSL
-        ndk {
-            abiFilters.clear()
-            abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a"))
-        }
+        // ABI filters: let Flutter control via --split-per-abi / --target-platform
+        // (manual ndk.abiFilters conflicts with flutter build apk --split-per-abi)
     }
 
     buildTypes {
@@ -88,8 +82,10 @@ flutter {
 }
 
 dependencies {
-    // Billing library is handled by in_app_purchase plugin automatically
-    // implementation("com.android.billingclient:billing-ktx:8.3.0")
+    // Force Google Play Billing 9.0.0 for release artifacts.
+    implementation("com.android.billingclient:billing:9.0.0")
+
+    // Play Billing 8+ comes from in_app_purchase_android >= 0.5.0 (via in_app_purchase ^3.3.0)
 
     // Material Components theme required by flutter_stripe (Theme.MaterialComponents)
     implementation("com.google.android.material:material:1.11.0")

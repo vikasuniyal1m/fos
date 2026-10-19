@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:get/get.dart';
 import 'package:flutter/material.dart';
@@ -8,13 +9,19 @@ import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/content_moderation_service.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/fruit_service.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
 
 /// Gallery Controller
 /// Manages gallery photos data and operations
 class GalleryController extends GetxController {
   // Observable variables
   var isLoading = false.obs;
+  var isDetailsSilentSyncing = false.obs;
   var message = ''.obs;
   
   // Data
@@ -40,11 +47,23 @@ class GalleryController extends GetxController {
   // Performance: Track if data is already loaded to prevent unnecessary reloads
   var _isDataLoaded = false;
   var _isLoading = false;
+  int _loadGeneration = 0;
+  DateTime? _lastSyncedAt;
+  static const Duration _minSyncInterval = Duration(minutes: 2);
+  static const Duration _detailsMinSyncInterval = Duration(minutes: 2);
+  static const String _galleryListHiveKey = 'gallery_list';
+  Completer<void>? _activeLoadCompleter;
+  DateTime? _detailsLastSyncedAt;
+  int _detailsLoadGeneration = 0;
+  int? preparedDetailPhotoId;
+  final Set<int> _deletedCommentIds = {};
+  final Set<int> _deletedPhotoIds = {};
 
   @override
   void onInit() {
     super.onInit();
     _loadUserId();
+    loadFromHiveIfEmpty();
     // Don't reset filter here - it might be set before navigation
     // Filter will be reset by home screen navigation if needed
   }
@@ -52,14 +71,21 @@ class GalleryController extends GetxController {
   @override
   void onReady() {
     super.onReady();
-    // Only load if filter is not set (normal navigation)
-    // If filter is set, it means we're coming from profile, so loadPhotos will be called after navigation
-    if (filterUserId.value == 0) {
-      loadPhotos();
+    _seedFromHomeIfRegistered();
+    loadFromHiveIfEmpty();
+    if (_allPhotos.isNotEmpty) {
+      _applyClientSideFilter();
     }
-    // Load emojis for reactions
+    if (filterUserId.value == 0) {
+      unawaited(loadPhotos(refresh: true, silent: true));
+    }
     loadAvailableEmojis();
     loadQuickEmojis();
+  }
+
+  void _seedFromHomeIfRegistered() {
+    if (!Get.isRegistered<HomeController>()) return;
+    seedFromHomeIfEmpty(Get.find<HomeController>().galleryPhotos.toList());
   }
 
   /// Load user ID from storage
@@ -70,19 +96,328 @@ class GalleryController extends GetxController {
     }
   }
 
+  Future<void> _ensureUserId() async {
+    if (userId.value == 0) {
+      await _loadUserId();
+    }
+  }
+
+  void loadFromHiveIfEmpty() {
+    if (_allPhotos.isNotEmpty) return;
+    var cached = HiveCacheService.getCachedList(_galleryListHiveKey);
+    if (cached.isEmpty) {
+      cached = HiveCacheService.getCachedList('home_gallery_photos');
+    }
+    final real = cached.where(ImageHelper.isRealGalleryPhoto).toList();
+    if (real.isEmpty) return;
+    _allPhotos = List<Map<String, dynamic>>.from(real);
+    _isDataLoaded = true;
+    _applyClientSideFilter();
+  }
+
+  void bootstrapGallery() {
+    loadFromHiveIfEmpty();
+  }
+
+  List<Map<String, dynamic>> _filterSeedPhotos(
+    List<Map<String, dynamic>> source,
+  ) {
+    return source
+        .where(ImageHelper.isRealGalleryPhoto)
+        .where((photo) {
+          final status = (photo['status'] ?? 'Approved').toString().toLowerCase();
+          return status == 'approved';
+        })
+        .map((p) => Map<String, dynamic>.from(p))
+        .toList();
+  }
+
+  /// Seed gallery from home cache for instant open.
+  void seedFromHomeIfEmpty(List<Map<String, dynamic>> homePhotos) {
+    if (_allPhotos.isNotEmpty || homePhotos.isEmpty) return;
+    final real = _filterSeedPhotos(homePhotos);
+    if (real.isEmpty) return;
+    _allPhotos = real;
+    _isDataLoaded = true;
+    _applyClientSideFilter();
+  }
+
+  int? _photoIdFromMap(Map<String, dynamic> map) {
+    final id = map['id'];
+    if (id is int) return id;
+    if (id is String) return int.tryParse(id);
+    return null;
+  }
+
+  String _photoDetailHiveKey(int photoId) => 'photo_detail_$photoId';
+
+  void bootstrapPhotoDetail(int photoId) {
+    if (photoId <= 0) return;
+
+    final currentId = _photoIdFromMap(selectedPhoto);
+    if (currentId != null && currentId != photoId) {
+      photoComments.clear();
+      photoEmojiReactions.clear();
+      _deletedCommentIds.clear();
+    }
+
+    loadPhotoDetailFromHive(photoId);
+    if (_photoIdFromMap(selectedPhoto) != photoId || selectedPhoto.isEmpty) {
+      if (Get.isRegistered<HomeController>()) {
+        seedPhotoDetailFromHome(
+          Get.find<HomeController>().galleryPhotos.toList(),
+          photoId,
+        );
+      }
+      if (_photoIdFromMap(selectedPhoto) != photoId || selectedPhoto.isEmpty) {
+        seedPhotoDetailFromList(photoId);
+      }
+    }
+    preparedDetailPhotoId = photoId;
+  }
+
+  void loadPhotoDetailFromHive(int photoId) {
+    final cached = HiveCacheService.getCachedMap(_photoDetailHiveKey(photoId));
+    if (cached.isEmpty) return;
+
+    if (cached['photo'] is Map) {
+      selectedPhoto.value =
+          Map<String, dynamic>.from(cached['photo'] as Map<String, dynamic>);
+    } else {
+      selectedPhoto.value = Map<String, dynamic>.from(cached);
+    }
+
+    if (cached['comments'] is List && photoComments.isEmpty) {
+      photoComments.value = (cached['comments'] as List)
+          .whereType<Map>()
+          .map((c) => Map<String, dynamic>.from(c))
+          .where((c) => !_isCommentDeleted(c))
+          .map(_filterDeletedFromTree)
+          .toList();
+    }
+
+    if (cached['emoji_reactions'] is Map && photoEmojiReactions.isEmpty) {
+      final reactions = <String, List<Map<String, dynamic>>>{};
+      (cached['emoji_reactions'] as Map).forEach((key, value) {
+        if (value is List) {
+          reactions['$key'] = value
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+        }
+      });
+      if (reactions.isNotEmpty) {
+        photoEmojiReactions.value = reactions;
+      }
+    }
+  }
+
+  Future<void> _cachePhotoDetailSnapshot(int photoId) async {
+    if (selectedPhoto.isEmpty) return;
+    await HiveCacheService.cacheMap(
+      _photoDetailHiveKey(photoId),
+      {
+        'photo': Map<String, dynamic>.from(selectedPhoto),
+        'comments': photoComments.toList(),
+        'emoji_reactions': photoEmojiReactions.map(
+          (key, value) =>
+              MapEntry(key, List<Map<String, dynamic>>.from(value)),
+        ),
+      },
+      expiryHours: 24,
+    );
+  }
+
+  void seedPhotoDetailFromList(int photoId) {
+    if (_photoIdFromMap(selectedPhoto) == photoId && selectedPhoto.isNotEmpty) {
+      return;
+    }
+
+    Map<String, dynamic>? found;
+    for (final photo in _allPhotos) {
+      if (_photoIdFromMap(photo) == photoId) {
+        found = photo;
+        break;
+      }
+    }
+    if (found == null) {
+      for (final photo in photos) {
+        if (_photoIdFromMap(photo) == photoId) {
+          found = photo;
+          break;
+        }
+      }
+    }
+
+    if (found != null) {
+      selectedPhoto.value = Map<String, dynamic>.from(found);
+    }
+  }
+
+  void seedPhotoDetailFromHome(
+    List<Map<String, dynamic>> homePhotos,
+    int photoId,
+  ) {
+    if (_photoIdFromMap(selectedPhoto) == photoId && selectedPhoto.isNotEmpty) {
+      return;
+    }
+    for (final photo in homePhotos) {
+      if (_photoIdFromMap(photo) == photoId) {
+        selectedPhoto.value = Map<String, dynamic>.from(photo);
+        return;
+      }
+    }
+  }
+
+  Future<void> preparePhotoDetails(int photoId) async {
+    if (photoId <= 0) return;
+
+    bootstrapPhotoDetail(photoId);
+
+    final hasPreview =
+        _photoIdFromMap(selectedPhoto) == photoId && selectedPhoto.isNotEmpty;
+    unawaited(loadQuickEmojis());
+    unawaited(loadAvailableEmojis());
+    unawaited(loadPhotoComments(photoId, silent: true));
+
+    if (!hasPreview) {
+      unawaited(loadPhotoDetails(photoId, silent: false));
+    } else {
+      unawaited(loadPhotoDetails(photoId, silent: true));
+    }
+  }
+
+  bool _photoDetailNeedsUpdate(
+    Map<String, dynamic> local,
+    Map<String, dynamic> remote,
+  ) {
+    const keys = [
+      'updated_at',
+      'like_count',
+      'comment_count',
+      'testimony',
+      'file_path',
+      'status',
+      'user_name',
+    ];
+    for (final key in keys) {
+      if (local[key] != remote[key]) return true;
+    }
+    return false;
+  }
+
+  void _mergePhotoFields(Map<String, dynamic> remote) {
+    var changed = false;
+    for (final entry in remote.entries) {
+      if (selectedPhoto[entry.key] != entry.value) {
+        selectedPhoto[entry.key] = entry.value;
+        changed = true;
+      }
+    }
+    if (changed) {
+      selectedPhoto.refresh();
+    }
+  }
+
+  Future<void> _cacheGalleryList() async {
+    if (_allPhotos.isEmpty) return;
+    final approved = _allPhotos
+        .where((p) =>
+            (p['status'] ?? 'Approved').toString().toLowerCase() == 'approved')
+        .toList();
+    final snapshot = List<Map<String, dynamic>>.from(
+      approved.isNotEmpty ? approved : _allPhotos,
+    );
+    await HiveCacheService.cacheList(
+      _galleryListHiveKey,
+      snapshot,
+      expiryHours: 24,
+    );
+    final homeSlice = snapshot.take(12).toList();
+    if (homeSlice.isNotEmpty) {
+      await HiveCacheService.cacheList(
+        'home_gallery_photos',
+        homeSlice,
+        expiryHours: 24,
+      );
+    }
+  }
+
+  List<Map<String, dynamic>> _mergeApprovedAndPending(
+    List<Map<String, dynamic>> approved,
+    List<Map<String, dynamic>> pending,
+  ) {
+    final merged = <Map<String, dynamic>>[];
+    final seenIds = <dynamic>{};
+
+    for (final photo in approved) {
+      final id = photo['id'];
+      if (id == null || seenIds.contains(id)) continue;
+      seenIds.add(id);
+      merged.add(photo);
+    }
+
+    for (final photo in pending) {
+      final id = photo['id'];
+      if (id == null || seenIds.contains(id)) continue;
+      seenIds.add(id);
+      merged.add(photo);
+    }
+
+    return merged;
+  }
+
+  bool _shouldIncludePendingPhotos() {
+    return filterUserId.value == 0 && userId.value > 0;
+  }
+
   /// Load photos
-  Future<void> loadPhotos({bool refresh = false}) async {
+  Future<void> loadPhotos({bool refresh = false, bool silent = false}) async {
     if (filterUserId.value > 0) {
       refresh = true;
     }
 
-    if (refresh) {
-      currentPage.value = 0;
-      _isDataLoaded = false; // Reset loaded flag on refresh
-      photos.clear(); // Clear all photos when refreshing
+    await _ensureUserId();
+
+    if (_isLoading) {
+      if (_activeLoadCompleter != null) {
+        await _activeLoadCompleter!.future;
+      }
+      if (_allPhotos.isNotEmpty) {
+        _applyClientSideFilter();
+      }
+      return;
     }
 
-    isLoading.value = true;
+    if (_isDataLoaded && !refresh && _allPhotos.isNotEmpty) {
+      _applyClientSideFilter();
+      return;
+    }
+
+    if (silent &&
+        _lastSyncedAt != null &&
+        DateTime.now().difference(_lastSyncedAt!) < _minSyncInterval) {
+      if (_allPhotos.isNotEmpty) {
+        _applyClientSideFilter();
+      }
+      return;
+    }
+
+    final generation = silent ? _loadGeneration : ++_loadGeneration;
+    _activeLoadCompleter = Completer<void>();
+
+    if (refresh) {
+      currentPage.value = 0;
+      if (!silent) {
+        _isDataLoaded = false;
+        photos.clear();
+      }
+    }
+
+    _isLoading = true;
+    if (!silent) {
+      isLoading.value = true;
+    }
     message.value = '';
 
     try {
@@ -93,37 +428,49 @@ class GalleryController extends GetxController {
         fruitTag: null, // Always load all photos for cache
         userId: filterUserId.value > 0 ? filterUserId.value : null,
         currentUserId: userId.value > 0 ? userId.value : null,
-        limit: itemsPerPage,
+        limit: filterUserId.value > 0 ? itemsPerPage : 40,
         offset: currentPage.value * itemsPerPage,
       );
 
+      if (generation != _loadGeneration) {
+        return;
+      }
+
       if (refresh || currentPage.value == 0) {
-        // Performance: Store ALL photos in cache (no filters)
-        _allPhotos = List<Map<String, dynamic>>.from(photosList);
-        
-        // Always include pending photos if a user is logged in
-        if (userId.value > 0) {
+        var pendingPhotos = <Map<String, dynamic>>[];
+
+        if (_shouldIncludePendingPhotos()) {
           try {
-            final pendingPhotos = await GalleryService.getPhotos(
+            pendingPhotos = await GalleryService.getPhotos(
               status: 'Pending',
               fruitTag: null,
-              userId: filterUserId.value > 0 ? filterUserId.value : userId.value,
+              userId: userId.value,
               currentUserId: userId.value,
               limit: 10,
               offset: 0,
             );
-            // Add pending photos at the beginning
-            _allPhotos.insertAll(0, pendingPhotos);
           } catch (e) {
             print('Error loading pending photos: $e');
           }
         }
-        
-        // Apply current filter to display
+
+        if (!silent && generation != _loadGeneration) {
+          return;
+        }
+
+        final mergedPhotos = _mergeApprovedAndPending(photosList, pendingPhotos);
+        _allPhotos = mergedPhotos.where((p) {
+          final id = _photoIdFromMap(p);
+          return id == null || !_deletedPhotoIds.contains(id);
+        }).toList();
         _applyClientSideFilter();
       } else {
-        // Performance: Add to all photos cache
-        _allPhotos.addAll(photosList);
+        _allPhotos.addAll(
+          photosList.where((p) {
+            final id = _photoIdFromMap(p);
+            return id == null || !_deletedPhotoIds.contains(id);
+          }),
+        );
         // Apply current filter to display
         _applyClientSideFilter();
       }
@@ -131,8 +478,9 @@ class GalleryController extends GetxController {
       // Force UI refresh to ensure changes are visible
       photos.refresh();
       
-      // Performance: Mark as loaded
       _isDataLoaded = true;
+      _lastSyncedAt = DateTime.now();
+      unawaited(_cacheGalleryList());
     } catch (e) {
       String errorMessage = e.toString().replaceAll('Exception: ', '');
       if (errorMessage.contains('No internet') || errorMessage.contains('NetworkException')) {
@@ -143,11 +491,18 @@ class GalleryController extends GetxController {
         message.value = 'Error loading photos: ${errorMessage.length > 50 ? errorMessage.substring(0, 50) + '...' : errorMessage}';
       }
       print('Error loading photos: $e');
-      if (refresh || currentPage.value == 0) {
+      if (!silent && (refresh || currentPage.value == 0) && _allPhotos.isEmpty) {
         photos.value = [];
+      } else if (_allPhotos.isNotEmpty) {
+        _applyClientSideFilter();
       }
     } finally {
-      isLoading.value = false;
+      _isLoading = false;
+      _activeLoadCompleter?.complete();
+      _activeLoadCompleter = null;
+      if (!silent) {
+        isLoading.value = false;
+      }
     }
   }
 
@@ -161,219 +516,130 @@ class GalleryController extends GetxController {
     await loadPhotos();
   }
 
-  /// Load single photo with comments
-  Future<void> loadPhotoDetails(int photoId) async {
-    isLoading.value = true;
-    selectedPhoto.value = {}; // Clear previous photo to show loader
+  /// Load single photo with comments (silent = no blocking spinner if preview exists).
+  Future<void> loadPhotoDetails(
+    int photoId, {
+    bool silent = false,
+    bool force = false,
+  }) async {
+    if (silent &&
+        !force &&
+        _detailsLastSyncedAt != null &&
+        _photoIdFromMap(selectedPhoto) == photoId &&
+        DateTime.now().difference(_detailsLastSyncedAt!) < _detailsMinSyncInterval) {
+      return;
+    }
+
+    final generation = silent ? _detailsLoadGeneration : ++_detailsLoadGeneration;
+    final hadPreview =
+        _photoIdFromMap(selectedPhoto) == photoId && selectedPhoto.isNotEmpty;
+
+    if (!silent && !hadPreview) {
+      isLoading.value = true;
+    } else if (silent && hadPreview) {
+      isDetailsSilentSyncing.value = true;
+    }
     message.value = '';
 
     try {
-      // Ensure userId is loaded
       if (userId.value == 0) {
         await _loadUserId();
       }
-      
-      // IMPORTANT: Clear existing reactions when loading fresh data (on reload)
-      // This ensures we load from table, not from local state
-      print('🔄 Clearing existing emoji reactions to load fresh from table...');
-      photoEmojiReactions.value = <String, List<Map<String, dynamic>>>{};
-      photoComments.value = [];
-      
-      // Pass currentUserId to get accurate like status
+
       final photo = await GalleryService.getPhotoDetails(
         photoId,
         currentUserId: userId.value > 0 ? userId.value : null,
       );
-      selectedPhoto.value = photo;
-      
-      // Check if photo details already contains comments
-      if (photo['comments'] != null && (photo['comments'] as List).isNotEmpty) {
-        print('✅ Found comments in photo details response: ${(photo['comments'] as List).length} comments');
-        // Process comments from photo details
-        await _processComments(List<Map<String, dynamic>>.from(photo['comments']));
+
+      if (generation != _detailsLoadGeneration) {
+        return;
+      }
+
+      if (silent &&
+          hadPreview &&
+          !force &&
+          !_photoDetailNeedsUpdate(selectedPhoto, photo)) {
+        _detailsLastSyncedAt = DateTime.now();
+        unawaited(loadPhotoComments(photoId, silent: true));
+        return;
+      }
+
+      if (silent && hadPreview) {
+        _mergePhotoFields(photo);
       } else {
-        // Try to load comments from API
-        await loadPhotoComments(photoId);
+        selectedPhoto.value = photo;
+      }
+
+      _detailsLastSyncedAt = DateTime.now();
+      unawaited(_cachePhotoDetailSnapshot(photoId));
+
+      if (photo['comments'] != null && (photo['comments'] as List).isNotEmpty) {
+        await _processComments(
+          List<Map<String, dynamic>>.from(photo['comments']),
+        );
+      } else {
+        unawaited(loadPhotoComments(photoId, silent: silent));
       }
     } catch (e) {
-      message.value = 'Error loading photo: ${e.toString().replaceAll('Exception: ', '')}';
+      if (!silent || !hadPreview) {
+        message.value =
+            'Error loading photo: ${e.toString().replaceAll('Exception: ', '')}';
+      }
       print('Error loading photo details: $e');
     } finally {
       isLoading.value = false;
+      isDetailsSilentSyncing.value = false;
     }
   }
 
-  /// Load photo comments
-  Future<void> loadPhotoComments(int photoId) async {
+  /// Load photo comments (fast path: gallery API, fallback comments API).
+  Future<void> loadPhotoComments(int photoId, {bool silent = false}) async {
     if (userId.value == 0) {
       await _loadUserId();
     }
-    
+
     try {
-      print('🔄 Loading photo comments for photo_id: $photoId');
-      // Try multiple approaches (in order of most likely to work):
-      // 1. Try gallery API directly with action='get-comments' (MOST LIKELY TO WORK)
-      // 2. Try getting comments from photo details response
-      // 3. Try comments API with 'photo' post_type
-      // 4. Try comments API with 'gallery' post_type
-      
-      List<Map<String, dynamic>> comments = [];
-      
-      // Method 1: Try gallery API directly FIRST (most likely to work)
-      try {
-        print('🔄 Method 1: Trying gallery API directly with action="get-comments"...');
-        print('📊 📋 TABLE: gallery_comments - Fetching from this table via gallery.php?action=get-comments');
-        final rawComments = await GalleryService.getComments(
-          photoId: photoId,
-          userId: userId.value > 0 ? userId.value : null,
-        );
-        
-        // Validate that we got actual comments, not photo data
-        // Photo data has 'type' field, comments have 'content' field
-        final validComments = <Map<String, dynamic>>[];
-        for (var item in rawComments) {
-          // Check if it's a comment (has 'content' field) or photo data (has 'type' field)
-          if (item.containsKey('content') && !item.containsKey('type')) {
-            // It's a comment
-            validComments.add(item);
-          } else if (item.containsKey('type') && item['type'] == 'photo') {
-            // It's photo data, not a comment - skip it
-            print('⚠️ Skipping photo data (not a comment): id=${item['id']}');
-            continue;
-          } else {
-            // Unknown format, but has content - treat as comment
-            if (item.containsKey('content')) {
-              validComments.add(item);
-            }
-          }
-        }
-        
-        if (validComments.isEmpty && rawComments.isNotEmpty) {
-          // Gallery API returned photo data instead of comments - this is expected, try next method
-          print('⚠️ Gallery API returned ${rawComments.length} items but none are valid comments (detected photo data)');
-          print('   This is expected - gallery API endpoint may not support comments yet.');
-          print('   Automatically trying next method (comments API)...');
-          // Throw error to trigger next method, but with clear message
-          throw ApiException('Gallery API returned photo data instead of comments');
-        } else if (validComments.isEmpty) {
-          // No comments found, but that's okay - return empty list
-          comments = [];
-          print('✅ Gallery API returned empty comments list (no comments yet)');
-        } else {
-          comments = validComments;
-          print('✅ Success with gallery API (direct): ${comments.length} valid comments (filtered from ${rawComments.length} items)');
-          print('📊 📋 TABLE: gallery_comments - Data fetched successfully from this table');
-        }
-      } catch (e) {
-        // If gallery API fails or returns wrong data, try comments API
-        // This is expected behavior - gallery API may not support comments endpoint
-        if (e.toString().contains('photo data instead of comments')) {
-          print('⚠️ Method 1 (gallery-api-direct) returned wrong data type - this is expected, trying next method...');
-        } else {
-          print('❌ Method 1 (gallery-api-direct) failed: ${e.toString()}');
-        }
-        
-        // Method 2: Try getting comments from photo details
-        try {
-          print('🔄 Method 2: Trying to get comments from photo details...');
-          final photoDetails = await GalleryService.getPhotoDetails(photoId);
-          if (photoDetails['comments'] != null) {
-            comments = List<Map<String, dynamic>>.from(photoDetails['comments']);
-            print('✅ Success with photo details: ${comments.length} comments');
-          } else {
-            print('⚠️ Photo details does not contain comments array');
-            comments = [];
-          }
-        } catch (e2) {
-          print('❌ Method 2 (photo-details) failed: ${e2.toString()}');
-          
-          // Method 3: Try comments API with 'photo'
-          try {
-            print('🔄 Method 3: Trying comments API with post_type="photo"...');
-            print('📊 📋 TABLE: comments - Fetching from this table via comments.php?post_type=photo&post_id=$photoId');
-            comments = await CommentsService.getComments(
-              postType: 'photo',
-              postId: photoId,
-              userId: userId.value > 0 ? userId.value : null,
-            );
-            print('✅ Success with comments API (post_type="photo"): ${comments.length} comments');
-            print('📊 📋 TABLE: comments - Data fetched successfully from this table (post_type="photo")');
-          } catch (e3) {
-            print('❌ Method 3 (comments-api-photo) failed: ${e3.toString()}');
-            
-            // Method 4: Try comments API with 'gallery'
-            try {
-              print('🔄 Method 4: Trying comments API with post_type="gallery"...');
-              print('📊 📋 TABLE: comments - Fetching from this table via comments.php?post_type=gallery&post_id=$photoId');
-              comments = await CommentsService.getComments(
-                postType: 'gallery',
-                postId: photoId,
-                userId: userId.value > 0 ? userId.value : null,
-              );
-              print('✅ Success with comments API (post_type="gallery"): ${comments.length} comments');
-              print('📊 📋 TABLE: comments - Data fetched successfully from this table (post_type="gallery")');
-            } catch (e4) {
-              print('❌ Method 4 (comments-api-gallery) failed: ${e4.toString()}');
-              // Return empty list - all methods failed
-              comments = [];
-            }
-          }
-        }
-      }
-      
-      print('📥 Received ${comments.length} comments from API');
-      
-      // Debug: Log all raw comments before processing - CRITICAL FOR DEBUGGING
-      print('🍎 GALLERY EMOJI: 📋 Raw comments from API (before processing):');
-      for (var i = 0; i < comments.length; i++) {
-        final comment = comments[i];
-        final content = comment['content'] as String? ?? '';
-        final commentId = comment['id'];
-        final userId = comment['user_id'];
-        print('🍎 GALLERY EMOJI:   Comment ${i + 1}: id=$commentId, user_id=$userId, content="${content.length > 150 ? content.substring(0, 150) + '...' : content}"');
-        if (content.contains('uploads/emojis/') || content.contains('emojis/') || content.contains('.png') || content.contains('https://')) {
-          print('🍎 GALLERY EMOJI:   ⚠️ THIS COMMENT LOOKS LIKE AN EMOJI REACTION!');
-        }
-      }
-      
-      // Debug: Print all comments to see what we got
-      if (comments.isNotEmpty) {
-        print('📋 All comments received:');
-        for (var i = 0; i < comments.length && i < 10; i++) {
-          final comment = comments[i];
-          final content = comment['content'] as String? ?? '';
-          print('   Comment ${i + 1}: id=${comment['id']}, content="${content.substring(0, content.length > 30 ? 30 : content.length)}", post_type=${comment['post_type']}, post_id=${comment['post_id']}');
-        }
-        if (comments.length > 10) {
-          print('   ... and ${comments.length - 10} more comments');
-        }
-      } else {
-        print('⚠️ No comments received from any API method');
-      }
-      
-      // Process comments (separate emoji reactions from text comments)
-      print('📊 📋 PROCESSING: Separating emoji reactions from text comments...');
-      print('📊 📋 SOURCE: Comments from ${comments.isNotEmpty ? (comments[0].containsKey('photo_id') ? 'gallery_comments' : 'comments') : 'unknown'} table');
+      final comments = await _fetchPhotoComments(photoId);
       await _processComments(comments);
-      
-      // ALWAYS load emoji reactions from emoji_usage table and merge
-      // This is needed because backend might save emoji to emoji_usage but not create comments
-      // Even if reactions found in comments, we still need to check emoji_usage table
-      // because saved emojis might be in emoji_usage table, not in comments
-      print('🍎 GALLERY EMOJI: 🔄 ALWAYS checking emoji_usage table (even if comments have reactions)...');
-      print('📊 📋 TABLE: emoji_usage - Will fetch from this table and merge with comments');
-      print('🍎 GALLERY EMOJI: 📊 Current reactions before emoji_usage fetch: ${photoEmojiReactions.length}');
-      await _loadEmojiReactionsFromUsage(photoId);
-      print('🍎 GALLERY EMOJI: 📊 Final reactions after emoji_usage merge: ${photoEmojiReactions.length}');
+      if (silent) {
+        unawaited(_loadEmojiReactionsFromUsage(photoId));
+      } else {
+        await _loadEmojiReactionsFromUsage(photoId);
+      }
+      unawaited(_cachePhotoDetailSnapshot(photoId));
+      _deletedCommentIds.removeWhere(
+        (id) => !_commentExistsInList(photoComments, id),
+      );
     } catch (e) {
-      print('❌ Error loading photo comments: $e');
-      print('⚠️ Preserving existing reactions instead of clearing them');
-      // Don't clear photoEmojiReactions - preserve existing data
-      // Only clear comments if needed
-      photoComments.value = [];
-      // photoEmojiReactions.value = <String, List<Map<String, dynamic>>>{}; // DON'T CLEAR - preserve existing reactions
-      print('📊 📋 Preserved ${photoEmojiReactions.length} existing emoji reactions');
+      print('Error loading photo comments: $e');
+      if (!silent && photoComments.isEmpty) {
+        photoComments.value = [];
+      }
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchPhotoComments(int photoId) async {
+    try {
+      final rawComments = await GalleryService.getComments(
+        photoId: photoId,
+        userId: userId.value > 0 ? userId.value : null,
+      );
+      final validComments = rawComments
+          .where(
+            (item) =>
+                item.containsKey('content') && !item.containsKey('type'),
+          )
+          .toList();
+      if (validComments.isNotEmpty || rawComments.isEmpty) {
+        return validComments;
+      }
+    } catch (_) {}
+
+    return CommentsService.getComments(
+      postType: 'gallery',
+      postId: photoId,
+      userId: userId.value > 0 ? userId.value : null,
+    );
   }
 
   /// Load emoji reactions from emoji_usage table and merge with comments
@@ -508,6 +774,10 @@ class GalleryController extends GetxController {
     }
     
     for (var comment in comments) {
+      if (_isCommentDeleted(comment)) {
+        continue;
+      }
+
       final content = comment['content'] as String? ?? '';
       final trimmed = content.trim();
       final parentId = comment['parent_comment_id'];
@@ -633,8 +903,10 @@ class GalleryController extends GetxController {
       });
       
       // Update reactive variables - EXACTLY LIKE PRAYERS
-      // Create new list instance and force UI refresh
-      photoComments.value = List<Map<String, dynamic>>.from(textComments);
+      photoComments.value = textComments
+          .where((c) => !_isCommentDeleted(c))
+          .map(_filterDeletedFromTree)
+          .toList();
       photoComments.refresh();
       
       print('🍎 GALLERY EMOJI: 📊 Processing complete:');
@@ -794,7 +1066,127 @@ class GalleryController extends GetxController {
     }
   }
 
-  /// Add comment to photo
+  void _insertCommentLocally({
+    required String content,
+    required int tempId,
+    String? userName,
+    String? profilePhoto,
+    int? parentCommentId,
+  }) {
+    final comment = <String, dynamic>{
+      'id': tempId,
+      'content': content,
+      'user_id': userId.value,
+      'user_name': userName ?? 'You',
+      'profile_photo': profilePhoto,
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+      'parent_comment_id': parentCommentId ?? 0,
+      'replies': <Map<String, dynamic>>[],
+      'reply_count': 0,
+      'like_count': 0,
+      'is_liked': 0,
+    };
+
+    if (parentCommentId != null && parentCommentId > 0) {
+      final updated = <Map<String, dynamic>>[];
+      for (final existing in photoComments) {
+        if (_commentIdFromMap(existing) == parentCommentId) {
+          final parent = Map<String, dynamic>.from(existing);
+          final replies = List<Map<String, dynamic>>.from(
+            (parent['replies'] as List?)
+                    ?.whereType<Map>()
+                    .map((r) => Map<String, dynamic>.from(r)) ??
+                [],
+          );
+          replies.add(comment);
+          parent['replies'] = replies;
+          parent['reply_count'] = replies.length;
+          updated.add(parent);
+        } else {
+          updated.add(existing);
+        }
+      }
+      photoComments.value = updated;
+      return;
+    }
+
+    photoComments.add(comment);
+  }
+
+  void _replaceTempCommentId(int tempId, int realId) {
+    final updated = <Map<String, dynamic>>[];
+    for (final comment in photoComments) {
+      final copy = Map<String, dynamic>.from(comment);
+      if (_commentIdFromMap(copy) == tempId) {
+        copy['id'] = realId;
+      }
+      final replies = copy['replies'];
+      if (replies is List && replies.isNotEmpty) {
+        copy['replies'] = replies
+            .whereType<Map>()
+            .map((r) {
+              final reply = Map<String, dynamic>.from(r);
+              if (_commentIdFromMap(reply) == tempId) {
+                reply['id'] = realId;
+              }
+              return reply;
+            })
+            .toList();
+      }
+      updated.add(copy);
+    }
+    photoComments.value = updated;
+  }
+
+  Future<int> _submitPhotoCommentToServer({
+    required int photoId,
+    required String content,
+    int? parentCommentId,
+  }) async {
+    try {
+      return await GalleryService.addComment(
+        userId: userId.value,
+        photoId: photoId,
+        content: content,
+        parentCommentId: parentCommentId,
+      );
+    } catch (_) {
+      return CommentsService.addComment(
+        userId: userId.value,
+        postType: 'gallery',
+        postId: photoId,
+        content: content,
+        parentCommentId: parentCommentId,
+      );
+    }
+  }
+
+  Future<void> _submitCommentToServer({
+    required int photoId,
+    required String content,
+    required int tempId,
+    int? parentCommentId,
+  }) async {
+    try {
+      final commentId = await _submitPhotoCommentToServer(
+        photoId: photoId,
+        content: content,
+        parentCommentId: parentCommentId,
+      );
+      if (commentId > 0) {
+        _replaceTempCommentId(tempId, commentId);
+        photoComments.refresh();
+      }
+      unawaited(_cachePhotoDetailSnapshot(photoId));
+      unawaited(loadPhotoComments(photoId, silent: true));
+    } catch (e) {
+      _removeCommentLocally(tempId);
+      photoComments.refresh();
+      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+    }
+  }
+
+  /// Add comment to photo (optimistic — shows instantly in thread).
   Future<bool> addComment(int photoId, String content, {int? parentCommentId}) async {
     if (userId.value == 0) {
       await _loadUserId();
@@ -805,7 +1197,6 @@ class GalleryController extends GetxController {
       return false;
     }
 
-    // Check for inappropriate content in comment
     final moderationCheck = ContentModerationService.checkContent(content);
     if (!moderationCheck['isClean']) {
       message.value = moderationCheck['message'];
@@ -813,113 +1204,25 @@ class GalleryController extends GetxController {
       return false;
     }
 
-    try {
-      final isReply = parentCommentId != null && parentCommentId > 0;
-      print('📝 Adding ${isReply ? "REPLY" : "COMMENT"}: photoId=$photoId, parentCommentId=$parentCommentId, content=${content.substring(0, content.length > 20 ? 20 : content.length)}...');
-      
-      // Try multiple approaches (in order of most likely to work):
-      // 1. Try gallery API directly with action='add-comment' (NEW - uses gallery_comments table)
-      // 2. Try comments API with 'photo' post_type (FALLBACK)
-      // 3. Try comments API with 'gallery' post_type (FALLBACK)
-      
-      int commentId;
-      String? usedMethod;
-      String? lastError;
-      
-      // Method 1: Try gallery API directly FIRST (NEW - uses gallery_comments table)
-      try {
-        print('🔄 Method 1: Trying gallery API directly with action="add-comment"...');
-        commentId = await GalleryService.addComment(
-          userId: userId.value,
-          photoId: photoId,
-          content: content,
-          parentCommentId: parentCommentId,
-        );
-        usedMethod = 'gallery-api-direct';
-        print('✅ Success with gallery API (direct - uses gallery_comments table)');
-      } catch (e) {
-        lastError = e.toString();
-        print('❌ Method 1 (gallery-api-direct) failed: $lastError');
-        
-        // Method 2: Try comments API with 'photo' (FALLBACK)
-        try {
-          print('🔄 Method 2: Trying comments API with post_type="photo"...');
-          commentId = await CommentsService.addComment(
-            userId: userId.value,
-            postType: 'photo',
-            postId: photoId,
-            content: content,
-            parentCommentId: parentCommentId,
-          );
-          usedMethod = 'comments-api-photo';
-          print('✅ Success with comments API (post_type="photo")');
-        } catch (e2) {
-          lastError = e2.toString();
-          print('❌ Method 2 (comments-api-photo) failed: $lastError');
-          
-          // Method 3: Try comments API with 'gallery' (FALLBACK)
-          try {
-            print('🔄 Method 3: Trying comments API with post_type="gallery"...');
-            commentId = await CommentsService.addComment(
-              userId: userId.value,
-              postType: 'gallery',
-              postId: photoId,
-              content: content,
-              parentCommentId: parentCommentId,
-            );
-            usedMethod = 'comments-api-gallery';
-            print('✅ Success with comments API (post_type="gallery")');
-          } catch (e3) {
-            lastError = e3.toString();
-            print('❌ Method 3 (comments-api-gallery) failed: $lastError');
-            
-            // All methods failed - show user-friendly error
-            final errorMsg = lastError.contains('Invalid post_type') 
-                ? 'Comments are not yet supported for photos. The backend needs to add support for photo comments.'
-                : lastError.contains('not found')
-                    ? 'Gallery comments are not yet configured. Please contact support.'
-                    : 'Unable to add comment. Please try again later.';
-            
-            print('❌ All methods failed. Backend needs to add support for photo comments.');
-            print('   Method 1 (gallery-api-direct): ${e.toString()}');
-            print('   Method 2 (comments-api-photo): ${e2.toString()}');
-            print('   Method 3 (comments-api-gallery): ${e3.toString()}');
-            
-            message.value = errorMsg;
-            throw ApiException(errorMsg);
-          }
-        }
-      }
-      
-      print('✅ ${isReply ? "Reply" : "Comment"} added successfully (ID: $commentId), reloading comments...');
-      
-      // Reload comments to get updated structure with nested replies
-      await loadPhotoComments(photoId);
-      
-      // Debug: Check if reply was added to parent
-      if (isReply) {
-        for (var comment in photoComments) {
-          if (comment['id'] == parentCommentId) {
-            final replies = comment['replies'] as List?;
-            print('🔍 Parent comment ${parentCommentId} now has ${replies?.length ?? 0} replies');
-            if (replies != null) {
-              for (var reply in replies) {
-                print('  - Reply ID: ${reply['id']}, content: ${(reply['content'] as String? ?? '').substring(0, (reply['content'] as String? ?? '').length > 30 ? 30 : (reply['content'] as String? ?? '').length)}...');
-              }
-            }
-            break;
-          }
-        }
-      }
-      
-      print('✅ Comments reloaded: ${photoComments.length} top-level comments');
-      
-      return true;
-    } catch (e) {
-      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
-      print('Error adding comment: $e');
-      return false;
-    }
+    final tempId = -DateTime.now().millisecondsSinceEpoch;
+    final user = await UserStorage.getUser();
+    _insertCommentLocally(
+      content: content,
+      tempId: tempId,
+      userName: user?['name'] as String?,
+      profilePhoto: user?['profile_photo'] as String?,
+      parentCommentId: parentCommentId,
+    );
+    photoComments.refresh();
+    unawaited(
+      _submitCommentToServer(
+        photoId: photoId,
+        content: content,
+        tempId: tempId,
+        parentCommentId: parentCommentId,
+      ),
+    );
+    return true;
   }
 
   /// Toggle comment like
@@ -939,11 +1242,9 @@ class GalleryController extends GetxController {
         commentId: commentId,
       );
       
-      // Reload comments to get updated like status
       final photoId = selectedPhoto['id'] as int?;
       if (photoId != null && photoId > 0) {
-        await loadPhotoComments(photoId);
-        // Force UI refresh for comments
+        await loadPhotoComments(photoId, silent: true);
         photoComments.refresh();
         photoEmojiReactions.refresh();
       }
@@ -998,18 +1299,29 @@ class GalleryController extends GetxController {
       photos.refresh();
       return;
     }
-    
-    if (selectedFruitTag.value.isEmpty) {
-      // Show all photos - create new list instance
-      photos.value = List<Map<String, dynamic>>.from(_allPhotos);
-    } else {
-      // Filter by fruit tag client-side - create new list instance
-      photos.value = List<Map<String, dynamic>>.from(_allPhotos.where((photo) {
+
+    var filtered = _allPhotos
+        .where((photo) {
+          final id = _photoIdFromMap(photo);
+          return id == null || !_deletedPhotoIds.contains(id);
+        })
+        .map((p) => Map<String, dynamic>.from(p))
+        .toList();
+
+    if (filterUserId.value > 0) {
+      filtered = filtered
+          .where((photo) => photo['user_id']?.toString() == filterUserId.value.toString())
+          .toList();
+    }
+
+    if (selectedFruitTag.value.isNotEmpty) {
+      filtered = filtered.where((photo) {
         final photoFruitTag = photo['fruit_tag'] as String? ?? '';
         return photoFruitTag.toLowerCase() == selectedFruitTag.value.toLowerCase();
-      }).toList());
+      }).toList();
     }
-    // Force UI refresh
+
+    photos.value = filtered;
     photos.refresh();
   }
 
@@ -1080,11 +1392,26 @@ class GalleryController extends GetxController {
         userId: userId.value,
         photoId: photoId,
       );
-      
-      // Reload photos to get updated like count
-      await loadPhotos(refresh: true);
-      
-      return response['liked'] == true;
+
+      final liked = response['liked'] == true;
+      if (_photoIdFromMap(selectedPhoto) == photoId) {
+        selectedPhoto['is_liked'] = liked;
+        final rawCount = selectedPhoto['like_count'];
+        var count = rawCount is int ? rawCount : int.tryParse('$rawCount') ?? 0;
+        if (response['like_count'] != null) {
+          count = response['like_count'] is int
+              ? response['like_count'] as int
+              : int.tryParse('${response['like_count']}') ?? count;
+        } else {
+          count = liked ? count + 1 : (count > 0 ? count - 1 : 0);
+        }
+        selectedPhoto['like_count'] = count;
+        selectedPhoto.refresh();
+        unawaited(_cachePhotoDetailSnapshot(photoId));
+      }
+      unawaited(loadPhotos(refresh: true, silent: true));
+
+      return liked;
     } catch (e) {
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
       print('Error toggling like: $e');
@@ -1094,6 +1421,7 @@ class GalleryController extends GetxController {
 
   /// Load available emojis
   Future<void> loadAvailableEmojis() async {
+    if (availableEmojis.isNotEmpty) return;
     try {
       final emojis = await EmojisService.getEmojis(
         status: 'Active',
@@ -1109,6 +1437,7 @@ class GalleryController extends GetxController {
 
   /// Load quick emojis (top 6 by usage)
   Future<void> loadQuickEmojis() async {
+    if (quickEmojis.isNotEmpty) return;
     try {
       final emojis = await EmojisService.getQuickEmojis();
       quickEmojis.value = emojis;
@@ -1118,8 +1447,29 @@ class GalleryController extends GetxController {
     }
   }
 
-  /// Add/Remove emoji reaction to photo (TOGGLE)
-  /// If user already reacted, removes it. Otherwise, adds it.
+  Future<void> _toggleEmojiReactionLocally(String emoji) async {
+    final user = await UserStorage.getUser();
+    final key = emoji.trim();
+    final reactions =
+        Map<String, List<Map<String, dynamic>>>.from(photoEmojiReactions);
+    final list = reactions.putIfAbsent(key, () => []);
+    final idx = list.indexWhere((u) => u['user_id'] == userId.value);
+    if (idx >= 0) {
+      list.removeAt(idx);
+      if (list.isEmpty) reactions.remove(key);
+    } else {
+      list.add({
+        'user_id': userId.value,
+        'user_name': user?['name'] ?? 'You',
+        'profile_photo': user?['profile_photo'],
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    }
+    photoEmojiReactions.value = reactions;
+    photoEmojiReactions.refresh();
+  }
+
+  /// Add/Remove emoji reaction to photo (TOGGLE) — instant UI, background sync.
   Future<bool> addEmojiReaction(int photoId, String emoji) async {
     if (userId.value == 0) {
       await _loadUserId();
@@ -1130,62 +1480,235 @@ class GalleryController extends GetxController {
       return false;
     }
 
+    await _toggleEmojiReactionLocally(emoji);
+
     try {
-      // Try 'photo' first (same as prayers uses 'prayer')
-      String result;
       try {
-        print('🍎 GALLERY EMOJI: 📤 Saving emoji with post_type="photo" (like prayers uses "prayer")...');
-        print('📊 📋 SAVE TO TABLE: emoji_usage - Saving here');
-        result = await EmojisService.useEmoji(
+        await EmojisService.useEmoji(
           userId: userId.value,
           emoji: emoji,
           postType: 'photo',
           postId: photoId,
         );
-        print('📊 📋 SAVE TO TABLE: emoji_usage - ✅ SAVED SUCCESSFULLY! (post_type="photo")');
-      } catch (e) {
-        // Fallback: Try with 'gallery' post_type
-        print('🍎 GALLERY EMOJI: ⚠️ Failed with post_type="photo": $e');
-        print('🍎 GALLERY EMOJI: 📤 Trying with post_type="gallery"...');
-        print('📊 📋 SAVE TO TABLE: emoji_usage - Attempting with post_type="gallery"');
-        result = await EmojisService.useEmoji(
+      } catch (_) {
+        await EmojisService.useEmoji(
           userId: userId.value,
           emoji: emoji,
           postType: 'gallery',
           postId: photoId,
         );
-        print('📊 📋 SAVE TO TABLE: emoji_usage - ✅ SAVED SUCCESSFULLY! (post_type="gallery")');
       }
-      
-      // Reload comments to get updated reactions with user info (this will update photoEmojiReactions)
-      // EXACTLY like prayers does
-      await loadPhotoComments(photoId);
-      
-      // Force UI refresh for reactions
-      photoEmojiReactions.refresh();
-      photoComments.refresh();
-      
-      // Check if reaction was removed or added
-      if (result.contains('removed')) {
-        print('✅ Emoji reaction removed (toggled off): $emoji');
-      } else {
-        print('✅ Emoji reaction added (toggled on): $emoji');
-      }
-      print('📊 Current reactions: ${photoEmojiReactions.length} emoji types');
-      for (var emojiKey in photoEmojiReactions.keys) {
-        print('   - $emojiKey: ${photoEmojiReactions[emojiKey]!.length} users');
-      }
-      
+
+      unawaited(_cachePhotoDetailSnapshot(photoId));
+      unawaited(loadPhotoComments(photoId, silent: true));
       return true;
     } catch (e) {
+      await _toggleEmojiReactionLocally(emoji);
       message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
-      print('Error toggling emoji reaction: $e');
       return false;
     }
   }
 
   
   /// Show moderation snackbar
+  int _commentIdFromMap(Map<String, dynamic> comment) {
+    final id = comment['id'];
+    if (id is int) return id;
+    return int.tryParse('$id') ?? 0;
+  }
+
+  bool _isCommentDeleted(Map<String, dynamic> comment) {
+    final id = _commentIdFromMap(comment);
+    if (_deletedCommentIds.contains(id)) return true;
+    final deleted = comment['is_deleted'];
+    return deleted == 1 || deleted == true || deleted == '1';
+  }
+
+  bool _commentExistsInList(List<Map<String, dynamic>> items, int commentId) {
+    for (final comment in items) {
+      if (_commentIdFromMap(comment) == commentId) return true;
+      final replies = comment['replies'];
+      if (replies is List && replies.isNotEmpty) {
+        final nested = replies
+            .whereType<Map>()
+            .map((r) => Map<String, dynamic>.from(r))
+            .toList();
+        if (_commentExistsInList(nested, commentId)) return true;
+      }
+    }
+    return false;
+  }
+
+  Map<String, dynamic> _filterDeletedFromTree(Map<String, dynamic> comment) {
+    final copy = Map<String, dynamic>.from(comment);
+    final replies = copy['replies'];
+    if (replies is List && replies.isNotEmpty) {
+      final filtered = replies
+          .whereType<Map>()
+          .map((r) => Map<String, dynamic>.from(r))
+          .where((r) => !_isCommentDeleted(r))
+          .map(_filterDeletedFromTree)
+          .toList();
+      copy['replies'] = filtered;
+      copy['reply_count'] = filtered.length;
+    }
+    return copy;
+  }
+
+  void _removeCommentLocally(int commentId) {
+    if (commentId <= 0) return;
+
+    photoComments.removeWhere((c) => _commentIdFromMap(c) == commentId);
+
+    final updated = <Map<String, dynamic>>[];
+    for (final comment in photoComments) {
+      final copy = Map<String, dynamic>.from(comment);
+      final replies = copy['replies'];
+      if (replies is List && replies.isNotEmpty) {
+        copy['replies'] = replies
+            .whereType<Map>()
+            .map((r) => Map<String, dynamic>.from(r))
+            .where((r) => _commentIdFromMap(r) != commentId)
+            .toList();
+      }
+      updated.add(copy);
+    }
+    photoComments.value = updated;
+  }
+
+  Future<void> _deleteCommentOnServer(int photoId, int commentId) async {
+    try {
+      try {
+        await GalleryService.deleteComment(
+          userId: userId.value,
+          commentId: commentId,
+        );
+      } catch (_) {
+        await CommentsService.deleteComment(
+          userId: userId.value,
+          commentId: commentId,
+          postType: 'gallery',
+        );
+      }
+      await _cachePhotoDetailSnapshot(photoId);
+    } catch (e) {
+      _deletedCommentIds.remove(commentId);
+      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      await loadPhotoComments(photoId, silent: true);
+      photoComments.refresh();
+    }
+  }
+
+  void _removePhotoLocally(int photoId) {
+    _deletedPhotoIds.add(photoId);
+    _allPhotos.removeWhere((p) => _photoIdFromMap(p) == photoId);
+    photos.removeWhere((p) => _photoIdFromMap(p) == photoId);
+    photos.refresh();
+    if (_photoIdFromMap(selectedPhoto) == photoId) {
+      selectedPhoto.clear();
+      photoComments.clear();
+      photoEmojiReactions.clear();
+    }
+    unawaited(HiveCacheService.clearKey(_photoDetailHiveKey(photoId)));
+    unawaited(_cacheGalleryList());
+    _syncHomeGalleryAfterDelete(photoId);
+  }
+
+  void _syncHomeGalleryAfterDelete(int photoId) {
+    if (!Get.isRegistered<HomeController>()) return;
+    try {
+      final home = Get.find<HomeController>();
+      home.galleryPhotos.removeWhere((p) => _photoIdFromMap(p) == photoId);
+      home.galleryPhotos.refresh();
+      unawaited(
+        HiveCacheService.cacheList(
+          'home_gallery_photos',
+          List<Map<String, dynamic>>.from(home.galleryPhotos),
+          expiryHours: 24,
+        ),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _deletePhotoOnServer(int photoId) async {
+    try {
+      await GalleryService.deletePhoto(
+        userId: userId.value,
+        mediaId: photoId,
+      );
+      _deletedPhotoIds.remove(photoId);
+      unawaited(loadPhotos(refresh: true, silent: true));
+    } catch (e) {
+      _deletedPhotoIds.remove(photoId);
+      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      unawaited(loadPhotos(refresh: true, silent: true));
+    }
+  }
+
+  /// Delete photo — remove locally first, sync server in background.
+  Future<bool> deletePhoto(int photoId) async {
+    if (userId.value == 0) {
+      await _loadUserId();
+    }
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      return false;
+    }
+    if (photoId <= 0) return false;
+
+    _removePhotoLocally(photoId);
+    unawaited(_deletePhotoOnServer(photoId));
+    return true;
+  }
+
+  /// Delete comment with instant UI update.
+  Future<bool> deletePhotoComment(int photoId, int commentId) async {
+    if (userId.value == 0) {
+      await _loadUserId();
+    }
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      return false;
+    }
+    if (commentId <= 0) return false;
+
+    _deletedCommentIds.add(commentId);
+    _removeCommentLocally(commentId);
+    photoComments.refresh();
+    unawaited(_cachePhotoDetailSnapshot(photoId));
+    unawaited(_deleteCommentOnServer(photoId, commentId));
+    return true;
+  }
+
+  static int _parsePhotoId(dynamic photoId) {
+    if (photoId is int) return photoId;
+    return int.tryParse('$photoId') ?? 0;
+  }
+
+  /// Pre-warm cache then open photo detail (use from any screen).
+  static Future<void> openPhotoDetail(
+    dynamic photoId, {
+    Map<String, dynamic>? previewPhoto,
+  }) async {
+    final id = _parsePhotoId(photoId);
+    if (id <= 0) return;
+
+    final GalleryController controller;
+    if (Get.isRegistered<GalleryController>()) {
+      controller = Get.find<GalleryController>();
+    } else {
+      controller = Get.put(GalleryController(), permanent: true);
+    }
+
+    if (previewPhoto != null) {
+      controller.selectedPhoto.value =
+          Map<String, dynamic>.from(previewPhoto);
+    }
+    controller.bootstrapPhotoDetail(id);
+    unawaited(controller.preparePhotoDetails(id));
+    await PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: id);
+  }
+
   void _showModerationSnackbar(String message) {
     final ctx = Get.context;
     if (ctx != null) {

@@ -6,6 +6,8 @@ import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
+import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
 
 /// Saved Content Screen
 class SavedContentScreen extends StatefulWidget {
@@ -209,13 +211,13 @@ class _SavedContentScreenState extends State<SavedContentScreen> {
     
     switch (contentType) {
       case 'blog':
-        onTap = () => PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: contentId);
+        onTap = () => HomeScreen.navigateToBlogDetail(context, contentId);
         break;
       case 'prayer':
         onTap = () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: contentId);
         break;
       case 'video':
-        onTap = () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: contentId);
+        onTap = () => VideosController.openVideoDetail(contentId);
         break;
       case 'photo':
         onTap = () => PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: contentId);

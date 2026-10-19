@@ -1,9 +1,198 @@
+import 'dart:async';
+
 import '../config/api_config.dart';
 import 'api_service.dart';
+import 'hive_cache_service.dart';
+
+class _EmojiCacheEntry {
+  final List<Map<String, dynamic>> data;
+  final DateTime fetchedAt;
+  _EmojiCacheEntry(this.data, this.fetchedAt);
+}
 
 /// Emojis Service
 /// Handles emoji listing and usage tracking
 class EmojisService {
+  static final Map<String, _EmojiCacheEntry> _memoryCache = {};
+  static const Duration _cacheTtl = Duration(hours: 24);
+  static const Duration _minSyncInterval = Duration(hours: 6);
+  static const String _hiveEmojisKey = 'emojis_active_all';
+  static const String _syncMetaKey = 'emojis_sync_meta';
+  static List<Map<String, dynamic>>? _canonicalEmojis;
+  static List<Map<String, dynamic>>? _sessionPickerEmojis;
+  static DateTime? _lastApiSyncAt;
+
+  static String _buildCacheKey(Map<String, String> queryParams) {
+    final keys = queryParams.keys.toList()..sort();
+    return keys.map((k) => '$k=${queryParams[k]}').join('|');
+  }
+
+  static List<Map<String, dynamic>>? _readMemory(String key) {
+    final entry = _memoryCache[key];
+    if (entry == null) return null;
+    if (DateTime.now().difference(entry.fetchedAt) > _cacheTtl) {
+      _memoryCache.remove(key);
+      return null;
+    }
+    return List<Map<String, dynamic>>.from(entry.data);
+  }
+
+  static void _writeMemory(String key, List<Map<String, dynamic>> data) {
+    _memoryCache[key] = _EmojiCacheEntry(
+      List<Map<String, dynamic>>.from(data),
+      DateTime.now(),
+    );
+  }
+
+  static bool _shouldSyncFromApi() {
+    if (_lastApiSyncAt == null) {
+      final meta = HiveCacheService.getCachedMap(_syncMetaKey);
+      final ms = meta['last_sync_ms'];
+      if (ms is int) {
+        _lastApiSyncAt = DateTime.fromMillisecondsSinceEpoch(ms);
+      }
+    }
+    if (_lastApiSyncAt == null) return true;
+    return DateTime.now().difference(_lastApiSyncAt!) > _minSyncInterval;
+  }
+
+  static void _markSynced() {
+    _lastApiSyncAt = DateTime.now();
+    unawaited(
+      HiveCacheService.cacheMap(
+        _syncMetaKey,
+        {'last_sync_ms': _lastApiSyncAt!.millisecondsSinceEpoch},
+        expiryHours: 168,
+      ),
+    );
+  }
+
+  static void _maybeBackgroundSync(
+    Map<String, String> queryParams,
+    String cacheKey,
+  ) {
+    if (!_shouldSyncFromApi()) return;
+    unawaited(
+      _fetchEmojisFromApi(queryParams, cacheKey)
+          .then((data) {
+            _markSynced();
+            if (!queryParams.containsKey('limit')) {
+              _canonicalEmojis = data;
+            }
+            _sessionPickerEmojis = null;
+          })
+          .catchError((_) => <Map<String, dynamic>>[]),
+    );
+  }
+
+  static List<Map<String, dynamic>>? _getCanonicalEmojis() {
+    if (_canonicalEmojis != null && _canonicalEmojis!.isNotEmpty) {
+      return _canonicalEmojis;
+    }
+    var hive = HiveCacheService.getCachedList(_hiveEmojisKey);
+    if (hive.isEmpty) {
+      hive = HiveCacheService.getCachedList('home_emojis');
+    }
+    if (hive.isEmpty) return null;
+    _canonicalEmojis = List<Map<String, dynamic>>.from(hive);
+    return _canonicalEmojis;
+  }
+
+  static bool _canDeriveFromCanonical(Map<String, String> queryParams) {
+    return !queryParams.containsKey('source') &&
+        !queryParams.containsKey('category') &&
+        !queryParams.containsKey('main_fruit_only') &&
+        !queryParams.containsKey('get_latest_feeling');
+  }
+
+  static List<Map<String, dynamic>> _deriveFromCanonical(
+    List<Map<String, dynamic>> canonical,
+    Map<String, String> queryParams,
+  ) {
+    final list = List<Map<String, dynamic>>.from(canonical);
+    final sortBy = queryParams['sort_by'];
+    final order = queryParams['order'] ?? 'DESC';
+    final limit = int.tryParse(queryParams['limit'] ?? '');
+    return _sortAndLimit(
+      list,
+      sortBy: sortBy,
+      order: order,
+      limit: limit,
+    );
+  }
+
+  static List<Map<String, dynamic>> _sortAndLimit(
+    List<Map<String, dynamic>> source, {
+    String? sortBy,
+    String order = 'DESC',
+    int? limit,
+  }) {
+    final list = List<Map<String, dynamic>>.from(source);
+    if (sortBy != null) {
+      list.sort((a, b) {
+        int cmp;
+        if (sortBy == 'usage_count') {
+          final av = int.tryParse(a['usage_count']?.toString() ?? '0') ?? 0;
+          final bv = int.tryParse(b['usage_count']?.toString() ?? '0') ?? 0;
+          cmp = av.compareTo(bv);
+        } else {
+          final av = a[sortBy]?.toString() ?? '';
+          final bv = b[sortBy]?.toString() ?? '';
+          cmp = av.compareTo(bv);
+        }
+        return order.toUpperCase() == 'ASC' ? cmp : -cmp;
+      });
+    }
+    if (limit != null && list.length > limit) {
+      return list.sublist(0, limit);
+    }
+    return list;
+  }
+
+  /// Instant picker emojis if already loaded this session.
+  static List<Map<String, dynamic>>? getPickerEmojisSync() => _sessionPickerEmojis;
+
+  /// Picker emojis — load once per session, stale sync only in background.
+  static Future<List<Map<String, dynamic>>> getPickerEmojis({
+    String? userEmail,
+  }) async {
+    if (_sessionPickerEmojis != null && _sessionPickerEmojis!.isNotEmpty) {
+      return _sessionPickerEmojis!;
+    }
+    final emojis = await getEmojis(
+      status: 'Active',
+      sortBy: 'usage_count',
+      order: 'DESC',
+      userEmail: userEmail,
+    );
+    _sessionPickerEmojis = emojis;
+    return emojis;
+  }
+
+  static Future<List<Map<String, dynamic>>> _fetchEmojisFromApi(
+    Map<String, String> queryParams,
+    String cacheKey,
+  ) async {
+    final response = await ApiService.get(
+      ApiConfig.emojis,
+      queryParameters: queryParams,
+    );
+
+    if (response['success'] == true && response['data'] != null) {
+      final emojisList = List<Map<String, dynamic>>.from(response['data']);
+      _writeMemory(cacheKey, emojisList);
+      if (queryParams['status'] == 'Active' &&
+          !queryParams.containsKey('limit') &&
+          !queryParams.containsKey('get_latest_feeling')) {
+        _canonicalEmojis = emojisList;
+        unawaited(
+          HiveCacheService.cacheList(_hiveEmojisKey, emojisList, maxItems: 80),
+        );
+      }
+      return emojisList;
+    }
+    throw ApiException(response['message'] ?? 'Failed to fetch emojis');
+  }
   /// Get Emojis
   /// 
   /// Parameters:
@@ -56,64 +245,28 @@ class EmojisService {
       queryParams['user_email'] = userEmail;
     }
 
-    print('📡 ========== EMOJIS API CALL START ==========');
-    print('📡 API URL: ${ApiConfig.emojis}');
-    print('📡 Query Parameters: $queryParams');
-    
-    try {
-      final response = await ApiService.get(
-        ApiConfig.emojis,
-        queryParameters: queryParams,
-      );
-
-      print('📡 ========== EMOJIS API RESPONSE RECEIVED ==========');
-      print('📡 Response type: ${response.runtimeType}');
-      print('📡 Response keys: ${response.keys}');
-      print('📡 Emojis API Response: success=${response['success']}, data length=${response['data']?.length ?? 0}');
-      print('📡 Full API Response: $response');
-
-    if (response['success'] == true && response['data'] != null) {
-      final emojisList = List<Map<String, dynamic>>.from(response['data']);
-      print('✅ Parsed ${emojisList.length} emojis from API');
-      
-      if (emojisList.isEmpty) {
-        print('⚠️ WARNING: API returned success but emojis list is empty!');
-        print('⚠️ This might mean:');
-        print('   1. Database is empty (run add-fruit-emojis.php script)');
-        print('   2. Filter is too restrictive (main_fruit_only might be filtering out all emojis)');
-        print('   3. Status filter is excluding all emojis');
-      }
-      if (emojisList.isNotEmpty) {
-        print('📋 Sample emoji: ${emojisList[0]}');
-        // Validate emoji_char is present and not equal to code
-        for (var emoji in emojisList) {
-          final emojiChar = emoji['emoji_char'];
-          final emojiCode = emoji['code'];
-          
-          if (emojiChar == null || emojiChar.toString().isEmpty) {
-            print('⚠️ WARNING: Emoji ID ${emoji['id']} (${emoji['name']}) has empty emoji_char!');
-          } else if (emojiChar.toString() == emojiCode) {
-            print('❌ ERROR: Emoji ID ${emoji['id']} (${emoji['name']}) has emoji_char equal to code!');
-            print('   emoji_char: $emojiChar');
-            print('   code: $emojiCode');
-          } else {
-            print('✅ Emoji ID ${emoji['id']} (${emoji['name']}): emoji_char=${emojiChar}, code=$emojiCode');
-          }
-        }
-      }
-      print('📡 ========== EMOJIS API CALL SUCCESS ==========');
-      return emojisList;
-    } else {
-      print('❌ ========== EMOJIS API ERROR ==========');
-      print('❌ API Error: ${response['message'] ?? 'Unknown error'}');
-      print('❌ Response: $response');
-      throw ApiException(response['message'] ?? 'Failed to fetch emojis');
+    final cacheKey = _buildCacheKey(queryParams);
+    final memory = _readMemory(cacheKey);
+    if (memory != null) {
+      return memory;
     }
-    } catch (e, stackTrace) {
-      print('❌ ========== EMOJIS API EXCEPTION ==========');
-      print('❌ Exception type: ${e.runtimeType}');
-      print('❌ Exception message: $e');
-      print('❌ Stack trace: $stackTrace');
+
+    final canonical = _getCanonicalEmojis();
+    if (canonical != null &&
+        canonical.isNotEmpty &&
+        _canDeriveFromCanonical(queryParams)) {
+      final derived = _deriveFromCanonical(canonical, queryParams);
+      _writeMemory(cacheKey, derived);
+      _maybeBackgroundSync(queryParams, cacheKey);
+      return derived;
+    }
+
+    try {
+      final data = await _fetchEmojisFromApi(queryParams, cacheKey);
+      _markSynced();
+      return data;
+    } catch (e) {
+      print('❌ Error fetching emojis: $e');
       rethrow;
     }
   }
@@ -122,13 +275,37 @@ class EmojisService {
   /// 
   /// Returns: List of top 6 emojis by usage count
   static Future<List<Map<String, dynamic>>> getQuickEmojis() async {
-    final emojis = await getEmojis(
+    const quickKey = 'limit=6|order=DESC|sort_by=usage_count|status=Active';
+    final cached = _readMemory(quickKey);
+    if (cached != null) return cached;
+
+    final canonical = _getCanonicalEmojis();
+    if (canonical != null && canonical.isNotEmpty) {
+      final quick = _sortAndLimit(
+        canonical,
+        sortBy: 'usage_count',
+        order: 'DESC',
+        limit: 6,
+      );
+      _writeMemory(quickKey, quick);
+      return quick;
+    }
+
+    return getEmojis(
       status: 'Active',
       sortBy: 'usage_count',
       order: 'DESC',
       limit: 6,
     );
-    return emojis;
+  }
+
+  /// Pre-warm emoji cache at app start (non-blocking).
+  static void warmCache() {
+    if (_getCanonicalEmojis() != null) return;
+    unawaited(
+      getEmojis(status: 'Active', sortBy: 'image_url', order: 'ASC')
+          .catchError((_) => <Map<String, dynamic>>[]),
+    );
   }
 
   /// Get User's Latest Feeling

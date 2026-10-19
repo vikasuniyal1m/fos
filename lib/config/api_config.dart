@@ -2,8 +2,7 @@
 /// Base URL and API endpoints configuration
 class ApiConfig {
   // Base URL for PHP Backend
-  // static const String baseUrl = 'http://admin.fosmessenger.com/api';
-  static const String baseUrl = 'http://admin.fosmessenger.com/api';
+  static const String baseUrl = 'https://admin.fosmessenger.com/api';
 
   // API Endpoints
   static const String auth = '$baseUrl/auth.php';
@@ -22,6 +21,7 @@ class ApiConfig {
   
   // New API Endpoints
   static const String stories = '$baseUrl/stories.php';
+  static const String shorts = '$baseUrl/shorts.php';
   static const String search = '$baseUrl/search.php';
   static const String analytics = '$baseUrl/analytics.php';
   static const String advanced = '$baseUrl/advanced.php';
@@ -45,6 +45,8 @@ class ApiConfig {
   static const String liveStreamingAgoraStartLive = '$baseUrl/live_streaming/agora_start_live.php';
   static const String liveStreamingAddComment = '$baseUrl/live_streaming/add_live_comment.php';
   static const String liveStreamingGetComments = '$baseUrl/live_streaming/get_live_comments.php';
+  static const String liveStreamingIncrementViewer = '$baseUrl/live_streaming/increment_viewer.php';
+  static const String liveStreamingDecrementViewer = '$baseUrl/live_streaming/decrement_viewer.php';
 
   // Add these to your ApiConfig class in /lib/config/api_config.dart
 
@@ -56,6 +58,17 @@ class ApiConfig {
   static const String christianCalender = '$baseUrl/christian-calender.php';
   // Configuration
   static const bool isDummyMode = false;
+  /// Google Places / Geocoding / Directions — billing chahiye.
+  /// false = bilkul band (church locator sirf OSM + Nominatim + OSRM).
+  /// Note: Google Map SDK tiles alag hain — ye flag unhe band NAHI karta.
+  static const bool useGoogleMapsWebServices = false;
+
+  /// Readable alias — billing APIs on/off.
+  static bool get googleMapsBillingApisEnabled => useGoogleMapsWebServices;
+
+  /// Optional: apna churches.json CDN/backend URL (empty = sirf OSM live JSON).
+  /// Schema: [{ "name", "lat", "lng", "denomination?", "vicinity?" }]
+  static const String churchesRemoteJsonUrl = '';
   static const String googleMapsApiKey = 'AIzaSyBl1p7TbiGAoBfqVY7m48xX8Ybbs0RQ07Y';
   static const String banners = '$baseUrl/banners.php';
   // Request timeout

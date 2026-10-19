@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
 import 'package:fruitsofspirit/utils/time_helper.dart';
+import 'package:fruitsofspirit/utils/content_delete_helper.dart';
 
 import 'package:flutter/scheduler.dart';
 import 'package:get/get.dart';
@@ -23,6 +27,7 @@ import 'package:fruitsofspirit/widgets/emoji_button.dart';
 import 'package:fruitsofspirit/services/gallery_service.dart'; // edit feature
 import 'package:fruitsofspirit/services/comments_service.dart'; // edit feature
 import 'package:fruitsofspirit/screens/report_content_screen.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
 
 /// Photo Details Screen
 /// Shows single photo with full comment system (like blog/prayer details)
@@ -120,13 +125,9 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     _loadCurrentUserId();
     _loadUserEmail();
     final photoId = Get.arguments as int? ?? 0;
-    if (photoId > 0 && (controller.selectedPhoto.isEmpty || controller.selectedPhoto['id'] != photoId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadPhotoDetails(photoId);
-        // Load emojis for reactions
-        controller.loadAvailableEmojis();
-        controller.loadQuickEmojis();
-      });
+    if (photoId > 0) {
+      controller.bootstrapPhotoDetail(photoId);
+      unawaited(controller.preparePhotoDetails(photoId));
     }
     
     // Initialize photo heights based on screen size
@@ -178,6 +179,34 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
 
   Future<void> _loadUserEmail() async {
     userEmail = await UserStorage.getUserEmail();
+  }
+
+  void _dismissKeyboard() {
+    FocusScope.of(context).unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
+  }
+
+  String? _resolveEmojiValueToSend(
+    Map<String, dynamic> emojiData,
+    String? emojiChar,
+  ) {
+    final emojiCode = emojiData['code'] as String?;
+    if (emojiCode != null && emojiCode.trim().isNotEmpty) {
+      return emojiCode.trim();
+    }
+    final emojiImageUrl = emojiData['image_url'] as String?;
+    if (emojiImageUrl != null && emojiImageUrl.trim().isNotEmpty) {
+      return emojiImageUrl.trim();
+    }
+    if (emojiChar != null && emojiChar.trim().isNotEmpty) {
+      return emojiChar.trim();
+    }
+    final emojiName = emojiData['name'] as String?;
+    if (emojiName != null && emojiName.trim().isNotEmpty) {
+      return emojiName.trim();
+    }
+    return null;
   }
 
   /// Show Full Screen Image Preview
@@ -512,6 +541,44 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   } // edit feature
 
   // edit feature: Edit photo method
+  Future<void> _deletePost(int mediaId) async {
+    if (currentUserId == null || currentUserId == 0) {
+      Get.snackbar('Error', 'Please login first', backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'photo');
+    if (!confirmed) return;
+    _dismissKeyboard();
+    final ok = await controller.deletePhoto(mediaId);
+    if (ok) {
+      Get.back();
+      Get.snackbar('Success', 'Photo deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } else if (controller.message.value.isNotEmpty) {
+      Get.snackbar('Error', controller.message.value, backgroundColor: Colors.red, colorText: Colors.white);
+    }
+  }
+
+  Future<void> _deleteComment(int commentId, int photoId) async {
+    if (currentUserId == null || currentUserId == 0) return;
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'comment');
+    if (!confirmed) return;
+    _dismissKeyboard();
+    final ok = await controller.deletePhotoComment(photoId, commentId);
+    if (ok) {
+      Get.snackbar('Success', 'Comment deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } else if (controller.message.value.isNotEmpty) {
+      Get.snackbar('Error', controller.message.value, backgroundColor: Colors.red, colorText: Colors.white);
+    }
+  }
+
+  Widget _buildDeleteCommentButton(Map<String, dynamic> comment, int photoId) {
+    if (!ContentDeleteHelper.isOwner(currentUserId, comment['user_id'])) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(left: ResponsiveHelper.spacing(context, 16)),
+      child: ContentDeleteHelper.buildDeleteAction(onTap: () => _deleteComment(comment['id'] as int, photoId)),
+    );
+  }
+
   Future<void> _editPost(int mediaId) async { // edit feature
     final title = postEditTitleController.text.trim(); // edit feature
     final description = postEditDescriptionController.text.trim(); // edit feature
@@ -551,7 +618,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
 
       showPostEditInput.value = false; // edit feature
       final photoId = Get.arguments as int? ?? 0; // edit feature
-      await controller.loadPhotoDetails(photoId); // edit feature
+      await controller.loadPhotoDetails(photoId, silent: true, force: true); // edit feature
 
       Get.snackbar( // edit feature
         'Success', // edit feature
@@ -591,8 +658,9 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
       return NetworkImage(photoPath);
     }
     
-    // If it's a relative path, construct full URL
-    return NetworkImage('http://admin.fosmessenger.com/$photoPath');
+    final resolved = ImageHelper.resolveMediaPath(photoPath);
+    if (resolved != null) return NetworkImage(resolved);
+    return null;
   }
 
   @override
@@ -647,9 +715,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         final photo = controller.selectedPhoto;
         final isPending = photo['status'] == 'Pending';
         final photoId = photo['id'] as int;
-        final baseUrl = 'http://admin.fosmessenger.com/';
-        final filePath = photo['file_path'] as String? ?? '';
-        final imageUrl = filePath.isNotEmpty ? baseUrl + filePath : null;
+        final imageUrl = ImageHelper.resolveGalleryPhotoUrl(photo);
         final testimony = photo['testimony'] as String? ?? '';
 
         // Get keyboard height to adjust photo height
@@ -740,12 +806,11 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                           Expanded(
                             child: RefreshIndicator(
                               onRefresh: () async {
-                                if (kDebugMode) debugPrint(
-                                    '🔄 Pull-to-refresh triggered on photo details');
-                                await controller.loadPhotoDetails(photoId);
-                                await controller.loadPhotoComments(photoId);
-                                if (kDebugMode) debugPrint(
-                                    '✅ Refresh completed');
+                                await controller.loadPhotoDetails(
+                                  photoId,
+                                  silent: true,
+                                  force: true,
+                                );
                               },
                               color: AppTheme.iconscolor,
                               backgroundColor: Colors.white,
@@ -1297,11 +1362,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                                 final success = await controller
                                                     .toggleLike(photoId);
                                                 if (success) {
-                                                  // Reload photo details to get updated like status
-                                                  await controller
-                                                      .loadPhotoDetails(
-                                                      photoId);
-                                                  // Show success message (brief)
                                                   if (mounted) {
                                                     WidgetsBinding.instance
                                                         .addPostFrameCallback((
@@ -1389,12 +1449,8 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                             onTap: () {
                                               final photo = controller
                                                   .selectedPhoto;
-                                              final baseUrl = 'http://admin.fosmessenger.com/';
-                                              final filePath = photo['file_path'] as String? ??
-                                                  '';
-                                              final photoUrl = filePath
-                                                  .isNotEmpty ? baseUrl +
-                                                  filePath : null;
+                                              final photoUrl =
+                                                  ImageHelper.resolveGalleryPhotoUrl(photo);
 
                                               ShareHelper.shareContent(
                                                 context: context,
@@ -1793,8 +1849,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                             .trim()
                                             .isEmpty) return;
 
-                                        // FIX: Dismiss keyboard immediately
-                                        FocusScope.of(context).unfocus();
+                                        _dismissKeyboard();
 
                                         setState(() {
                                           _isSendingComment = true;
@@ -2083,6 +2138,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                         ),
                         // edit feature: Edit Button
                         _buildEditButton(context, comment, photoId),
+                        _buildDeleteCommentButton(comment, photoId),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
                         // Report Button - Only show for other users' comments
                         if (currentUserId != null && (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()))
@@ -2262,8 +2318,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   Future<void> _handleSendReply(int photoId, int parentCommentId, TextEditingController replyController) async {
     if (replyController.text.trim().isEmpty) return;
     
-    // FIX: Dismiss keyboard immediately
-    FocusScope.of(context).unfocus();
+    _dismissKeyboard();
     
     setState(() {
       _sendingReplies.add(parentCommentId);
@@ -2280,12 +2335,8 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
         replyController.clear();
         setState(() {
           showReplyInput[parentCommentId] = false;
-          // Auto-expand parent to show the new reply
           expandedReplies.add(parentCommentId);
         });
-        
-        await controller.loadPhotoComments(photoId);
-        setState(() {}); // Refresh UI
         
         if (mounted) {
           _showCustomSnackbar(
@@ -2692,14 +2743,17 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
     final userIdRaw = photo['user_id'];
     final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
     
-    // Check if we have any options to show
-    final hasOptions = posterId != null && posterId != currentUserId;
-    
-    // Only show the PopupMenuButton if there are options
-    if (!hasOptions) {
-      return SizedBox(width: ResponsiveHelper.iconSize(context, mobile: 40)); // Empty placeholder for alignment
+    if (ContentDeleteHelper.isOwner(currentUserId, photo['user_id'])) {
+      return ContentDeleteHelper.buildDeleteIconButton(
+        onTap: () => _deletePost(photo['id'] as int),
+      );
     }
-    
+
+    final hasOptions = posterId != null && posterId != currentUserId;
+    if (!hasOptions) {
+      return SizedBox(width: ResponsiveHelper.iconSize(context, mobile: 40));
+    }
+
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {
@@ -2941,48 +2995,10 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: isValidEmoji ? () async {
-                          FocusScope.of(context).unfocus(); // Dismiss keyboard when emoji is tapped
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ========== EMOJI SELECTION START ==========');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: User tapped quick emoji: $emoji');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData: name=${emojiData['name']}, id=${emojiData['id']}');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData code: ${emojiData['code']}');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData image_url: ${emojiData['image_url']}');
-                          if (kDebugMode) debugPrint('🍎 GALLERY EMOJI:   - emojiData emoji_char: ${emojiData['emoji_char']}');
-                          
-                          // Determine the best emoji value to send to API
-                          // Priority: code > image_url > emoji_char > name
-                          String? emojiValueToSend;
-                          
-                          // Priority 1: Use code if available (best for API matching)
-                          final emojiCode = emojiData['code'] as String?;
-                          if (emojiCode != null && emojiCode.toString().trim().isNotEmpty) {
-                            emojiValueToSend = emojiCode.toString().trim();
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji code: $emojiValueToSend');
-                          }
-                          // Priority 2: Use image_url if code is not available
-                          else {
-                            final emojiImageUrl = emojiData['image_url'] as String?;
-                            if (emojiImageUrl != null && emojiImageUrl.toString().trim().isNotEmpty) {
-                              emojiValueToSend = emojiImageUrl.toString().trim();
-                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji image_url: $emojiValueToSend');
-                            }
-                            // Priority 3: Use emoji_char
-                            else if (emoji != null && emoji.trim().isNotEmpty) {
-                              emojiValueToSend = emoji.trim();
-                              if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji_char: $emojiValueToSend');
-                            }
-                            // Priority 4: Fallback to name
-                            else {
-                              final emojiName = emojiData['name'] as String?;
-                              if (emojiName != null && emojiName.toString().trim().isNotEmpty) {
-                                emojiValueToSend = emojiName.toString().trim();
-                                if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ✅ SELECTED: Using emoji name: $emojiValueToSend');
-                              }
-                            }
-                          }
-                          
+                          _dismissKeyboard();
+                          final emojiValueToSend =
+                              _resolveEmojiValueToSend(emojiData, emoji);
                           if (emojiValueToSend == null || emojiValueToSend.isEmpty) {
-                            if (kDebugMode) debugPrint('🍎 GALLERY EMOJI: ❌ ERROR: Could not determine emoji value to send');
                             if (mounted) {
                               _showCustomSnackbar(
                                 'Error',
@@ -2992,12 +3008,20 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                             }
                             return;
                           }
-                          
-                          // Send emoji directly as comment (no text box)
-                          final content = commentController.text;
-                          commentController.text = emojiValueToSend;
-                          await controller.addComment(photoId, emojiValueToSend);
-                          commentController.text = content;
+                          final success = await controller.addEmojiReaction(
+                            photoId,
+                            emojiValueToSend,
+                          );
+                          if (!mounted) return;
+                          if (success) {
+                            _showCustomSnackbar('Success', 'Reaction added');
+                          } else if (controller.message.value.isNotEmpty) {
+                            _showCustomSnackbar(
+                              'Error',
+                              controller.message.value,
+                              isError: true,
+                            );
+                          }
                         } : null,
                         borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 40 : 44),
                         child: Padding(
@@ -3462,7 +3486,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                                 } else if (!photoPath.startsWith('assets/') && 
                                     !photoPath.startsWith('file://') &&
                                     !photoPath.startsWith('assets/images/')) {
-                                  profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
+                                  profilePhotoUrl = ImageHelper.getProfilePhotoUrl(photoPath);
                                 }
                               }
                               
@@ -3764,7 +3788,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
   Future<void> _sendEmojiDirectly(int photoId, String emoji, {int? parentCommentId}) async {
     if (emoji.isEmpty) return;
 
-    FocusScope.of(context).unfocus();
+    _dismissKeyboard();
 
     isSubmittingComment.value = true;
 
@@ -3772,7 +3796,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
       final success = await controller.addComment(photoId, emoji, parentCommentId: parentCommentId);
       if (success) {
         commentController.clear();
-        // Scroll to show new comment
         await Future.delayed(const Duration(milliseconds: 300));
         if (_scrollController.hasClients) {
           _scrollController.animateTo(
@@ -3781,8 +3804,6 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
             curve: Curves.easeOut,
           );
         }
-        // Reload photo details to show new comment
-        await controller.loadPhotoDetails(photoId);
         _showCustomSnackbar('Success', 'Comment added successfully');
       } else {
         _showCustomSnackbar('Error', controller.message.value, isError: true);
@@ -3863,7 +3884,7 @@ class _PhotoDetailsScreenState extends State<PhotoDetailsScreen> {
                       } else if (!photoPath.startsWith('assets/') && 
                           !photoPath.startsWith('file://') &&
                           !photoPath.startsWith('assets/images/')) {
-                        profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
+                        profilePhotoUrl = ImageHelper.getProfilePhotoUrl(photoPath);
                       }
                     }
                     

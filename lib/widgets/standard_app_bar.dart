@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 import 'package:fruitsofspirit/controllers/profile_controller.dart';
 import '../utils/app_theme.dart';
 
@@ -21,76 +24,62 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Size get preferredSize => Size.fromHeight(
-        ResponsiveHelper.safeHeight(
-          Get.context!,
-          mobile: 70,
-          tablet: 120,
-          desktop: 100,
-        ),
+        ResponsiveHelper.statusBarHeight() + ResponsiveHelper.scaledToolbarHeight(),
       );
 
   @override
   Widget build(BuildContext context) {
+    final barHeight = ResponsiveHelper.appBarHeight(context);
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: ResponsiveHelper.isMobile(context) ? 4 : 8,
-            offset: Offset(0, ResponsiveHelper.isMobile(context) ? 2 : 4),
+            blurRadius: ResponsiveHelper.dim(context, mobile: 4, tablet: 8),
+            offset: Offset(
+              0,
+              ResponsiveHelper.dim(context, mobile: 2, tablet: 4),
+            ),
           ),
         ],
         border: Border(
           bottom: BorderSide(
             color: Colors.grey.withOpacity(0.15),
-            width: ResponsiveHelper.isMobile(context) ? 0.5 : 1,
+            width: ResponsiveHelper.dim(context, mobile: 0.5, tablet: 1),
           ),
         ),
       ),
       child: SafeArea(
         bottom: false,
-        child: Padding(
-          padding: ResponsiveHelper.padding(
-            context,
-            horizontal: ResponsiveHelper.isMobile(context)
-                ? ResponsiveHelper.spacing(context, 16)
-                : ResponsiveHelper.isTablet(context)
-                    ? ResponsiveHelper.spacing(context, 20)
-                    : ResponsiveHelper.spacing(context, 24),
-            vertical: ResponsiveHelper.isMobile(context)
-                ? ResponsiveHelper.spacing(context, 10)
-                : ResponsiveHelper.isTablet(context)
-                    ? ResponsiveHelper.spacing(context, 12)
-                    : ResponsiveHelper.spacing(context, 14),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Left Side - Logos in Row (foslogo.jpg + logoname.png) - Always show logos
-              Expanded(
-                flex: ResponsiveHelper.isDesktop(context) ? 4 : 3,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: _buildLogos(context, showBackButton: showBackButton),
+        child: SizedBox(
+          height: barHeight,
+          child: Padding(
+            padding: ResponsiveHelper.padding(
+              context,
+              horizontal: ResponsiveHelper.spacing(context, 16),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  flex: ResponsiveHelper.isDesktop(context) ? 4 : 3,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _buildLogos(context, showBackButton: showBackButton),
+                  ),
                 ),
-              ),
-              SizedBox(
-                width: ResponsiveHelper.isMobile(context)
-                    ? 12.0
-                    : ResponsiveHelper.isTablet(context)
-                        ? 16.0
-                        : 20.0,
-              ),
-              // Right Side - Action Icons (from parameter or default home page icons)
-              rightActions != null
-                  ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: rightActions!,
-                    )
-                  : _buildDefaultRightActions(context),
-            ],
+                SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                rightActions != null
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: rightActions!,
+                      )
+                    : _buildDefaultRightActions(context),
+              ],
+            ),
           ),
         ),
       ),
@@ -99,6 +88,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   /// Build Logos (foslogo.jpg + logoname.png) - Always show on all pages
   Widget _buildLogos(BuildContext context, {bool showBackButton = false}) {
+    final isTablet = ResponsiveHelper.isTablet(context);
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -113,52 +103,35 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                   Navigator.of(context).pop();
                 }
               },
-              borderRadius: BorderRadius.circular(30),
+              borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 30)),
               child: Container(
-                width: ResponsiveHelper.isMobile(context)
-                    ? 40.0
-                    : ResponsiveHelper.isTablet(context)
-                        ? 44.0
-                        : 48.0,
-                height: ResponsiveHelper.isMobile(context)
-                    ? 40.0
-                    : ResponsiveHelper.isTablet(context)
-                        ? 44.0
-                        : 48.0,
+                width: ResponsiveHelper.appBarActionSize(context),
+                height: ResponsiveHelper.appBarActionSize(context),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: Colors.white.withOpacity(0.8),
-                    width: 2.0,
+                    width: ResponsiveHelper.dim(context, mobile: 2),
                   ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.grey.withOpacity(0.3),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
-                      spreadRadius: 1,
+                      blurRadius: ResponsiveHelper.dim(context, mobile: 6),
+                      offset: Offset(0, ResponsiveHelper.dim(context, mobile: 3)),
+                      spreadRadius: ResponsiveHelper.dim(context, mobile: 1),
                     ),
                   ],
                 ),
                 child: Icon(
                   Icons.arrow_back_rounded,
                   color: AppTheme.iconscolor,
-                  size: ResponsiveHelper.isMobile(context)
-                      ? 20.0
-                      : ResponsiveHelper.isTablet(context)
-                          ? 22.0
-                          : 24.0,
+                  size: ResponsiveHelper.iconSize(context, mobile: 20, tablet: 24, desktop: 28),
                 ),
               ),
             ),
           ),
-          SizedBox(
-            width: ResponsiveHelper.spacing(
-              context,
-              ResponsiveHelper.isMobile(context) ? 10 : 12,
-            ),
-          ),
+          SizedBox(width: ResponsiveHelper.spacing(context, 10)),
         ],
         // First Logo - foslogo.jpg
         GestureDetector(
@@ -173,23 +146,14 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                 }),
           child: Image.asset(
             'assets/foslogo.jpg',
-            height: ResponsiveHelper.isMobile(context)
-                ? 60.0
-                : ResponsiveHelper.isTablet(context)
-                    ? 70.0
-                    : 80.0,
+            height: ResponsiveHelper.dim(context, mobile: 56, tablet: 72, desktop: 80),
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) {
               return const SizedBox.shrink();
             },
           ),
         ),
-        SizedBox(
-          width: ResponsiveHelper.spacing(
-            context,
-            ResponsiveHelper.isMobile(context) ? 10 : 14,
-          ),
-        ),
+        SizedBox(width: ResponsiveHelper.spacing(context, isTablet ? 12 : 10)),
         // Second Logo - logoname.png
         Flexible(
           child: GestureDetector(
@@ -204,11 +168,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                   }),
             child: Image.asset(
               'assets/logoname.png',
-              height: ResponsiveHelper.isMobile(context)
-                  ? 50.0
-                  : ResponsiveHelper.isTablet(context)
-                      ? 60.0
-                      : 70.0,
+              height: ResponsiveHelper.dim(context, mobile: 44, tablet: 56, desktop: 64),
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
                 return const SizedBox.shrink();
@@ -233,25 +193,19 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
           icon: Icons.search_rounded,
           onTap: () => Get.toNamed(Routes.SEARCH),
         ),
-        SizedBox(
-          width: ResponsiveHelper.spacing(
+        SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+        Obx(() {
+          final count = Get.isRegistered<NotificationsController>()
+              ? Get.find<NotificationsController>().unreadCount.value
+              : 0;
+          return _buildActionIcon(
             context,
-            ResponsiveHelper.isMobile(context) ? 10 : 12,
-          ),
-        ),
-        // Notification Icon
-        _buildActionIcon(
-          context,
-          icon: Icons.notifications_rounded,
-          onTap: () => Get.toNamed(Routes.NOTIFICATIONS),
-          showBadge: true,
-        ),
-        SizedBox(
-          width: ResponsiveHelper.spacing(
-            context,
-            ResponsiveHelper.isMobile(context) ? 10 : 12,
-          ),
-        ),
+            icon: Icons.notifications_rounded,
+            onTap: () => NotificationsController.prepareAndOpen(),
+            badgeCount: count,
+          );
+        }),
+        SizedBox(width: ResponsiveHelper.spacing(context, 10)),
         // Profile Icon
         _buildActionIcon(
           context,
@@ -262,60 +216,51 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  /// Handle profile navigation with loading state
-  void _handleProfileNavigation(BuildContext context) async {
-    try {
-      if (Get.isRegistered<ProfileController>()) {
-        final profileController = Get.find<ProfileController>();
-
-        // Show loading overlay BEFORE navigating
-        // This addresses the user's request to have loading before the screen opens
-        Get.dialog(
-          Center(
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const CircularProgressIndicator(
-                color: Color(0xFF8B4513),
-              ),
-            ),
-          ),
-          barrierDismissible: false,
-        );
-
-        // Load profile data (fresh from API)
-        await profileController.loadProfile(showLoading: false);
-
-        // Close loading overlay
-        final dialogContext = Get.overlayContext;
-        if (dialogContext != null) {
-          Navigator.of(dialogContext, rootNavigator: true).pop();
-        } else if (context.mounted) {
-          Navigator.of(context, rootNavigator: true).pop();
-        }
-
-        // Go to profile screen - it will now have fresh data ready
-        Get.toNamed(Routes.PROFILE);
-      } else {
-        // Fallback: Just go to profile screen
-        Get.toNamed(Routes.PROFILE);
-      }
-    } catch (e) {
-      print('Error navigating to profile: $e');
-      // If error, try to close dialog if open and still go to profile
-      final dialogContext = Get.overlayContext;
-      if (Get.isDialogOpen ?? false) {
-        if (dialogContext != null) {
-          Navigator.of(dialogContext, rootNavigator: true).pop();
-        } else if (context.mounted) {
-          Navigator.of(context, rootNavigator: true).pop();
-        }
-      }
-      Get.toNamed(Routes.PROFILE);
+  /// Open profile instantly — Hive cache first, silent API sync in background.
+  void _handleProfileNavigation(BuildContext context) {
+    if (Get.isRegistered<ProfileController>()) {
+      final profileController = Get.find<ProfileController>();
+      profileController.bootstrapProfile();
+      unawaited(profileController.prepareProfile());
     }
+    Get.toNamed(Routes.PROFILE);
+  }
+
+  Widget _buildUnreadBadge(BuildContext context, int badgeCount) {
+    if (badgeCount <= 0) return const SizedBox.shrink();
+    final label = badgeCount > 9 ? '9+' : '$badgeCount';
+    return Positioned(
+      top: 0,
+      right: 0,
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: ResponsiveHelper.dim(context, mobile: 4),
+          vertical: ResponsiveHelper.dim(context, mobile: 2),
+        ),
+        constraints: BoxConstraints(
+          minWidth: ResponsiveHelper.dim(context, mobile: 16),
+          minHeight: ResponsiveHelper.dim(context, mobile: 16),
+        ),
+        decoration: BoxDecoration(
+          color: const Color(0xFF4CAF50),
+          borderRadius: BorderRadius.circular(ResponsiveHelper.dim(context, mobile: 10)),
+          border: Border.all(
+            color: Colors.white,
+            width: ResponsiveHelper.dim(context, mobile: 2),
+          ),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: ResponsiveHelper.fontSize(context, mobile: 9),
+            fontWeight: FontWeight.bold,
+            height: 1,
+          ),
+        ),
+      ),
+    );
   }
 
   /// Build Action Icon with White Background (Home Page Style)
@@ -324,42 +269,35 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
     required IconData icon,
     required VoidCallback onTap,
     bool showBadge = false,
+    int badgeCount = 0,
   }) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 30)),
         splashColor: Colors.grey.withOpacity(0.1),
         highlightColor: Colors.grey.withOpacity(0.05),
         child: Container(
-          width: ResponsiveHelper.isMobile(context)
-              ? 40.0
-              : ResponsiveHelper.isTablet(context)
-                  ? 52.0
-                  : 56.0,
-          height: ResponsiveHelper.isMobile(context)
-              ? 40.0
-              : ResponsiveHelper.isTablet(context)
-                  ? 52.0
-                  : 56.0,
+          width: ResponsiveHelper.appBarActionSize(context),
+          height: ResponsiveHelper.appBarActionSize(context),
           decoration: BoxDecoration(
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
               color: Colors.white.withOpacity(0.8),
-              width: 2.0,
+              width: ResponsiveHelper.dim(context, mobile: 2),
             ),
             boxShadow: [
               BoxShadow(
                 color: Colors.grey.withOpacity(0.3),
-                blurRadius: 6,
-                offset: const Offset(0, 3),
-                spreadRadius: 1,
+                blurRadius: ResponsiveHelper.dim(context, mobile: 6),
+                offset: Offset(0, ResponsiveHelper.dim(context, mobile: 3)),
+                spreadRadius: ResponsiveHelper.dim(context, mobile: 1),
               ),
             ],
           ),
-          child: showBadge
+          child: badgeCount > 0 || showBadge
               ? Stack(
                   clipBehavior: Clip.none,
                   children: [
@@ -367,62 +305,29 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                       child: Icon(
                         icon,
                         color: AppTheme.iconscolor,
-                        size: ResponsiveHelper.isMobile(context)
-                            ? 20.0
-                            : ResponsiveHelper.isTablet(context)
-                                ? 26.0
-                                : 28.0,
-                      ),
-                    ),
-                    // Notification Badge
-                    Positioned(
-                      top: ResponsiveHelper.isMobile(context) ? 2.5 : 3.0,
-                      right: ResponsiveHelper.isMobile(context) ? 2.5 : 3.0,
-                      child: Container(
-                        width: ResponsiveHelper.isMobile(context)
-                            ? 10.0
-                            : ResponsiveHelper.isTablet(context)
-                                ? 12.0
-                                : 14.0,
-                        height: ResponsiveHelper.isMobile(context)
-                            ? 10.0
-                            : ResponsiveHelper.isTablet(context)
-                                ? 12.0
-                                : 14.0,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Color(0xFF4CAF50),
-                              Color(0xFF45A049),
-                            ],
-                          ),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white,
-                            width: 2.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF4CAF50).withOpacity(0.5),
-                              blurRadius: 4,
-                              spreadRadius: 1,
-                            ),
-                          ],
+                        size: ResponsiveHelper.iconSize(
+                          context,
+                          mobile: 20,
+                          tablet: 24,
+                          desktop: 28,
                         ),
                       ),
                     ),
+                    if (badgeCount > 0)
+                      _buildUnreadBadge(context, badgeCount)
+                    else if (showBadge)
+                      _buildUnreadBadge(context, 1),
                   ],
                 )
               : Icon(
                   icon,
                   color: AppTheme.iconscolor,
-                  size: ResponsiveHelper.isMobile(context)
-                      ? 20.0
-                      : ResponsiveHelper.isTablet(context)
-                          ? 26.0
-                          : 28.0,
+                  size: ResponsiveHelper.iconSize(
+                    context,
+                    mobile: 20,
+                    tablet: 24,
+                    desktop: 28,
+                  ),
                 ),
         ),
       ),
@@ -435,6 +340,7 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
     required IconData icon,
     required VoidCallback onTap,
     bool showBadge = false,
+    int badgeCount = 0,
     Color? iconColor,
   }) {
     final color = iconColor ?? AppTheme.iconscolor;
@@ -442,37 +348,29 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 30)),
         splashColor: Colors.grey.withOpacity(0.1),
         highlightColor: Colors.grey.withOpacity(0.05),
         child: Container(
-          width: ResponsiveHelper.isMobile(context)
-              ? 40.0
-              : ResponsiveHelper.isTablet(context)
-                  ? 52.0
-                  : 56.0,
-          height: ResponsiveHelper.isMobile(context)
-              ? 40.0
-              : ResponsiveHelper.isTablet(context)
-                  ? 52.0
-                  : 56.0,
+          width: ResponsiveHelper.appBarActionSize(context),
+          height: ResponsiveHelper.appBarActionSize(context),
           decoration: BoxDecoration(
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
               color: Colors.white.withOpacity(0.8),
-              width: 2.0,
+              width: ResponsiveHelper.dim(context, mobile: 2),
             ),
             boxShadow: [
               BoxShadow(
                 color: Colors.grey.withOpacity(0.3),
-                blurRadius: 6,
-                offset: const Offset(0, 3),
-                spreadRadius: 1,
+                blurRadius: ResponsiveHelper.dim(context, mobile: 6),
+                offset: Offset(0, ResponsiveHelper.dim(context, mobile: 3)),
+                spreadRadius: ResponsiveHelper.dim(context, mobile: 1),
               ),
             ],
           ),
-          child: showBadge
+          child: badgeCount > 0 || showBadge
               ? Stack(
                   clipBehavior: Clip.none,
                   children: [
@@ -480,62 +378,77 @@ class StandardAppBar extends StatelessWidget implements PreferredSizeWidget {
                       child: Icon(
                         icon,
                         color: color,
-                        size: ResponsiveHelper.isMobile(context)
-                            ? 20.0
-                            : ResponsiveHelper.isTablet(context)
-                                ? 26.0
-                                : 28.0,
-                      ),
-                    ),
-                    // Notification Badge
-                    Positioned(
-                      top: ResponsiveHelper.isMobile(context) ? 2.5 : 3.0,
-                      right: ResponsiveHelper.isMobile(context) ? 2.5 : 3.0,
-                      child: Container(
-                        width: ResponsiveHelper.isMobile(context)
-                            ? 10.0
-                            : ResponsiveHelper.isTablet(context)
-                                ? 12.0
-                                : 14.0,
-                        height: ResponsiveHelper.isMobile(context)
-                            ? 10.0
-                            : ResponsiveHelper.isTablet(context)
-                                ? 12.0
-                                : 14.0,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Color(0xFF4CAF50),
-                              Color(0xFF45A049),
-                            ],
-                          ),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white,
-                            width: 2.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF4CAF50).withOpacity(0.5),
-                              blurRadius: 4,
-                              spreadRadius: 1,
-                            ),
-                          ],
+                        size: ResponsiveHelper.iconSize(
+                          context,
+                          mobile: 20,
+                          tablet: 24,
+                          desktop: 28,
                         ),
                       ),
                     ),
+                    if (badgeCount > 0)
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: ResponsiveHelper.dim(context, mobile: 4),
+                            vertical: ResponsiveHelper.dim(context, mobile: 2),
+                          ),
+                          constraints: BoxConstraints(
+                            minWidth: ResponsiveHelper.dim(context, mobile: 16),
+                            minHeight: ResponsiveHelper.dim(context, mobile: 16),
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF4CAF50),
+                            borderRadius: BorderRadius.circular(
+                              ResponsiveHelper.dim(context, mobile: 10),
+                            ),
+                            border: Border.all(
+                              color: Colors.white,
+                              width: ResponsiveHelper.dim(context, mobile: 2),
+                            ),
+                          ),
+                          child: Text(
+                            badgeCount > 9 ? '9+' : '$badgeCount',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: ResponsiveHelper.fontSize(context, mobile: 9),
+                              fontWeight: FontWeight.bold,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (showBadge)
+                      Positioned(
+                        top: ResponsiveHelper.dim(context, mobile: 2.5),
+                        right: ResponsiveHelper.dim(context, mobile: 2.5),
+                        child: Container(
+                          width: ResponsiveHelper.dim(context, mobile: 10),
+                          height: ResponsiveHelper.dim(context, mobile: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF4CAF50),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white,
+                              width: ResponsiveHelper.dim(context, mobile: 2),
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 )
               : Icon(
                   icon,
                   color: color,
-                  size: ResponsiveHelper.isMobile(context)
-                      ? 20.0
-                      : ResponsiveHelper.isTablet(context)
-                          ? 26.0
-                          : 28.0,
+                  size: ResponsiveHelper.iconSize(
+                    context,
+                    mobile: 20,
+                    tablet: 24,
+                    desktop: 28,
+                  ),
                 ),
         ),
       ),

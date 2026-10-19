@@ -1,10 +1,39 @@
 import 'dart:io';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:path_provider/path_provider.dart';
 import '../config/api_config.dart';
 import 'api_service.dart';
 
 /// Blogs Service
 /// Handles blogs listing, creation, comments, and likes
 class BlogsService {
+  /// Shrink blog cover images before upload (faster POST on slow networks).
+  static Future<File?> compressBlogImage(File file) async {
+    try {
+      if (!await file.exists()) return file;
+      final length = await file.length();
+      if (length < 350 * 1024) return file;
+
+      final dir = await getTemporaryDirectory();
+      final target =
+          '${dir.path}/blog_upload_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final result = await FlutterImageCompress.compressAndGetFile(
+        file.absolute.path,
+        target,
+        quality: 82,
+        minWidth: 1280,
+        minHeight: 1280,
+        format: CompressFormat.jpeg,
+      );
+      if (result != null) {
+        final out = File(result.path);
+        if (await out.exists()) return out;
+      }
+    } catch (e) {
+      print('Blog image compress skipped: $e');
+    }
+    return file;
+  }
   /// Get Blogs
   /// 
   /// Parameters:
@@ -86,7 +115,7 @@ class BlogsService {
   /// - body: Blog content
   /// - category: Blog category
   /// - language: Blog language (default: 'en')
-  /// - image: Blog image file (optional)
+  /// - media: Blog image or video file (optional)
   /// 
   /// Returns: Created blog ID
   static Future<int> createBlog({
@@ -95,7 +124,7 @@ class BlogsService {
     required String body,
     required String category,
     String language = 'en',
-    File? image,
+    File? media,
   }) async {
     final fields = <String, String>{
       'user_id': userId.toString(),
@@ -106,8 +135,9 @@ class BlogsService {
     };
 
     final files = <String, File>{};
-    if (image != null) {
-      files['image'] = image;
+    if (media != null) {
+      final uploadFile = _isVideoFile(media) ? media : await compressBlogImage(media) ?? media;
+      files['image'] = uploadFile;
     }
 
     final response = await ApiService.postMultipart(
@@ -121,6 +151,11 @@ class BlogsService {
     } else {
       throw ApiException(response['message'] ?? 'Failed to create blog');
     }
+  }
+
+  static bool _isVideoFile(File file) {
+    final ext = file.path.split('.').last.toLowerCase();
+    return ['mp4', 'mov', 'avi', 'wmv', 'flv', 'webm'].contains(ext);
   }
 
   /// Request to Become a Blogger
@@ -184,5 +219,23 @@ class BlogsService {
       throw ApiException(response['message'] ?? 'Failed to edit blog'); // edit feature
     } // edit feature
   } // edit feature
+
+  static Future<void> deleteBlog({
+    required int userId,
+    required int blogId,
+  }) async {
+    final response = await ApiService.post(
+      ApiConfig.blogs,
+      body: {
+        'action': 'delete',
+        'user_id': userId.toString(),
+        'blog_id': blogId.toString(),
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete blog');
+    }
+  }
 }
 

@@ -12,6 +12,7 @@ import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
 
 import '../utils/app_theme.dart';
@@ -570,7 +571,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         : null;
     
     return GestureDetector(
-      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => VideosController.openVideoDetail(video['id']),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
