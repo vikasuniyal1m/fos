@@ -23,7 +23,6 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: fos
 
     steps:
       - name: Checkout repository
@@ -49,12 +48,11 @@ jobs:
         with:
           ruby-version: '3.2'
           bundler-cache: true
-          working-directory: fos
 
       - name: Run Fastlane Android Deploy
         run: |
           bundle exec fastlane android deploy
-        working-directory: fos/android
+        working-directory: android
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
 
@@ -64,7 +62,6 @@ jobs:
     runs-on: macos-latest
     defaults:
       run:
-        working-directory: fos
 
     steps:
       - name: Checkout repository
@@ -90,12 +87,11 @@ jobs:
         with:
           ruby-version: '3.2'
           bundler-cache: true
-          working-directory: fos
 
       - name: Run Fastlane iOS Deploy
         run: |
           bundle exec fastlane ios deploy
-        working-directory: fos/ios
+        working-directory: ios
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
