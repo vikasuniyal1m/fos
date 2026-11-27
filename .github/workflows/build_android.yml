@@ -12,9 +12,6 @@ jobs:
   build-android:
     name: Build Android Release
     runs-on: ubuntu-latest
-    defaults:
-      run:
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

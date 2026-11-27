@@ -12,9 +12,6 @@ jobs:
   build-ios:
     name: Build iOS Release
     runs-on: macos-latest
-    defaults:
-      run:
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
