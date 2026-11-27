@@ -1,95 +1,65 @@
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
 
-/// Cache Service
-/// Handles offline data caching
+/// Cache facade — all list/map feed data lives in [HiveCacheService] only.
+/// SharedPreferences is reserved for auth flags and user settings (see UserStorage).
 class CacheService {
-  static const String _prefix = 'cache_';
   static const int _defaultExpiryHours = 24;
 
-  /// Cache data with expiry
-  static Future<void> cacheData(String key, Map<String, dynamic> data, {int expiryHours = _defaultExpiryHours}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final cacheData = {
-      'data': data,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'expiry': expiryHours * 60 * 60 * 1000, // Convert to milliseconds
-    };
-    await prefs.setString('$_prefix$key', jsonEncode(cacheData));
+  static Future<void> cacheData(
+    String key,
+    Map<String, dynamic> data, {
+    int expiryHours = _defaultExpiryHours,
+  }) async {
+    await HiveCacheService.cacheData(key, data, expiryHours: expiryHours);
   }
 
-  /// Get cached data if not expired
   static Future<Map<String, dynamic>?> getCachedData(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    final cached = prefs.getString('$_prefix$key');
-    
-    if (cached == null) return null;
-    
-    try {
-      final cacheData = jsonDecode(cached) as Map<String, dynamic>;
-      final timestamp = cacheData['timestamp'] as int;
-      final expiry = cacheData['expiry'] as int;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      
-      if (now - timestamp > expiry) {
-        // Expired, remove it
-        await prefs.remove('$_prefix$key');
-        return null;
-      }
-      
-      return cacheData['data'] as Map<String, dynamic>;
-    } catch (e) {
-      return null;
+    final cached = HiveCacheService.getCachedData(key);
+    if (cached is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(cached);
     }
+    return null;
   }
 
-  /// Cache list data
-  static Future<void> cacheList(String key, List<Map<String, dynamic>> data, {int expiryHours = _defaultExpiryHours}) async {
-    await cacheData(key, {'list': data}, expiryHours: expiryHours);
+  static Future<void> cacheList(
+    String key,
+    List<Map<String, dynamic>> data, {
+    int expiryHours = _defaultExpiryHours,
+    int? maxItems,
+  }) async {
+    await HiveCacheService.cacheList(
+      key,
+      data,
+      expiryHours: expiryHours,
+      maxItems: maxItems,
+    );
   }
 
-  /// Get cached list
   static Future<List<Map<String, dynamic>>> getCachedList(String key) async {
-    final cached = await getCachedData(key);
-    if (cached == null) return [];
-    
-    try {
-      return (cached['list'] as List).map((e) => e as Map<String, dynamic>).toList();
-    } catch (e) {
-      return [];
-    }
+    return HiveCacheService.getCachedList(key);
   }
 
-  /// Cache map data
-  static Future<void> cacheMap(String key, Map<String, dynamic> data, {int expiryHours = _defaultExpiryHours}) async {
-    await cacheData(key, data, expiryHours: expiryHours);
+  static Future<void> cacheMap(
+    String key,
+    Map<String, dynamic> data, {
+    int expiryHours = _defaultExpiryHours,
+  }) async {
+    await HiveCacheService.cacheMap(key, data, expiryHours: expiryHours);
   }
 
-  /// Get cached map
   static Future<Map<String, dynamic>> getCachedMap(String key) async {
-    final cached = await getCachedData(key);
-    return cached ?? {};
+    return HiveCacheService.getCachedMap(key);
   }
 
-  /// Clear specific cache
   static Future<void> clearCache(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('$_prefix$key');
+    await HiveCacheService.clearKey(key);
   }
 
-  /// Clear all cache
   static Future<void> clearAllCache() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys().where((key) => key.startsWith(_prefix));
-    for (final key in keys) {
-      await prefs.remove(key);
-    }
+    await HiveCacheService.clearAll();
   }
 
-  /// Check if data is cached
   static Future<bool> isCached(String key) async {
-    final cached = await getCachedData(key);
-    return cached != null;
+    return HiveCacheService.getCachedData(key) != null;
   }
 }
-

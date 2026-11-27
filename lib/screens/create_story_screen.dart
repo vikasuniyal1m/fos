@@ -31,8 +31,8 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
   var isLoading = false;
   int? userId;
 
-  // Available fruits
-  final List<String> fruits = [
+  // Available fruit
+  final List<String> fruitNames = [
     'Love',
     'Joy',
     'Peace',
@@ -76,9 +76,12 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
   Future<void> _loadUserId() async {
     final user = await UserStorage.getUser();
     if (user != null) {
-      setState(() {
-        userId = user['id'] as int?;
-      });
+      final id = user['id'];
+      if (id is int) {
+        setState(() {
+          userId = id;
+        });
+      }
     }
   }
 
@@ -859,7 +862,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
                           ),
                         ),
                       ),
-                      ...fruits.map((fruit) {
+                      ...fruitNames.map((fruit) {
                         return DropdownMenuItem<String?>(
                           value: fruit,
                           child: Text(

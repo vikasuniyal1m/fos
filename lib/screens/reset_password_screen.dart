@@ -56,8 +56,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Ensure fresh controller with arguments
-    final controller = Get.put(ResetPasswordController());
+    // Controller should be registered in InitialBinding
+    final controller = Get.find<ResetPasswordController>();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),

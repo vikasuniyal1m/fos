@@ -12,14 +12,8 @@ class NotificationsScreen extends GetView<NotificationsController> {
 
   @override
   Widget build(BuildContext context) {
-    // Load notifications if not already loaded
-    if (controller.notifications.isEmpty && !controller.isLoading.value) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadNotifications(refresh: true);
-      });
-    }
     return Scaffold(
-      backgroundColor: AppTheme.themeColor, // Match other pages - beige background
+      backgroundColor: AppTheme.themeColor,
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(
           ResponsiveHelper.safeHeight(
@@ -32,6 +26,14 @@ class NotificationsScreen extends GetView<NotificationsController> {
         child: Obx(() => StandardAppBar(
           showBackButton: true,
           rightActions: [
+            if (controller.unreadCount.value > 0)
+              StandardAppBar.buildActionIcon(
+                context,
+                icon: Icons.done_all,
+                onTap: () => controller.markAllAsRead(),
+              ),
+            if (controller.unreadCount.value > 0)
+              SizedBox(width: ResponsiveHelper.spacing(context, 8)),
             StandardAppBar.buildActionIcon(
               context,
               icon: Icons.access_time,
@@ -53,149 +55,214 @@ class NotificationsScreen extends GetView<NotificationsController> {
           ],
         )),
       ),
-      body: Obx(() {
-        if (controller.isLoading.value && controller.notifications.isEmpty) {
-          return Center(
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-            ),
-          );
-        }
-
-        if (controller.notifications.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.notifications_none_outlined,
-                  size: ResponsiveHelper.iconSize(context, mobile: 64),
-                  color: Colors.grey,
-                ),
-                SizedBox(height: ResponsiveHelper.spacing(context, 16)),
-                Text(
-                  'No notifications',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                    color: Colors.grey,
+      body: Column(
+        children: [
+          Obx(() => controller.isSilentSyncing.value
+              ? const LinearProgressIndicator(
+                  minHeight: 2,
+                  color: Color(0xFF8B4513),
+                  backgroundColor: Colors.transparent,
+                )
+              : const SizedBox.shrink()),
+          Expanded(
+            child: Obx(() {
+              if (controller.isLoading.value && controller.notifications.isEmpty) {
+                return Center(
+                  child: CircularProgressIndicator(
+                    color: AppTheme.iconscolor,
                   ),
-                ),
-              ],
-            ),
-          );
-        }
+                );
+              }
 
-        return RefreshIndicator(
-          onRefresh: () => controller.refresh(),
-          color: AppTheme.iconscolor,
-          child: ListView.builder(
-            padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-            itemCount: controller.notifications.length,
-            itemBuilder: (context, index) {
-              final notification = controller.notifications[index];
-              return _buildNotificationCard(context, notification, controller);
-            },
+              if (controller.notifications.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.notifications_none_outlined,
+                        size: ResponsiveHelper.iconSize(context, mobile: 64),
+                        color: Colors.grey,
+                      ),
+                      SizedBox(height: ResponsiveHelper.spacing(context, 16)),
+                      Text(
+                        'No notifications',
+                        style: ResponsiveHelper.textStyle(
+                          context,
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return RefreshIndicator(
+                onRefresh: () => controller.refresh(),
+                color: AppTheme.iconscolor,
+                child: ListView.builder(
+                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+                  itemCount: controller.notifications.length,
+                  itemBuilder: (context, index) {
+                    final notification = controller.notifications[index];
+                    return _buildNotificationCard(context, notification, controller);
+                  },
+                ),
+              );
+            }),
           ),
-        );
-      }),
+        ],
+      ),
     );
   }
 
   Widget _buildNotificationCard(
-      BuildContext context, Map<String, dynamic> notification, NotificationsController controller) {
+    BuildContext context,
+    Map<String, dynamic> notification,
+    NotificationsController controller,
+  ) {
     final isRead = notification['is_read'] == 1 || notification['is_read'] == true;
-    
-    return Card(
-      margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 12)),
-      elevation: isRead ? 1 : 2,
-      color: isRead ? Colors.white : AppTheme.accentColor.withOpacity(0.3),
-      shape: RoundedRectangleBorder(
+    final type = (notification['type'] as String? ?? '').toLowerCase();
+    final actor = NotificationsController.actorLabel(notification);
+    final timeLabel = NotificationsController.formatRelativeTime(
+      notification['created_at'] as String?,
+    );
+
+    return Container(
+      margin: EdgeInsets.only(bottom: ResponsiveHelper.spacing(context, 10)),
+      decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(
-          ResponsiveHelper.borderRadius(context, mobile: 12),
+          ResponsiveHelper.borderRadius(context, mobile: 14),
         ),
+        border: Border.all(
+          color: isRead ? Colors.grey.shade200 : AppTheme.iconscolor.withOpacity(0.35),
+          width: isRead ? 1 : 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isRead ? 0.03 : 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: InkWell(
-        onTap: () {
-          controller.markAsRead(notification['id'] as int?);
-        },
-        borderRadius: BorderRadius.circular(
-          ResponsiveHelper.borderRadius(context, mobile: 12),
-        ),
-        child: Padding(
-          padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Icon
-              Container(
-                padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 8)),
-                decoration: BoxDecoration(
-                  color: AppTheme.accentColor,
-                  borderRadius: BorderRadius.circular(
-                    ResponsiveHelper.borderRadius(context, mobile: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => controller.handleNotificationTap(notification),
+          borderRadius: BorderRadius.circular(
+            ResponsiveHelper.borderRadius(context, mobile: 14),
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: 4,
+                  decoration: BoxDecoration(
+                    color: isRead ? Colors.transparent : AppTheme.iconscolor,
+                    borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
                   ),
                 ),
-                child: Icon(
-                  _getNotificationIcon(notification['type'] as String? ?? ''),
-                  color: AppTheme.iconscolor,
-                  size: ResponsiveHelper.iconSize(context, mobile: 24),
-                ),
-              ),
-              SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-              
-              // Content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      notification['title'] as String? ?? 'Notification',
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                        fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                    SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                    Text(
-                      notification['message'] as String? ?? '',
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
-                        color: AppTheme.textPrimary,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (notification['created_at'] != null)
-                      Padding(
-                        padding: EdgeInsets.only(top: ResponsiveHelper.spacing(context, 4)),
-                        child: Text(
-                          notification['created_at'] as String,
-                          style: ResponsiveHelper.textStyle(
-                            context,
-                            fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
-                            color: Colors.grey,
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 14)),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 10)),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentColor.withOpacity(0.45),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _getNotificationIcon(type),
+                            color: AppTheme.iconscolor,
+                            size: ResponsiveHelper.iconSize(context, mobile: 22),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              
-              // Unread Indicator
-              if (!isRead)
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: AppTheme.iconscolor,
-                    shape: BoxShape.circle,
+                        SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      notification['title'] as String? ?? 'Notification',
+                                      style: ResponsiveHelper.textStyle(
+                                        context,
+                                        fontSize: ResponsiveHelper.fontSize(context, mobile: 15),
+                                        fontWeight: isRead ? FontWeight.w600 : FontWeight.bold,
+                                        color: AppTheme.textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                  if (!isRead)
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      margin: const EdgeInsets.only(left: 6),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.iconscolor,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              if (actor != null) ...[
+                                SizedBox(height: ResponsiveHelper.spacing(context, 2)),
+                                Text(
+                                  actor,
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
+                                    color: AppTheme.iconscolor,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                              SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                              Text(
+                                notification['message'] as String? ?? '',
+                                style: ResponsiveHelper.textStyle(
+                                  context,
+                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (timeLabel.isNotEmpty)
+                                Padding(
+                                  padding: EdgeInsets.only(top: ResponsiveHelper.spacing(context, 6)),
+                                  child: Text(
+                                    timeLabel,
+                                    style: ResponsiveHelper.textStyle(
+                                      context,
+                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right,
+                          color: Colors.grey.shade400,
+                          size: 22,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -205,22 +272,43 @@ class NotificationsScreen extends GetView<NotificationsController> {
   IconData _getNotificationIcon(String type) {
     switch (type.toLowerCase()) {
       case 'prayer':
-        return Icons.favorite;
+      case 'prayer_shared':
+      case 'prayer_tagged_user':
+      case 'prayer_tagged_group':
+        return Icons.volunteer_activism;
       case 'prayer_reminder':
         return Icons.access_time;
-      case 'blog':
-        return Icons.article;
-      case 'video':
-        return Icons.video_library;
+      case 'live_stream_started':
+        return Icons.videocam;
+      case 'post_commented':
       case 'comment':
-        return Icons.comment;
+        return Icons.chat_bubble_outline;
+      case 'comment_reply':
+        return Icons.reply;
+      case 'comment_liked':
+      case 'post_liked':
       case 'like':
-        return Icons.favorite;
+        return Icons.favorite_border;
+      case 'group_message':
+        return Icons.groups;
+      case 'user_followed':
       case 'follow':
-        return Icons.person_add;
+        return Icons.person_add_alt_1;
+      case 'blog':
+        return Icons.article_outlined;
+      case 'video':
+        return Icons.play_circle_outline;
+      case 'short':
+      case 'shorts':
+        return Icons.play_circle_fill;
+      case 'gallery':
+      case 'photo':
+        return Icons.photo_outlined;
+      case 'story':
+      case 'testimony':
+        return Icons.auto_stories_outlined;
       default:
-        return Icons.notifications;
+        return Icons.notifications_outlined;
     }
   }
 }
-

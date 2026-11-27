@@ -1,32 +1,52 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/home_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 import 'package:video_player/video_player.dart';
-import 'package:fruitsofspirit/services/emojis_service.dart';
-import 'package:fruitsofspirit/services/user_storage.dart';
-import 'package:fruitsofspirit/services/ecommerce_service.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/config/quick_actions_config.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:fruitsofspirit/utils/localization_helper.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
+import 'package:fruitsofspirit/widgets/blog_media_widget.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/widgets/social_media_prayer_post.dart';
 import 'package:fruitsofspirit/widgets/animated_praying_hands.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
+import 'package:fruitsofspirit/widgets/banner_carousel_widget.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
+import 'package:fruitsofspirit/controllers/stories_controller.dart';
+import 'package:fruitsofspirit/controllers/shorts_controller.dart';
+import 'package:fruitsofspirit/services/shorts_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:fruitsofspirit/config/group_posts_config.dart';
+import 'package:fruitsofspirit/screens/group_post_details_screen.dart';
+// import 'package:fruitsofspirit/screens/live_screen.dart'; // Live feature disabled
+import 'package:fruitsofspirit/utils/image_helper.dart';
+import 'package:fruitsofspirit/controllers/banners_controller.dart';
+import 'package:fruitsofspirit/services/banners_service.dart';
+import 'package:fruitsofspirit/services/videos_service.dart';
 import 'package:fruitsofspirit/services/live_streaming_service.dart';
 import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
+import 'package:fruitsofspirit/widgets/video_thumbnail_widget.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
 
+import '../services/ecommerce_service.dart';
+import '../services/user_storage.dart';
 import '../utils/app_theme.dart';
 import '../widgets/video_frame_thumbnail.dart';
 import 'IntroVideoScreen.dart';
@@ -39,65 +59,52 @@ class HomeScreen extends GetView<HomeController> {
     return _buildBody(context);
   }
 
-  // Helper method for blogger zone navigation with loading
-  static Future<void> navigateToBloggerZone(BuildContext context) async {
-    final hasPaid = await PaymentGate.hasPaid();
-    if (!hasPaid) {
-      Get.toNamed(Routes.PAYMENT);
-      return;
-    }
-    // Show loading dialog using standard showDialog for better control
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return Center(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-              strokeWidth: 3,
-            ),
-          ),
-        );
-      },
-    );
-
+  static Future<void> navigateToBlogDetail(BuildContext context, int blogId) async {
     try {
       BlogsController blogsController;
       if (Get.isRegistered<BlogsController>()) {
         blogsController = Get.find<BlogsController>();
       } else {
-        blogsController = Get.put(BlogsController());
+        blogsController = Get.put(BlogsController(), permanent: true);
+      }
+      blogsController.bootstrapBlogDetail(blogId);
+      unawaited(blogsController.prepareBlogDetails(blogId));
+      await PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blogId);
+    } catch (e) {
+      print('Error opening blog detail: $e');
+      await PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blogId);
+    }
+  }
+
+  // Helper method for blogger zone navigation with loading
+  static Future<void> navigateToBloggerZone(BuildContext context) async {
+    try {
+      BlogsController blogsController;
+      if (Get.isRegistered<BlogsController>()) {
+        blogsController = Get.find<BlogsController>();
+      } else {
+        blogsController = Get.put(BlogsController(), permanent: true);
       }
 
       blogsController.filterUserId.value = 0;
-      await blogsController.loadAvailableEmojis();
-      await blogsController.loadQuickEmojis();
-      await blogsController.loadBlogs(refresh: true);
+      blogsController.bootstrapBlogs();
+      blogsController.loadFromHiveIfEmpty();
 
-      // Close loading dialog safely using Navigator.pop
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
+      if (Get.isRegistered<HomeController>()) {
+        blogsController.seedFromHomeIfEmpty(
+          Get.find<HomeController>().blogs.toList(),
+        );
       }
 
-      // Small delay to ensure dialog is closed before navigation
-      await Future.delayed(const Duration(milliseconds: 100));
+      if (blogsController.blogs.isEmpty) {
+        await blogsController.loadBlogs(refresh: false);
+      }
 
-      // Navigate to Blogger Zone
-      Get.toNamed(Routes.BLOGGER_ZONE);
+      blogsController.loadBlogs(refresh: true, silent: true).catchError((_) {});
+
+      await PaymentGate.navigateToFeature(Routes.BLOGGER_ZONE);
     } catch (e) {
-      // Close loading dialog if open
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
       print('Error loading blogs: $e');
-      
-      // Use ScaffoldMessenger for error snackbar
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -109,34 +116,7 @@ class HomeScreen extends GetView<HomeController> {
     }
   }
 
-  // Helper method for gallery navigation with loading
   static Future<void> navigateToGallery(BuildContext context) async {
-    final hasPaid = await PaymentGate.hasPaid();
-    if (!hasPaid) {
-      Get.toNamed(Routes.PAYMENT);
-      return;
-    }
-    // Show loading dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return Center(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-              strokeWidth: 3,
-            ),
-          ),
-        );
-      },
-    );
-
     try {
       GalleryController galleryController;
       if (Get.isRegistered<GalleryController>()) {
@@ -145,83 +125,248 @@ class HomeScreen extends GetView<HomeController> {
         galleryController = Get.put(GalleryController(), permanent: true);
       }
 
-      await galleryController.loadPhotos(refresh: true);
+      galleryController.filterUserId.value = 0;
+      galleryController.bootstrapGallery();
 
-      // Close loading dialog safely
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
+      if (Get.isRegistered<HomeController>()) {
+        final homeController = Get.find<HomeController>();
+        galleryController.seedFromHomeIfEmpty(
+          homeController.galleryPhotos.toList(),
+        );
       }
 
-      // Small delay
-      await Future.delayed(const Duration(milliseconds: 100));
+      galleryController.loadAvailableEmojis().catchError((_) {});
+      galleryController.loadQuickEmojis().catchError((_) {});
+      unawaited(
+        galleryController.loadPhotos(
+          refresh: galleryController.photos.isNotEmpty,
+          silent: galleryController.photos.isNotEmpty,
+        ),
+      );
 
-      // Navigate to Gallery
-      Get.toNamed(Routes.GALLERY);
+      await PaymentGate.navigateToFeature(Routes.GALLERY);
     } catch (e) {
-      // Close loading dialog if open
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
       print('Error loading gallery: $e');
-      Get.toNamed(Routes.GALLERY); // Still navigate as fallback
+      await PaymentGate.navigateToFeature(Routes.GALLERY);
     }
   }
 
-  // Helper method for story details navigation with loading
-  static Future<void> navigateToStoryDetails(BuildContext context, int storyId) async {
-    final hasPaid = await PaymentGate.hasPaid();
-    if (!hasPaid) {
-      Get.toNamed(Routes.PAYMENT);
-      return;
-    }
-    // Show loading dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return Center(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: CircularProgressIndicator(
-              color: AppTheme.iconscolor,
-              strokeWidth: 3,
-            ),
+  static Future<void> navigateToPhotoDetail(
+    BuildContext context,
+    Map<String, dynamic> photo,
+  ) async {
+    final photoId = photo['id'];
+    if (photoId == null) return;
+    await GalleryController.openPhotoDetail(
+      photoId,
+      previewPhoto: photo,
+    );
+  }
+
+  static Future<void> navigateToVideos(BuildContext context) async {
+    try {
+      VideosController videosController;
+      if (Get.isRegistered<VideosController>()) {
+        videosController = Get.find<VideosController>();
+      } else {
+        videosController = Get.put(VideosController(), permanent: true);
+      }
+
+      videosController.selectedFruitTag.value = '';
+
+      if (Get.isRegistered<HomeController>()) {
+        final homeController = Get.find<HomeController>();
+        videosController.seedFromHomeIfEmpty(
+          homeVideos: homeController.videos.toList(),
+          homeLiveVideos: homeController.liveVideos.toList(),
+        );
+      }
+
+      if (videosController.videos.isEmpty) {
+        await videosController.loadVideos(refresh: false, includePending: true);
+      }
+
+      videosController.loadVideos(refresh: true, silent: true, includePending: true).catchError((_) {});
+      videosController.loadLiveVideos().catchError((_) {});
+
+      await PaymentGate.navigateToFeature(Routes.VIDEOS);
+    } catch (e) {
+      print('Error navigating to videos: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to open Videos. Please try again.'),
+            backgroundColor: Colors.red.withOpacity(0.8),
           ),
         );
-      },
-    );
+      }
+    }
+  }
 
+  static Future<void> navigateToVideoDetail(BuildContext context, dynamic videoId) async {
     try {
-      GalleryController galleryController;
-      if (Get.isRegistered<GalleryController>()) {
-        galleryController = Get.find<GalleryController>();
-      } else {
-        galleryController = Get.put(GalleryController(), permanent: true);
-      }
-
-      await galleryController.loadPhotoDetails(storyId);
-
-      // Close loading dialog safely
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-
-      // Small delay
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      // Navigate to Story Details
-      Get.toNamed(Routes.STORY_DETAILS, arguments: storyId);
+      await VideosController.openVideoDetail(videoId);
     } catch (e) {
-      // Close loading dialog if open
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
+      print('Error opening video detail: $e');
+      final id = videoId is int ? videoId : int.tryParse('$videoId') ?? 0;
+      if (id > 0) {
+        await PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: id);
       }
+    }
+  }
+
+  static Future<void> navigateToCommunityShorts(
+    BuildContext context, {
+    int startIndex = 0,
+  }) async {
+    try {
+      final seed = Get.isRegistered<HomeController>()
+          ? Get.find<HomeController>().graceMomentsForHome
+          : null;
+
+      final controller = Get.isRegistered<ShortsController>()
+          ? Get.find<ShortsController>()
+          : Get.put(ShortsController());
+      await controller.prepareCommunityFeed(
+        seed: seed != null && seed.isNotEmpty ? seed : null,
+        startIndex: startIndex,
+      );
+
+      await Get.toNamed(
+        Routes.SHORTS,
+        arguments: {
+          'mode': 'community',
+          'startIndex': startIndex,
+          'prepared': true,
+          if (seed != null && seed.isNotEmpty) 'seed': seed,
+        },
+      );
+    } catch (e) {
+      print('Error navigating to shorts: $e');
+    }
+  }
+
+  static Future<void> navigateToPrayerDetail(BuildContext context, int prayerId) async {
+    try {
+      PrayersController prayersController;
+      if (Get.isRegistered<PrayersController>()) {
+        prayersController = Get.find<PrayersController>();
+      } else {
+        prayersController = Get.put(PrayersController(), permanent: true);
+      }
+      await prayersController.preparePrayerDetails(prayerId);
+      await PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayerId);
+    } catch (e) {
+      print('Error opening prayer detail: $e');
+      await PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayerId);
+    }
+  }
+
+  static Future<void> navigateToPrayerRequests(BuildContext context) async {
+    try {
+      PrayersController prayersController;
+      if (Get.isRegistered<PrayersController>()) {
+        prayersController = Get.find<PrayersController>();
+      } else {
+        prayersController = Get.put(PrayersController(), permanent: true);
+      }
+
+      prayersController.filterUserId.value = 0;
+
+      if (Get.isRegistered<HomeController>()) {
+        prayersController.seedFromHomeIfEmpty(
+          Get.find<HomeController>().prayers.toList(),
+        );
+      }
+
+      if (prayersController.prayers.isEmpty) {
+        await prayersController.loadPrayers(refresh: false);
+      }
+
+      prayersController.loadPrayers(refresh: true, silent: true).catchError((_) {});
+
+      await PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
+    } catch (e) {
+      print('Error navigating to prayer requests: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to open Prayer Requests. Please try again.'),
+            backgroundColor: Colors.red.withOpacity(0.8),
+          ),
+        );
+      }
+    }
+  }
+
+  static Future<void> navigateToGroups(BuildContext context) async {
+    try {
+      GroupsController groupsController;
+      if (Get.isRegistered<GroupsController>()) {
+        groupsController = Get.find<GroupsController>();
+      } else {
+        groupsController = Get.put(GroupsController());
+      }
+
+      groupsController.selectedCategory.value = '';
+      groupsController.clearFruitFilter();
+      groupsController.bootstrapGroups();
+
+      unawaited(
+        groupsController.startGroupsPagination(
+          force: groupsController.groups.length <= 6,
+        ),
+      );
+      unawaited(groupsController.loadUserGroups(silent: true));
+
+      await PaymentGate.navigateToFeature(Routes.GROUPS);
+    } catch (e) {
+      print('Error navigating to groups: $e');
+      await PaymentGate.navigateToFeature(Routes.GROUPS);
+    }
+  }
+
+  static Future<void> navigateToStories(BuildContext context) async {
+    try {
+      StoriesController storiesController;
+      if (Get.isRegistered<StoriesController>()) {
+        storiesController = Get.find<StoriesController>();
+      } else {
+        storiesController = Get.put(StoriesController());
+      }
+
+      if (Get.isRegistered<HomeController>()) {
+        storiesController.seedFromHomeIfEmpty(
+          Get.find<HomeController>().stories.toList(),
+        );
+      }
+      storiesController.loadFromHiveIfEmpty();
+
+      if (storiesController.stories.isEmpty) {
+        await storiesController.loadStories(refresh: false);
+      }
+
+      storiesController.loadStories(refresh: true, silent: true).catchError((_) {});
+
+      await PaymentGate.navigateToFeature(Routes.STORIES);
+    } catch (e) {
+      print('Error navigating to stories: $e');
+      await PaymentGate.navigateToFeature(Routes.STORIES);
+    }
+  }
+
+  /// Story details — open instantly; preload gallery data in background.
+  static Future<void> navigateToStoryDetails(BuildContext context, int storyId) async {
+    try {
+      if (Get.isRegistered<GalleryController>()) {
+        Get.find<GalleryController>()
+            .loadPhotoDetails(storyId, silent: true)
+            .catchError((_) {});
+      }
+      await PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: storyId);
+    } catch (e) {
       print('Error loading story details: $e');
-      Get.toNamed(Routes.STORY_DETAILS, arguments: storyId);
+      await PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: storyId);
     }
   }
 
@@ -235,52 +380,18 @@ class HomeScreen extends GetView<HomeController> {
         body: Obx(() {
           // Show loading indicator ONLY if no cached data exists
           // If cache exists, data shows instantly, no loading indicator
-          final hasCachedData = controller.fruits.isNotEmpty ||
+          final hasCachedData = controller.fruit.isNotEmpty ||
               controller.prayers.isNotEmpty ||
-              controller.blogs.isNotEmpty;
+              controller.blogs.isNotEmpty ||
+              controller.videos.isNotEmpty ||
+              controller.liveVideos.isNotEmpty ||
+              controller.groups.isNotEmpty ||
+              controller.galleryPhotos.isNotEmpty;
 
-          if (controller.isInitialLoading.value && !hasCachedData) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Professional loading indicator
-                  Container(
-                    padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 20)),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: CircularProgressIndicator(
-                      color: const Color(0xFF8B4513),
-                      strokeWidth: 3,
-                    ),
-                  ),
-                  SizedBox(height: ResponsiveHelper.spacing(context, 20)),
-                  Text(
-                    controller.message.value.isNotEmpty
-                        ? controller.message.value
-                        : 'Loading...',
-                    style: ResponsiveHelper.textStyle(
-                      context,
-                      fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
-                      color: Colors.black,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
+          final showHomeDataLoader =
+              controller.isInitialLoading.value && !hasCachedData;
 
-          // Show actual content once data is loaded
+          // Show actual content — banners always visible (never blocked by home loader)
           // Professional responsive design for tablets/iPads
           final isTabletDevice = ResponsiveHelper.isTablet(context);
           final maxContentWidth = isTabletDevice
@@ -302,12 +413,59 @@ class HomeScreen extends GetView<HomeController> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Obx(() {
+                        final bannersCtrl = Get.find<BannersController>();
+                        final hasBanners = bannersCtrl.activeBanners.isNotEmpty ||
+                            bannersCtrl.upcomingBanners.isNotEmpty;
+                        final bannerSlotVisible =
+                            hasBanners || !bannersCtrl.hasInitialLoad.value;
+                        return Column(
+                          children: [
+                            if (bannerSlotVisible)
+                              SizedBox(
+                                height: ResponsiveHelper.screenTopInset(context),
+                              ),
+                            const BannerCarouselWidget(),
+                          ],
+                        );
+                      }),
+                      if (showHomeDataLoader)
+                        Padding(
+                          padding: ResponsiveHelper.padding(context, vertical: 32),
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const CircularProgressIndicator(
+                                  color: Color(0xFF8B4513),
+                                  strokeWidth: 3,
+                                ),
+                                SizedBox(height: ResponsiveHelper.spacing(context, 12)),
+                                Text(
+                                  controller.message.value.isNotEmpty
+                                      ? controller.message.value
+                                      : 'Loading...',
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (!showHomeDataLoader) ...[
+                      // App Download Section
+
                       // Subtle Top Actions - Social Media Style with Expandable Feel Section
                       Padding(
-                        padding: ResponsiveHelper.safePadding(
+                        padding: ResponsiveHelper.homeScreenPadding(
                           context,
-                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-                          vertical: ResponsiveHelper.isMobile(context) ? 10 : 12,
+                          vertical: 4,
+                          top: true,
+                          bottom: true,
                         ),
                         child: Row(
                           children: [
@@ -315,7 +473,10 @@ class HomeScreen extends GetView<HomeController> {
                               child: _ExpandableFeelSection(controller: controller),
                             ),
                             SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-                            Material(
+                            SizedBox(
+                              width: ResponsiveHelper.dim(context, mobile: 82, tablet: 96, desktop: 104),
+                              height: ResponsiveHelper.dim(context, mobile: 82, tablet: 96, desktop: 104),
+                              child: Material(
                               color: Colors.transparent,
                               child: InkWell(
                                   onTap: () async {
@@ -325,7 +486,7 @@ class HomeScreen extends GetView<HomeController> {
                                       if (GetPlatform.isAndroid) {
                                         url = 'https://play.google.com/store/apps/details?id=com.fosproduction.ecommerceapp&hl=en_IN'; // Android Play Store URL
                                       } else if (GetPlatform.isIOS) {
-                                        url = 'https://apps.apple.com/us/app/fos-production/id6758010663'; // iOS App Store URL
+                                        url = 'https://apps.apple.com/in/app/fos-productions/id6758010663'; // iOS App Store URL
                                       }
 
                                       if (url.isNotEmpty) {
@@ -360,22 +521,25 @@ class HomeScreen extends GetView<HomeController> {
                                       );
                                     }
                                   },
-                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
+                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
                                 child: Container(
                                   padding: ResponsiveHelper.padding(
                                     context,
-                                    horizontal: ResponsiveHelper.isMobile(context) ? 12 : ResponsiveHelper.isTablet(context) ? 16 : 20,
-                                    vertical: ResponsiveHelper.isMobile(context) ? 10 : ResponsiveHelper.isTablet(context) ? 12 : 14,
+                                    horizontal: 8,
+                                    vertical: 8,
                                   ),
                                   decoration: BoxDecoration(
                                     color: Colors.white,
-                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
+                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
+                                    border: Border.all(
+                                      color: Colors.grey.withOpacity(0.15),
+                                      width: 1,
+                                    ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.grey.withOpacity(0.2),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 3),
-                                        spreadRadius: 1,
+                                        color: Colors.black.withOpacity(0.04),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 2),
                                       ),
                                     ],
                                   ),
@@ -385,53 +549,66 @@ class HomeScreen extends GetView<HomeController> {
                                     children: [
                                       Image.asset(
                                         'assets/fosshoppinglogo.png',
-                                        width: ResponsiveHelper.isMobile(context)
-                                            ? 50.0
-                                            : ResponsiveHelper.isTablet(context)
-                                            ? 70.0
-                                            : 90.0,
-                                        height: ResponsiveHelper.isMobile(context)
-                                            ? 50.0
-                                            : ResponsiveHelper.isTablet(context)
-                                            ? 70.0
-                                            : 90.0,
+                                        width: ResponsiveHelper.dim(
+                                          context,
+                                          mobile: 38,
+                                          tablet: 46,
+                                          desktop: 52,
+                                        ),
+                                        height: ResponsiveHelper.dim(
+                                          context,
+                                          mobile: 38,
+                                          tablet: 46,
+                                          desktop: 52,
+                                        ),
                                         fit: BoxFit.contain,
                                         errorBuilder: (context, error, stackTrace) {
                                           return Icon(
                                             Icons.shopping_bag_rounded,
                                             color: AppTheme.iconscolor,
-                                            size: ResponsiveHelper.isMobile(context)
-                                                ? 50.0
-                                                : ResponsiveHelper.isTablet(context)
-                                                ? 70.0
-                                                : 90.0,
+                                            size: ResponsiveHelper.dim(
+                                              context,
+                                              mobile: 38,
+                                              tablet: 46,
+                                              desktop: 52,
+                                            ),
                                           );
                                         },
                                       ),
-                                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 4 : 6)),
+                                      SizedBox(height: ResponsiveHelper.spacing(context, 4)),
                                       Text(
                                         'Shop Now',
                                         style: ResponsiveHelper.textStyle(
                                           context,
                                           fontSize: ResponsiveHelper.fontSize(
                                             context,
-                                            mobile: 12,
-                                            tablet: 14,
-                                            desktop: 16,
+                                            mobile: 11,
+                                            tablet: 12,
+                                            desktop: 13,
                                           ),
-                                          fontWeight: FontWeight.w600,
+                                          fontWeight: FontWeight.bold,
                                           color: Colors.black,
                                         ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ],
                                   ),
                                 ),
                               ),
                             ),
+                            ),
                           ],
                         ),
                       ),
-                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8)),
+                      // Spacing minimized
+                      SizedBox(height: ResponsiveHelper.homeSectionGap(context, mobile: 2)),
+                      // Banner Carousel
+                      // const BannerCarouselWidget(),
+                      SizedBox(height: ResponsiveHelper.spacing(context,
+                          ResponsiveHelper.isMobile(context)
+                              ? 2  // Reduced from 8
+                              : 3)),  // Reduced from 12
                       // Stories Section - Instagram Style (No Header, Just Stories)
                       // Show only stories from stories table
                       Obx(() {
@@ -445,20 +622,28 @@ class HomeScreen extends GetView<HomeController> {
                         final storiesToShow = stories.take(8).toList();
                         return _buildStoriesCarousel(context, storiesToShow);
                       }),
-                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 12 : 16)),
+                      SizedBox(height: ResponsiveHelper.homeSectionGap(context, mobile: 4)),
+                      // // Banners Carousel Section
+                      // _buildBannersSection(context),
+                      SizedBox(height: ResponsiveHelper.homeSectionGap(context, mobile: 4)),
                       // Quick Actions - NEW Compact Design with Labels in Colored Box
                       Padding(
-                        padding: ResponsiveHelper.padding(
-                          context,
-                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: ResponsiveHelper.screenHorizontalInset(context),
                         ),
                         child: _buildQuickActionsBox(context),
                       ),
-                      // OLD Quick Actions - COMMENTED OUT
-                      // Padding(
-                      //   padding: ResponsiveHelper.padding(context, horizontal: 16),
-                      //   child: _buildQuickActionsGrid(context),
-                      // ),
+                      SizedBox(height: ResponsiveHelper.homeSectionGap(context, mobile: 8)),
+                      Obx(() {
+                        controller.myShorts.length;
+                        controller.communityShorts.length;
+                        final shortsToShow = controller.graceMomentsForHome.take(15).toList();
+                        if (shortsToShow.isEmpty) {
+                          return _buildShortsDiscoverCard(context);
+                        }
+                        return _buildShortsReelsCarousel(context, shortsToShow);
+                      }),
+                      SizedBox(height: ResponsiveHelper.homeSectionGap(context, mobile: 8)),
                       // Unified Feed - Mixed Content (Social Media Style)
                       // Prayer Requests Feed - Carousel with Header
                       Obx(() {
@@ -471,9 +656,8 @@ class HomeScreen extends GetView<HomeController> {
                           children: [
                             // Header with View All
                             Padding(
-                              padding: ResponsiveHelper.padding(
-                                context,
-                                horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: ResponsiveHelper.screenHorizontalInset(context),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -510,19 +694,7 @@ class HomeScreen extends GetView<HomeController> {
                                     ],
                                   ),
                                   TextButton(
-                                    onPressed: () {
-                                      try {
-                                        final prayersController = Get.find<PrayersController>();
-                                        prayersController.filterUserId.value = 0;
-                                        // Performance: Only refresh if needed
-                                        if (prayersController.prayers.isEmpty) {
-                                          prayersController.loadPrayers(refresh: true);
-                                        }
-                                      } catch (e) {
-                                        Get.put(PrayersController());
-                                      }
-                                      PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
-                                    },
+                                    onPressed: () => HomeScreen.navigateToPrayerRequests(context),
                                     child: Text(
                                       'View All',
                                       style: ResponsiveHelper.textStyle(
@@ -542,17 +714,16 @@ class HomeScreen extends GetView<HomeController> {
                           ],
                         );
                       }),
-                      SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
-                      // Connect. Pray. Share. Grow Spiritually. Section with Go Live button (Priority: Inspiration)
+                      SizedBox(height: ResponsiveHelper.homeSectionGap(context, mobile: 8)),
+                      // Live feature section — disabled
+                      /*
                       Padding(
-                        padding: ResponsiveHelper.padding(
-                          context,
-                          horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: ResponsiveHelper.screenHorizontalInset(context),
                         ),
                         child: Container(
-                          padding: ResponsiveHelper.padding(
-                            context,
-                            all: ResponsiveHelper.isMobile(context) ? 16 : 20,
+                          padding: EdgeInsets.all(
+                            ResponsiveHelper.dim(context, mobile: 12, tablet: 14),
                           ),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -600,7 +771,7 @@ class HomeScreen extends GetView<HomeController> {
                                       child: InkWell(
                                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
                                         onTap: () {
-                                          Get.toNamed(Routes.LIVE);
+                                          LiveScreen.navigateToLive();
                                         },
                                         child: Container(
                                           padding: ResponsiveHelper.padding(
@@ -655,15 +826,14 @@ class HomeScreen extends GetView<HomeController> {
                                 ),
                               ),
                               SizedBox(width: ResponsiveHelper.spacing(context, 16)),
-                              // Dove Image
                               CachedImage(
-                                imageUrl: 'https://fruitofthespirit.templateforwebsites.com/uploads/images/dove.png',
-                                height: ResponsiveHelper.imageHeight(context, mobile: 110, tablet: 130, desktop: 150),
-                                width: ResponsiveHelper.imageWidth(context, mobile: 110, tablet: 130, desktop: 150),
+                                imageUrl: 'http://admin.fosmessenger.com/uploads/images/dove.png',
+                                height: ResponsiveHelper.dim(context, mobile: 110, tablet: 140, desktop: 160),
+                                width: ResponsiveHelper.dim(context, mobile: 110, tablet: 140, desktop: 160),
                                 fit: BoxFit.contain,
                                 errorWidget: Icon(
                                   Icons.air,
-                                  size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
+                                  size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 65, desktop: 75),
                                   color: const Color(0xFF8B4513),
                                 ),
                               ),
@@ -672,30 +842,31 @@ class HomeScreen extends GetView<HomeController> {
                         ),
                       ),
                       SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
-                      // Videos Feed - Combined Live and Regular Videos
+                      */
+                      // Videos Feed — regular videos only (live feed disabled)
                       Obx(() {
-                        // Combine live videos and regular videos
-                        final liveVideos = controller.liveVideos.toList();
                         final regularVideos = controller.videos.toList();
-
-                        // Combine: Live videos first, then regular videos
-                        final allVideos = <Map<String, dynamic>>[];
-                        allVideos.addAll(liveVideos);
-                        allVideos.addAll(regularVideos);
-
-                        if (allVideos.isEmpty) return const SizedBox.shrink();
-
-                        // Take first 15 videos (live + regular)
-                        final videosToShow = allVideos.take(15).toList();
+                        if (regularVideos.isEmpty) return const SizedBox.shrink();
+                        final videosToShow = regularVideos.take(15).toList();
                         return _buildVideosReelsCarousel(context, videosToShow);
                       }),
                       SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
+                      // Group Posts Feed (disabled — set GroupPostsConfig.enabled = true to re-enable)
+                      if (GroupPostsConfig.enabled)
+                        Obx(() {
+                          final posts = controller.groupPosts.take(10).toList();
+                          if (posts.isEmpty) return const SizedBox.shrink();
+                          return _buildGroupPostsSection(context, posts);
+                        }),
+                      if (GroupPostsConfig.enabled)
+                        SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 16 : 20)),
                       // Blogs Carousel Section (Last)
                       Obx(() {
                         final blogs = controller.blogs.take(5).toList();
                         if (blogs.isEmpty) return const SizedBox.shrink();
                         return _buildBlogsCarousel(context, blogs);
                       }),
+                      ],
                     ],
                   ),
                 ),
@@ -742,7 +913,7 @@ class HomeScreen extends GetView<HomeController> {
 
   /// Build emoji display widget - ONLY shows fruit images from uploads/images/128-128 or 256-256
   /// NO emoji characters/smiley faces - only fruit images
-  static Widget buildEmojiDisplay(BuildContext context, Map<String, dynamic> emoji, {double? size, Future<dynamic> Function()? onTap}) {
+  static Widget buildEmojiDisplay(BuildContext context, Map<String, dynamic> emoji, {double? size, Future<dynamic> Function()? onTap, String? userEmail}) {
     final emojiChar = emoji['emoji_char'] as String? ?? '';
     final emojiName = (emoji['name'] as String? ?? '').toLowerCase();
     
@@ -759,13 +930,31 @@ class HomeScreen extends GetView<HomeController> {
       
       // If it's a relative path (starts with uploads/), convert to full URL
       if (fullImageUrl.startsWith('uploads/')) {
-        fullImageUrl = 'https://fruitofthespirit.templateforwebsites.com/$fullImageUrl';
+        fullImageUrl = 'http://admin.fosmessenger.com/$fullImageUrl';
       } else if (!fullImageUrl.startsWith('http://') && !fullImageUrl.startsWith('https://')) {
-        fullImageUrl = 'https://fruitofthespirit.templateforwebsites.com/uploads/$fullImageUrl';
+        fullImageUrl = 'http://admin.fosmessenger.com/uploads/$fullImageUrl';
       }
 
       // Ensure spaces are encoded early
       fullImageUrl = fullImageUrl.replaceAll(' ', '%20');
+
+      // Strip any extra text after .png/.jpg/.jpeg (e.g., %20ok, %20hi, ||ok)
+      String cleanUrl = fullImageUrl;
+      final extIndex = fullImageUrl.indexOf('.png');
+      if (extIndex != -1) {
+        cleanUrl = fullImageUrl.substring(0, extIndex + 4); // +4 for '.png'
+      } else {
+        final jpgIndex = fullImageUrl.indexOf('.jpg');
+        if (jpgIndex != -1) {
+          cleanUrl = fullImageUrl.substring(0, jpgIndex + 4);
+        } else {
+          final jpegIndex = fullImageUrl.indexOf('.jpeg');
+          if (jpegIndex != -1) {
+            cleanUrl = fullImageUrl.substring(0, jpegIndex + 5);
+          }
+        }
+      }
+      fullImageUrl = cleanUrl;
       print('✅ buildEmojiDisplay: Using Priority 1 URL: $fullImageUrl');
     }
     
@@ -779,18 +968,18 @@ class HomeScreen extends GetView<HomeController> {
       
       if (isTextString) {
         // It's a text string like "goodness", "kindness", etc. - use name-based lookup first
-        fullImageUrl = ImageConfig.getFruitReactionImageUrlByName(emojiChar, size: imageSize, variant: 1);
+        fullImageUrl = ImageConfig.getFruitReactionImageUrlByName(emojiChar, size: imageSize, variant: 1, userEmail: userEmail);
         if (fullImageUrl != null) {
           print('✅ buildEmojiDisplay: Found fruit reaction image from emoji_char (text): $emojiChar -> $fullImageUrl');
         }
       } else {
         // It's likely an actual emoji character - try emoji-based lookup
-        fullImageUrl = ImageConfig.getFruitReactionImageUrl(emojiChar, size: imageSize, variant: 1);
+        fullImageUrl = ImageConfig.getFruitReactionImageUrl(emojiChar, size: imageSize, variant: 1, userEmail: userEmail);
         if (fullImageUrl != null) {
           print('✅ buildEmojiDisplay: Found fruit reaction image from emoji: $emojiChar -> $fullImageUrl');
         } else {
           // If emoji lookup failed, try name-based as fallback
-          fullImageUrl = ImageConfig.getFruitReactionImageUrlByName(emojiChar, size: imageSize, variant: 1);
+          fullImageUrl = ImageConfig.getFruitReactionImageUrlByName(emojiChar, size: imageSize, variant: 1, userEmail: userEmail);
           if (fullImageUrl != null) {
             print('✅ buildEmojiDisplay: Found fruit reaction image from emoji_char (fallback): $emojiChar -> $fullImageUrl');
           }
@@ -813,7 +1002,7 @@ class HomeScreen extends GetView<HomeController> {
         baseFruitName = baseFruitName.split(' ')[0].trim();
       }
       
-      fullImageUrl = ImageConfig.getFruitReactionImageUrlByName(baseFruitName, size: imageSize, variant: 1);
+      fullImageUrl = ImageConfig.getFruitReactionImageUrlByName(baseFruitName, size: imageSize, variant: 1, userEmail: userEmail);
       if (fullImageUrl != null) {
         print('✅ buildEmojiDisplay: Found fruit reaction image from name: $baseFruitName -> $fullImageUrl');
       }
@@ -868,67 +1057,27 @@ class HomeScreen extends GetView<HomeController> {
 
   // Get video thumbnail URL from video data
   String? _getVideoThumbnail(Map<String, dynamic> video) {
-    // Priority 1: Check thumbnail_path (from database - generated during upload)
-    if (video['thumbnail_path'] != null && (video['thumbnail_path'] as String).isNotEmpty) {
-      final thumbnailPath = video['thumbnail_path'] as String;
-      if (!thumbnailPath.startsWith('http')) {
-        return 'https://fruitofthespirit.templateforwebsites.com/$thumbnailPath';
-      }
-      return thumbnailPath;
-    }
-    
-    // Priority 2: Check thumbnail (legacy field)
-    if (video['thumbnail'] != null && (video['thumbnail'] as String).isNotEmpty) {
-      final thumbnail = video['thumbnail'] as String;
-      if (!thumbnail.startsWith('http')) {
-        return 'https://fruitofthespirit.templateforwebsites.com/$thumbnail';
-      }
-
-      return thumbnail;
-    }
-    
-    // Priority 3: Check if file_path is an image (not a video)
-    if (video['file_path'] != null) {
-      final filePath = video['file_path'].toString();
-      final lowerPath = filePath.toLowerCase();
-      if (!lowerPath.endsWith('.mp4') &&
-          !lowerPath.endsWith('.mov') &&
-          !lowerPath.endsWith('.avi') &&
-          !lowerPath.endsWith('.webm') &&
-          !lowerPath.endsWith('.mkv')) {
-        if (!filePath.startsWith('http')) {
-          return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
-        }
-
-        return filePath;
-      }
-    }
-    
-    // Last resort: Return null to use video frame extraction
-    return null;
+    return VideosService.getThumbnailUrl(video);
   }
 
   // Get video URL from video data
   String? _getVideoUrl(Map<String, dynamic> video) {
-    if (video['file_path'] != null) {
-      final filePath = video['file_path'].toString();
-      if (filePath.isNotEmpty) {
-        final lowerPath = filePath.toLowerCase();
-        // Check if it's a video file
-        if (lowerPath.endsWith('.mp4') ||
-            lowerPath.endsWith('.mov') ||
-            lowerPath.endsWith('.avi') ||
-            lowerPath.endsWith('.webm') ||
-            lowerPath.endsWith('.mkv')) {
-          if (filePath.startsWith('http')) {
-            return filePath;
-          }
+    return VideosService.getVideoUrl(video);
+  }
 
-          return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
-        }
-      }
-    }
-    return null;
+  Widget _buildFastVideoThumbnail(
+    BuildContext context,
+    Map<String, dynamic> video, {
+    double? width,
+    double? height,
+  }) {
+    return VideoThumbnailWidget(
+      key: ValueKey('home-vthumb-${video['id']}'),
+      video: video,
+      width: width,
+      height: height,
+      fit: BoxFit.cover,
+    );
   }
 
   // Build Fruit Card (for 9 Fruits Grid) - With specific colors per fruit
@@ -955,7 +1104,7 @@ class HomeScreen extends GetView<HomeController> {
 
     return GestureDetector(
       onTap: () {
-        PaymentGate.navigateToFeature(Routes.FRUITS);
+        Get.toNamed(Routes.FRUIT);
         controller.loadUserFeeling();
       },
       child: Container(
@@ -980,7 +1129,7 @@ class HomeScreen extends GetView<HomeController> {
           child: InkWell(
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
             onTap: () {
-              PaymentGate.navigateToFeature(Routes.FRUITS);
+              Get.toNamed(Routes.FRUIT);
               controller.loadUserFeeling();
             },
             child: Padding(
@@ -1049,259 +1198,12 @@ class HomeScreen extends GetView<HomeController> {
 
   // Build Social Media Style Prayer Post (Image-like Design)
   Widget _buildSocialMediaPrayerPost(BuildContext context, Map<String, dynamic> prayer) {
-    final isAnonymous = prayer['is_anonymous'] == 1 || prayer['is_anonymous'] == true;
-    final userName = isAnonymous ? 'Anonymous' : (prayer['user_name'] ?? prayer['name'] ?? 'Anonymous');
-    String? profilePhotoUrl;
-    if (!isAnonymous && prayer['profile_photo'] != null && prayer['profile_photo'].toString().isNotEmpty) {
-      final photoPath = prayer['profile_photo'].toString();
-      // Check if already a full URL (http/https)
-      if (photoPath.startsWith('http://') || photoPath.startsWith('https://')) {
-        profilePhotoUrl = photoPath; // Use as-is if already a full URL
-      } else if (!photoPath.startsWith('assets/') && !photoPath.startsWith('file://') && !photoPath.startsWith('assets/images/')) {
-        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
-      }
-    }
-    final prayerContent = AutoTranslateHelper.getTranslatedTextSync(
-      text: prayer['content'] ?? '',
-      sourceLanguage: prayer['language'] as String?,
-    );
-    final createdAt = prayer['created_at'] as String?;
-    final responseCount = int.tryParse((prayer['response_count'] ?? 0).toString()) ?? 0;
-    final commentCount = int.tryParse((prayer['comment_count'] ?? 0).toString()) ?? 0;
-    // Get prayer type - check multiple fields
-    final category = prayer['category'] as String? ?? prayer['type'] as String? ?? prayer['prayer_type'] as String? ?? 'Prayer Request';
-    final prayerFor = prayer['prayer_for'] as String? ?? 'Me';
-    // Show prayer type as subtitle
-    final subtitle = category;
-
-    return InkWell(
-      onTap: () => PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        margin: ResponsiveHelper.safeMargin(
-          context,
-          horizontal: 0,
-          vertical: ResponsiveHelper.isMobile(context) ? 6 : 8,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              spreadRadius: 0,
-              blurRadius: 8,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header - Profile + Name + Subtitle + Three-dot menu (Exact match)
-            Padding(
-              padding: ResponsiveHelper.padding(
-                context,
-                all: ResponsiveHelper.isMobile(context) ? 14 : 16,
-              ),
-              child: Row(
-                children: [
-                  // Profile Picture - Responsive size with CachedImage
-                  profilePhotoUrl != null && !isAnonymous
-                      ? ClipOval(
-                    child: CachedImage(
-                      imageUrl: profilePhotoUrl,
-                      width: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
-                      height: ResponsiveHelper.isMobile(context) ? 44 : ResponsiveHelper.isTablet(context) ? 48 : 52,
-                      fit: BoxFit.cover,
-                      errorWidget: CircleAvatar(
-                        radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                        backgroundColor: Colors.grey[300]!,
-                        child: Icon(
-                          Icons.person_rounded,
-                          size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                  )
-                      : CircleAvatar(
-                    radius: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                    backgroundColor: Colors.grey[300]!,
-                    child: Icon(
-                      Icons.person_rounded,
-                      size: ResponsiveHelper.isMobile(context) ? 22 : ResponsiveHelper.isTablet(context) ? 24 : 26,
-                      color: isAnonymous ? Colors.grey[600] :  Colors.white,
-                    ),
-                  ),
-                  SizedBox(width: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
-                  // Name and Subtitle - Responsive
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          userName,
-                          style: ResponsiveHelper.textStyle(
-                            context,
-                            fontSize: ResponsiveHelper.fontSize(context, mobile: 15, tablet: 16, desktop: 17),
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                        SizedBox(height: ResponsiveHelper.spacing(context, 2)),
-                        Text(
-                          subtitle,
-                          style: ResponsiveHelper.textStyle(
-                            context,
-                            fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.normal,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Three-dot menu - Responsive with Report option
-                  PopupMenuButton<String>(
-                    icon: Icon(
-                      Icons.more_vert,
-                      size: ResponsiveHelper.iconSize(context, mobile: 20, tablet: 22, desktop: 24),
-                      color: AppTheme.iconscolor,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onSelected: (value) {
-                      if (value == 'view') {
-                        PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']);
-                      } else if (value == 'share') {
-                        ShareHelper.shareContent(
-                          context: context,
-                          contentType: 'prayer',
-                          contentId: prayer['id'] is int ? prayer['id'] : int.tryParse(prayer['id'].toString()) ?? 0,
-                          title: 'Prayer Request from ${userName == 'Anonymous' ? 'a friend' : userName}',
-                          content: prayerContent,
-                        );
-                      }
-
-                    },
-                    itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                      PopupMenuItem<String>(
-                        value: 'view',
-                        child: Row(
-                          children: [
-                            Icon(Icons.visibility, size: 18, color: AppTheme.iconscolor),
-                            SizedBox(width: 8),
-                            Text('View Details'),
-                          ],
-                        ),
-                      ),
-                      PopupMenuItem<String>(
-                        value: 'share',
-                        child: Row(
-                          children: [
-                            Icon(Icons.share, size: 18, color: AppTheme.iconscolor),
-                            SizedBox(width: 8),
-                            Text('Share'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            // Content - Truncated text with ellipsis (Responsive)
-            Padding(
-              padding: ResponsiveHelper.padding(
-                context,
-                horizontal: ResponsiveHelper.isMobile(context) ? 14 : 16,
-                vertical: 0,
-              ),
-              child: Text(
-                prayerContent,
-                style: ResponsiveHelper.textStyle(
-                  context,
-                  fontSize: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14, desktop: 15),
-                  color: Colors.black,
-                  fontWeight: FontWeight.normal,
-                ).copyWith(height: 1.4),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 10 : 12)),
-            // Bottom Actions - Left: Prayed count, Right: Comments count (Responsive)
-            Padding(
-              padding: ResponsiveHelper.padding(
-                context,
-                horizontal: ResponsiveHelper.isMobile(context) ? 14 : 16,
-                vertical: ResponsiveHelper.isMobile(context) ? 6 : 8,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Left: Prayed count with icon - Only show if > 0
-                  if (responseCount > 0)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.favorite,
-                          size: 18,
-                          color: AppTheme.iconscolor,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$responseCount prayed',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: AppTheme.iconscolor,
-                            fontWeight: FontWeight.normal,
-                          ),
-                        ),
-                      ],
-                    ),
-                  // Right: Comments count with icon - Only show if > 0
-                  if (commentCount > 0)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.comment_outlined,
-                          size: 18,
-                          color: AppTheme.iconscolor,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$commentCount Comments',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.normal,
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return SocialMediaPrayerPost(prayer: prayer);
   }
 
   // Build Social Media Style Blog Post - Exact like Prayer Request
   Widget _buildSocialMediaBlogPost(BuildContext context, Map<String, dynamic> blog) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final imagePath = blog['image_url'] as String?;
     String? imageUrl;
     if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
@@ -1328,7 +1230,12 @@ class HomeScreen extends GetView<HomeController> {
         controller.scrollToTop();
         // Small delay to allow scroll animation to start
         Future.delayed(const Duration(milliseconds: 100), () {
-          PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
+          HomeScreen.navigateToBlogDetail(
+            context,
+            blog['id'] is int
+                ? blog['id'] as int
+                : int.tryParse(blog['id'].toString()) ?? 0,
+          );
         });
       },
       borderRadius: BorderRadius.zero,
@@ -1570,10 +1477,8 @@ class HomeScreen extends GetView<HomeController> {
 
   // Build Social Media Style Video Post
   Widget _buildSocialMediaVideoPost(BuildContext context, Map<String, dynamic> video) {
-    // Use helper function to get thumbnail
-    String? imageUrl = _getVideoThumbnail(video);
-    String? videoUrl = _getVideoUrl(video);
     final title = video['title'] ?? 'Video';
+    final imageUrl = _getVideoThumbnail(video);
     final createdAt = video['created_at'] as String?;
     final thumbnailHeight = ResponsiveHelper.imageHeight(context, mobile: 220, tablet: 280, desktop: 320);
 
@@ -1606,68 +1511,15 @@ class HomeScreen extends GetView<HomeController> {
         children: [
           // Video Thumbnail
           GestureDetector(
-            onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+            onTap: () => HomeScreen.navigateToVideoDetail(context, video['id']),
             child: Stack(
               children: [
-                imageUrl != null
-                    ? CachedImage(
-                        imageUrl: imageUrl!,
-                        height: thumbnailHeight,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorWidget: videoUrl != null
-                            ? VideoFrameThumbnail(
-                                videoUrl: videoUrl,
-                                fit: BoxFit.cover,
-                                width: double.infinity,
-                                height: thumbnailHeight,
-                              )
-                            : Container(
-                                height: thumbnailHeight,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      AppTheme.themeColor,
-                                      AppTheme.primaryColor.withOpacity(0.3),
-                                    ],
-                                  ),
-                                ),
-                                child: Icon(
-                                  Icons.video_library_rounded,
-                                  size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                                  color: AppTheme.primaryColor,
-                                ),
-                              ),
-                      )
-                    : videoUrl != null
-                        ? CustomVideoThumbnail(
-                            videoUrl: videoUrl,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            height: thumbnailHeight,
-                          )
-                        : Container(
-                            height: thumbnailHeight,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  AppTheme.themeColor,
-                                  AppTheme.primaryColor.withOpacity(0.3),
-                                ],
-                              ),
-                            ),
-                            child: Center(
-                              child: Icon(
-                                Icons.video_library_rounded,
-                                size: ResponsiveHelper.iconSize(context, mobile: 50, tablet: 60, desktop: 70),
-                                color: AppTheme.primaryColor,
-                              ),
-                            ),
-                          ),
+                _buildFastVideoThumbnail(
+                  context,
+                  video,
+                  width: double.infinity,
+                  height: thumbnailHeight,
+                ),
                 Positioned.fill(
                   child: Center(
                     child: Container(
@@ -1719,7 +1571,7 @@ class HomeScreen extends GetView<HomeController> {
                   Padding(
                     padding: ResponsiveHelper.padding(context, top: 4),
                     child: Text(
-                      _getTimeAgo(createdAt),
+                      TimeHelper.getTimeAgo(createdAt),
                       style: ResponsiveHelper.textStyle(context, fontSize: 12, color: Colors.grey[600]),
                     ),
                   ),
@@ -1738,7 +1590,7 @@ class HomeScreen extends GetView<HomeController> {
               children: [
                 Expanded(
                   child: InkWell(
-                    onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+                    onTap: () => HomeScreen.navigateToVideoDetail(context, video['id']),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                     child: Container(
                       padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8),
@@ -1767,7 +1619,7 @@ class HomeScreen extends GetView<HomeController> {
                 SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                 Expanded(
                   child: InkWell(
-                    onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+                    onTap: () => HomeScreen.navigateToVideoDetail(context, video['id']),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                     child: Container(
                       padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 8),
@@ -1825,7 +1677,7 @@ class HomeScreen extends GetView<HomeController> {
   // Build Social Media Style Story Post
   Widget _buildSocialMediaStoryPost(BuildContext context, Map<String, dynamic> story) {
     final imageUrl = story['file_path'] != null
-        ? 'https://fruitofthespirit.templateforwebsites.com/${story['file_path']}'
+        ? 'http://admin.fosmessenger.com/${story['file_path']}'
         : null;
     final title = story['title'] ?? story['fruit_tag'] ?? 'Story';
     final createdAt = story['created_at'] as String?;
@@ -1897,7 +1749,7 @@ class HomeScreen extends GetView<HomeController> {
                   Padding(
                     padding: ResponsiveHelper.padding(context, top: 4),
                     child: Text(
-                      _getTimeAgo(createdAt),
+                      TimeHelper.getTimeAgo(createdAt),
                       style: ResponsiveHelper.textStyle(context, fontSize: 12, color: Colors.grey[600]),
                     ),
                   ),
@@ -2015,25 +1867,30 @@ class HomeScreen extends GetView<HomeController> {
       children: [
         // Prayer Carousel
         SizedBox(
-          height: ResponsiveHelper.safeHeight(
+          height: ResponsiveHelper.dim(
             context,
-            mobile: ResponsiveHelper.screenHeight(context) * 0.26,
-            tablet: ResponsiveHelper.screenHeight(context) * 0.28,
-            desktop: ResponsiveHelper.screenHeight(context) * 0.30,
+            mobile: ResponsiveHelper.screenHeight(context) * 0.21,
+            tablet: 190,
+            desktop: 210,
           ),
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.symmetric(
-              horizontal: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 14 : 16),
-              vertical: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 6 : 8),
+              horizontal: ResponsiveHelper.spacing(context, 12),
+              vertical: ResponsiveHelper.spacing(context, 4),
             ),
             itemCount: prayers.length,
             itemBuilder: (context, index) {
               final prayer = prayers[index];
               return Container(
-                width: ResponsiveHelper.screenWidth(context) * 0.85,
+                width: ResponsiveHelper.dim(
+                  context,
+                  mobile: ResponsiveHelper.screenWidth(context) * 0.82,
+                  tablet: 340,
+                  desktop: 380,
+                ),
                 margin: EdgeInsets.only(
-                  right: ResponsiveHelper.spacing(context, 12),
+                  right: ResponsiveHelper.spacing(context, 10),
                 ),
                 child: _buildSocialMediaPrayerPost(context, prayer),
               );
@@ -2041,12 +1898,12 @@ class HomeScreen extends GetView<HomeController> {
           ),
         ),
         // Scroll Indicator Text
-        SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+        SizedBox(height: ResponsiveHelper.spacing(context, 6)),
         Text(
-          '← Swipe to see more prayer requests →',
+          '← Swipe for more →',
           style: TextStyle(
-            fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
-            color: Colors.grey[600],
+            fontSize: ResponsiveHelper.fontSize(context, mobile: 11),
+            color: Colors.grey[500],
             fontStyle: FontStyle.italic,
           ),
           textAlign: TextAlign.center,
@@ -2056,6 +1913,187 @@ class HomeScreen extends GetView<HomeController> {
   }
 
   // Build Blogs Carousel
+  Widget _buildGroupPostsSection(BuildContext context, List<Map<String, dynamic>> posts) {
+    final cardWidth = ResponsiveHelper.isMobile(context) ? 280.0 : 320.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: ResponsiveHelper.screenHorizontalInset(context),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: ResponsiveHelper.padding(context, all: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.iconscolor,
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
+                    ),
+                    child: Icon(
+                      Icons.groups_rounded,
+                      color: Colors.white,
+                      size: ResponsiveHelper.iconSize(context, mobile: 18),
+                    ),
+                  ),
+                  SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+                  Text(
+                    'Group Posts',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                ],
+              ),
+              TextButton(
+                onPressed: () => HomeScreen.navigateToGroups(context),
+                child: Text(
+                  'View All',
+                  style: ResponsiveHelper.textStyle(
+                    context,
+                    fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                    color: Colors.black,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+        SizedBox(
+          height: 160,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(
+              horizontal: ResponsiveHelper.screenHorizontalInset(context),
+            ),
+            itemCount: posts.length,
+            itemBuilder: (context, index) {
+              final post = posts[index];
+              return Container(
+                width: cardWidth,
+                margin: EdgeInsets.only(right: index < posts.length - 1 ? 12 : 0),
+                child: _buildGroupPostCard(context, post),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGroupPostCard(BuildContext context, Map<String, dynamic> post) {
+    final groupId = post['group_id'];
+    final groupName = post['group_name'] as String? ?? 'Group';
+    final content = (post['content'] as String? ?? '').trim();
+    final imagePath = post['image_path'] as String?;
+    final imageUrl = imagePath != null && imagePath.isNotEmpty
+        ? (imagePath.startsWith('http') ? imagePath : 'http://admin.fosmessenger.com/$imagePath')
+        : null;
+    final profileUrl = ImageHelper.getProfilePhotoUrl(post['profile_photo'] as String?);
+    final parsedGroupId = groupId is int ? groupId : int.tryParse(groupId?.toString() ?? '') ?? 0;
+
+    return GestureDetector(
+      onTap: () {
+        if (parsedGroupId > 0) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GroupPostDetailsScreen(
+                post: post,
+                groupId: parsedGroupId,
+                groupName: groupName,
+              ),
+            ),
+          );
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 14,
+                  backgroundImage: profileUrl != null ? NetworkImage(profileUrl) : null,
+                  child: profileUrl == null ? const Icon(Icons.person, size: 14) : null,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        post['user_name'] as String? ?? 'User',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        groupName,
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      content.isNotEmpty ? content : 'Photo post',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[800], height: 1.3),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (imageUrl != null) ...[
+                    const SizedBox(width: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: CachedImage(
+                        imageUrl: imageUrl,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBlogsCarousel(BuildContext context, List<Map<String, dynamic>> blogs) {
     return _BlogsCarouselWidget(blogs: blogs, buildBlogPost: _buildSocialMediaBlogPost);
   }
@@ -2065,26 +2103,38 @@ class HomeScreen extends GetView<HomeController> {
     return _VideosCarouselWidget(videos: videos);
   }
 
-  // Build Videos Reels Carousel - Instagram Style (2 full + 10% of 3rd visible, swipeable)
+  // Build Videos Reels Carousel - Instagram Style (Responsive visible items)
   Widget _buildVideosReelsCarousel(BuildContext context, List<Map<String, dynamic>> videos) {
     if (videos.isEmpty) return const SizedBox.shrink();
     
-    // Calculate video width: 2 full videos + 10% of 3rd = 2.1 videos visible
+    final isTablet = ResponsiveHelper.isTablet(context);
+    final isDesktop = ResponsiveHelper.isDesktop(context);
+    
+    // Calculate video count based on screen type
+    // Mobile: 2.1, Tablet: 3.2, Desktop: 4.2
+    final double itemsVisible = isDesktop ? 4.2 : (isTablet ? 3.2 : 2.1);
+    
     final screenWidth = MediaQuery.of(context).size.width;
-    final horizontalPadding = ResponsiveHelper.spacing(context, 16) * 2; // Left + Right padding
+    final horizontalInset = ResponsiveHelper.screenHorizontalInset(context);
+    final horizontalPadding = horizontalInset * 2;
     final spacingBetween = ResponsiveHelper.spacing(context, 12);
+    
     final availableWidth = screenWidth - horizontalPadding;
-    final videoWidth = (availableWidth - spacingBetween) / 2.1; // 2 full + 10% of 3rd
-    final videoHeight = videoWidth * 1.4; // Portrait aspect ratio
+    final videoWidth = (availableWidth - (spacingBetween * (itemsVisible.floor()))) / itemsVisible;
+    final videoHeight = videoWidth * 1.5; // Slightly taller aspect ratio for better look
     
     return Container(
-      margin: ResponsiveHelper.padding(context, bottom: 20),
+      margin: EdgeInsets.only(bottom: ResponsiveHelper.homeSectionGap(context, mobile: 16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Section Header
+          // Section Header - Matches Prayer Request Style
           Padding(
-            padding: ResponsiveHelper.padding(context, horizontal: 16, bottom: 12),
+            padding: EdgeInsets.only(
+              left: horizontalInset,
+              right: horizontalInset,
+              bottom: ResponsiveHelper.spacing(context, 12),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -2092,13 +2142,13 @@ class HomeScreen extends GetView<HomeController> {
                   child: Row(
                     children: [
                       Container(
-                        padding: ResponsiveHelper.padding(context, all: 10),
+                        padding: ResponsiveHelper.padding(context, all: 8),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
+                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 10)),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.grey.withOpacity(0.3),
+                              color: Colors.grey.withOpacity(0.2),
                               blurRadius: 8,
                               offset: const Offset(0, 3),
                             ),
@@ -2107,16 +2157,16 @@ class HomeScreen extends GetView<HomeController> {
                         child: Icon(
                           Icons.video_library_rounded,
                           color: AppTheme.iconscolor,
-                          size: ResponsiveHelper.iconSize(context, mobile: 22),
+                          size: ResponsiveHelper.iconSize(context, mobile: 20, tablet: 24),
                         ),
                       ),
-                      SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+                      SizedBox(width: ResponsiveHelper.spacing(context, 12)),
                       Expanded(
                         child: Text(
                           'Recommended Videos',
                           style: ResponsiveHelper.textStyle(
                             context,
-                            fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22, desktop: 24),
+                            fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
                             fontWeight: FontWeight.bold,
                             color: Colors.black,
                             letterSpacing: 0.3,
@@ -2127,34 +2177,33 @@ class HomeScreen extends GetView<HomeController> {
                     ],
                   ),
                 ),
-                Padding(
-                  padding: ResponsiveHelper.padding(context, left: 8),
-                  child: TextButton(
-                    onPressed: () => PaymentGate.navigateToFeature(Routes.VIDEOS),
-                    child: Text(
-                      'View All',
-                      style: ResponsiveHelper.textStyle(
-                        context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black,
-                      ),
+                TextButton(
+                  onPressed: () => HomeScreen.navigateToVideos(context),
+                  child: Text(
+                    'View All',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                      color: Colors.black,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          // Videos Horizontal Scroll - 2 full + 10% of 3rd visible
+          // Videos Horizontal Scroll
           SizedBox(
             height: videoHeight,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: ResponsiveHelper.padding(context, horizontal: 16),
+              cacheExtent: 1200,
+              padding: EdgeInsets.symmetric(horizontal: horizontalInset),
               itemCount: videos.length,
               itemBuilder: (context, index) {
                 final video = videos[index];
                 return Container(
+                  key: ValueKey('home-video-${video['id'] ?? index}'),
                   width: videoWidth,
                   margin: EdgeInsets.only(
                     right: index < videos.length - 1 ? spacingBetween : 0,
@@ -2164,10 +2213,10 @@ class HomeScreen extends GetView<HomeController> {
               },
             ),
           ),
-          // Swipe Indicator (if more than 2 videos)
-          if (videos.length > 2)
+          // Swipe Indicator
+          if (videos.length > itemsVisible.floor())
             Padding(
-              padding: ResponsiveHelper.padding(context, top: 8),
+              padding: ResponsiveHelper.padding(context, top: 10),
               child: Center(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -2175,15 +2224,15 @@ class HomeScreen extends GetView<HomeController> {
                     Icon(
                       Icons.swipe_left_alt,
                       size: ResponsiveHelper.iconSize(context, mobile: 16),
-                      color: Colors.grey[600],
+                      color: Colors.grey[500],
                     ),
                     SizedBox(width: ResponsiveHelper.spacing(context, 6)),
                     Text(
                       'Swipe to see more videos',
                       style: ResponsiveHelper.textStyle(
                         context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                        color: Colors.grey[600],
+                        fontSize: 11,
+                        color: Colors.grey[500],
                       ).copyWith(fontStyle: FontStyle.italic),
                     ),
                   ],
@@ -2195,16 +2244,220 @@ class HomeScreen extends GetView<HomeController> {
     );
   }
 
+  Widget _buildShortsDiscoverCard(BuildContext context) {
+    final inset = ResponsiveHelper.screenHorizontalInset(context);
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: inset),
+      child: InkWell(
+        onTap: () => HomeScreen.navigateToCommunityShorts(context),
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+        child: Container(
+          width: double.infinity,
+          padding: ResponsiveHelper.padding(context, all: 16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFFD4AF37).withOpacity(0.15),
+                const Color(0xFF8B4513).withOpacity(0.08),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+            border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.35)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD4AF37),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.play_circle_fill, color: Colors.white, size: 28),
+              ),
+              SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Grace Moments',
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 18),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Watch grace moments from the community',
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 13),
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, size: 16, color: Color(0xFFD4AF37)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShortsReelsCarousel(BuildContext context, List<Map<String, dynamic>> shorts) {
+    if (shorts.isEmpty) return const SizedBox.shrink();
+
+    final isTablet = ResponsiveHelper.isTablet(context);
+    final isDesktop = ResponsiveHelper.isDesktop(context);
+    final double itemsVisible = isDesktop ? 4.2 : (isTablet ? 3.2 : 2.1);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final horizontalInset = ResponsiveHelper.screenHorizontalInset(context);
+    final horizontalPadding = horizontalInset * 2;
+    final spacingBetween = ResponsiveHelper.spacing(context, 12);
+    final availableWidth = screenWidth - horizontalPadding;
+    final cardWidth = (availableWidth - (spacingBetween * (itemsVisible.floor()))) / itemsVisible;
+    final cardHeight = cardWidth * 1.5;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: ResponsiveHelper.homeSectionGap(context, mobile: 16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(
+              left: horizontalInset,
+              right: horizontalInset,
+              bottom: ResponsiveHelper.spacing(context, 12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: ResponsiveHelper.padding(context, all: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 10)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withOpacity(0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.play_circle_outline,
+                          color: const Color(0xFFD4AF37),
+                          size: ResponsiveHelper.iconSize(context, mobile: 20, tablet: 24),
+                        ),
+                      ),
+                      SizedBox(width: ResponsiveHelper.spacing(context, 12)),
+                      Expanded(
+                        child: Text(
+                          'Grace Moments',
+                          style: ResponsiveHelper.textStyle(
+                            context,
+                            fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                            letterSpacing: 0.3,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => HomeScreen.navigateToCommunityShorts(context),
+                  child: Text(
+                    'View All',
+                    style: ResponsiveHelper.textStyle(
+                      context,
+                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
+                      color: Colors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: cardHeight,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              cacheExtent: 1200,
+              padding: EdgeInsets.symmetric(horizontal: horizontalInset),
+              itemCount: shorts.length,
+              itemBuilder: (context, index) {
+                final short = shorts[index];
+                final thumb = ShortsService.getThumbnailUrl(short);
+                return Container(
+                  width: cardWidth,
+                  margin: EdgeInsets.only(
+                    right: index < shorts.length - 1 ? spacingBetween : 0,
+                  ),
+                  child: InkWell(
+                    onTap: () => HomeScreen.navigateToCommunityShorts(context, startIndex: index),
+                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (thumb != null)
+                            CachedNetworkImage(imageUrl: thumb, fit: BoxFit.cover)
+                          else
+                            Container(color: Colors.grey.shade300),
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [Colors.black.withOpacity(0.55), Colors.transparent],
+                              ),
+                            ),
+                          ),
+                          const Center(
+                            child: Icon(Icons.play_arrow, color: Colors.white, size: 42),
+                          ),
+                          Positioned(
+                            left: 8,
+                            right: 8,
+                            bottom: 8,
+                            child: Text(
+                              short['title']?.toString() ?? short['user_name']?.toString() ?? 'Grace Moment',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // Build Instagram Style Video Card - No Title, Full Image
   Widget _buildInstagramVideoCard(BuildContext context, Map<String, dynamic> video, double width, double height) {
-    // Use helper function to get thumbnail
-    String? imageUrl = _getVideoThumbnail(video);
-    String? videoUrl = _getVideoUrl(video);
-
     final isLive = video['status'] == 'Live' || video['stream_key'] != null || video['stream_url'] != null;
 
     return InkWell(
-      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => HomeScreen.navigateToVideoDetail(context, video['id']),
       borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18, desktop: 20)),
       child: Container(
         width: width,
@@ -2230,61 +2483,7 @@ class HomeScreen extends GetView<HomeController> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              imageUrl != null
-                  ? CachedImage(
-                      imageUrl: imageUrl!,
-                      fit: BoxFit.cover,
-                      errorWidget: videoUrl != null
-                          ? CustomVideoThumbnail(
-                              videoUrl: videoUrl,
-                              fit: BoxFit.cover,
-                              width: width,
-                              height: height,
-                            )
-                          : Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AppTheme.themeColor,
-                                    AppTheme.primaryColor.withOpacity(0.3),
-                                  ],
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.video_library_rounded,
-                                size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
-                                color: AppTheme.primaryColor,
-                              ),
-                            ),
-                    )
-                  : videoUrl != null
-                      ? CustomVideoThumbnail(
-                          videoUrl: videoUrl,
-                          fit: BoxFit.cover,
-                          width: width,
-                          height: height,
-                        )
-                      : Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                AppTheme.themeColor,
-                                AppTheme.primaryColor.withOpacity(0.3),
-                              ],
-                            ),
-                          ),
-                          child: Center(
-                            child: Icon(
-                              Icons.video_library_rounded,
-                              size: ResponsiveHelper.iconSize(context, mobile: 60, tablet: 70, desktop: 80),
-                              color: AppTheme.primaryColor,
-                            ),
-                          ),
-                        ),
+              _buildFastVideoThumbnail(context, video, width: width, height: height),
               // LIVE Badge - Top Left
               if (isLive)
                 Positioned(
@@ -2368,9 +2567,6 @@ class HomeScreen extends GetView<HomeController> {
 
   // Build Reel Video Card - Vertical Video Thumbnail - Professional UI (OLD - Keep for reference)
   Widget _buildReelVideoCard(BuildContext context, Map<String, dynamic> video) {
-    // Use helper function to get thumbnail
-    String? imageUrl = _getVideoThumbnail(video);
-    String? videoUrl = _getVideoUrl(video);
 
     final title = video['title'] ?? 'Video';
     final createdAt = video['created_at'] as String?;
@@ -2379,7 +2575,7 @@ class HomeScreen extends GetView<HomeController> {
     final videoHeight = ResponsiveHelper.imageHeight(context, mobile: 280, tablet: 310, desktop: 350);
 
     return InkWell(
-      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => HomeScreen.navigateToVideoDetail(context, video['id']),
       borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 18, tablet: 20, desktop: 22)),
       child: Container(
         width: videoWidth,
@@ -2413,67 +2609,12 @@ class HomeScreen extends GetView<HomeController> {
               ),
               child: Stack(
                 children: [
-                  imageUrl != null
-                      ? CachedImage(
-                          imageUrl: imageUrl!,
-                          width: videoWidth,
-                          height: videoHeight,
-                          fit: BoxFit.cover,
-                          errorWidget: videoUrl != null
-                              ? CustomVideoThumbnail(
-                                  videoUrl: videoUrl,
-                                  fit: BoxFit.cover,
-                                  width: videoWidth,
-                                  height: videoHeight,
-                                )
-                              : Container(
-                                  width: videoWidth,
-                                  height: videoHeight,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        AppTheme.themeColor,
-                                        AppTheme.primaryColor.withOpacity(0.3),
-                                      ],
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.video_library_rounded,
-                                    size: ResponsiveHelper.iconSize(context, mobile: 50),
-                                    color: AppTheme.primaryColor,
-                                  ),
-                                ),
-                        )
-                      : videoUrl != null
-                          ? CustomVideoThumbnail(
-                              videoUrl: videoUrl,
-                              fit: BoxFit.cover,
-                              width: videoWidth,
-                              height: videoHeight,
-                            )
-                          : Container(
-                              width: videoWidth,
-                              height: videoHeight,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AppTheme.themeColor,
-                                    AppTheme.primaryColor.withOpacity(0.3),
-                                  ],
-                                ),
-                              ),
-                              child: Center(
-                                child: Icon(
-                                  Icons.video_library_rounded,
-                                  size: ResponsiveHelper.iconSize(context, mobile: 50),
-                                  color: AppTheme.primaryColor,
-                                ),
-                              ),
-                            ),
+                  _buildFastVideoThumbnail(
+                    context,
+                    video,
+                    width: videoWidth,
+                    height: videoHeight,
+                  ),
                   // LIVE Badge - Top Left
                   if (isLive)
                     Positioned(
@@ -2612,7 +2753,7 @@ class HomeScreen extends GetView<HomeController> {
                     if (createdAt != null) ...[
                       SizedBox(height: ResponsiveHelper.spacing(context, 2)),
                       Text(
-                        _getTimeAgo(createdAt),
+                        TimeHelper.getTimeAgo(createdAt),
                         style: ResponsiveHelper.textStyle(
                           context,
                           fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
@@ -2754,6 +2895,17 @@ class HomeScreen extends GetView<HomeController> {
     return _StoriesCarouselWidget(photos: photos);
   }
 
+  // Build Banners Section
+  Widget _buildBannersSection(BuildContext context) {
+    return Obx(() {
+      final controller = Get.find<BannersController>();
+      if (controller.activeBanners.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      return _BannersCarouselWidget(banners: controller.activeBanners);
+    });
+  }
+
   // OLD: Build Quick Actions Grid - 2x2 Grid Layout (Rectangle buttons) - COMMENTED OUT
   /* Widget _buildQuickActionsGrid(BuildContext context) {
     final quickActions = QuickActionsConfig.getQuickActions();
@@ -2774,12 +2926,12 @@ class HomeScreen extends GetView<HomeController> {
     );
   } */
 
-  // Build Quick Actions Box with Colored Container (like second image)
+  // Build Quick Actions Box with Colored Container
   Widget _buildQuickActionsBox(BuildContext context) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFFFFE5D4), // Light peach/cream background - more visible
+        color: const Color(0xFFFFE5D4),
         borderRadius: BorderRadius.circular(
           ResponsiveHelper.borderRadius(context, mobile: 20, tablet: 24, desktop: 28),
         ),
@@ -2792,44 +2944,36 @@ class HomeScreen extends GetView<HomeController> {
           ),
         ],
       ),
-      padding: ResponsiveHelper.padding(
-        context,
-        horizontal: ResponsiveHelper.isMobile(context) ? 16 : 20,
-        vertical: ResponsiveHelper.isMobile(context) ? 18 : 22,
+      padding: EdgeInsets.symmetric(
+        horizontal: ResponsiveHelper.dim(context, mobile: 8, tablet: 10),
+        vertical: ResponsiveHelper.dim(context, mobile: 6, tablet: 8),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Title "Quick Actions"
-          /*Padding(
-            padding: EdgeInsets.only(
-              left: ResponsiveHelper.spacing(context, 4),
-            ),
-            child: Text(
-              'Quick Actions',
-              style: ResponsiveHelper.textStyle(
-                context,
-                fontSize: ResponsiveHelper.fontSize(
-                  context,
-                  mobile: 18,
-                  tablet: 20,
-                  desktop: 22,
-                ),
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF5F4628), // Dark grey/brown text
-              ),
-            ),
-          ),*/
-          // SizedBox(height: ResponsiveHelper.spacing(context, ResponsiveHelper.isMobile(context) ? 14 : 18)),
-          // Quick Actions Grid
-          _buildNewQuickActionsGrid(context),
-        ],
-      ),
+      child: _buildNewQuickActionsGrid(context),
     );
   }
 
   // NEW COMPACT QUICK ACTIONS DESIGN - With Icons/Images and Labels in Row
+  double _quickActionGridAspectRatio(BuildContext context) {
+    if (ResponsiveHelper.isDesktop(context)) return 3.4; // 3 columns
+    if (ResponsiveHelper.isTablet(context)) return 3.2;  // 3 columns
+    if (ResponsiveHelper.isSmallPhone(context)) return 2.4;
+    return 2.85;
+  }
+
+  double _quickActionIconSize(BuildContext context) {
+    return ResponsiveHelper.dim(context, mobile: 26, tablet: 32, desktop: 36);
+  }
+
+  double _quickActionLabelFontSize(BuildContext context, String label) {
+    if (label.length > 14) {
+      return ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12);
+    }
+    if (label.length > 10) {
+      return ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13);
+    }
+    return ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14);
+  }
+
   Widget _buildNewQuickActionsGrid(BuildContext context) {
     final quickActions = QuickActionsConfig.getQuickActions();
 
@@ -2837,10 +2981,10 @@ class HomeScreen extends GetView<HomeController> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2, // 2 columns
-        crossAxisSpacing: ResponsiveHelper.spacing(context, 12),
-        mainAxisSpacing: ResponsiveHelper.spacing(context, 12),
-        childAspectRatio: 2.2, // Taller buttons - decreased from 2.8 to 2.2 for more height
+        crossAxisCount: ResponsiveHelper.gridColumns(context, mobile: 2, tablet: 3),
+        crossAxisSpacing: ResponsiveHelper.spacing(context, 6),
+        mainAxisSpacing: ResponsiveHelper.spacing(context, 6),
+        childAspectRatio: _quickActionGridAspectRatio(context),
       ),
       itemCount: quickActions.length,
       itemBuilder: (context, index) {
@@ -2855,13 +2999,8 @@ class HomeScreen extends GetView<HomeController> {
     
     // Handle route navigation
     if (action.route == Routes.GROUPS) {
-      onTap = () {
-        if (!Get.isRegistered<GroupsController>()) {
-          Get.put(GroupsController());
-        }
-        Get.toNamed(action.route);
-      };
-    } else if (action.route == Routes.FRUITS) {
+      onTap = () => HomeScreen.navigateToGroups(context);
+    } else if (action.route == Routes.FRUIT) {
       // When opening Fruits from Quick Actions, show back button on the target screen
       onTap = () => Get.toNamed(
             action.route,
@@ -2888,8 +3027,10 @@ class HomeScreen extends GetView<HomeController> {
         child: Container(
           padding: ResponsiveHelper.padding(
             context,
-            horizontal: 14,
-            vertical: ResponsiveHelper.isMobile(context) ? MediaQuery.of(context).size.height*0.01 : 18,
+            horizontal: 8,
+            vertical: ResponsiveHelper.isMobile(context)
+                ? 4 // Highly reduced vertical padding
+                : 6,
           ),
           decoration: BoxDecoration(
             color: Colors.white, // White background
@@ -2914,66 +3055,42 @@ class HomeScreen extends GetView<HomeController> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // Icon/Image on Left
-              action.imagePath != null
-                  ? Image.asset(
-                      action.imagePath!,
-                      width: ResponsiveHelper.iconSize(
-                        context,
-                        mobile: 45,
-                        tablet: 50,
-                        desktop: 55,
-                      ),
-                      height: ResponsiveHelper.iconSize(
-                        context,
-                        mobile: 45,
-                        tablet: 50,
-                        desktop: 55,
-                      ),
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) {
-                        // Fallback to icon if image fails to load
-                        return Icon(
-                          action.icon,
-                          size: ResponsiveHelper.iconSize(
-                            context,
-                            mobile: 45,
-                            tablet: 50,
-                            desktop: 55,
-                          ),
-                          color: AppTheme.iconscolor,
-                        );
-                      },
-                    )
-                  : Icon(
-                      action.icon,
-                      size: ResponsiveHelper.iconSize(
-                        context,
-                        mobile: 45,
-                        tablet: 50,
-                        desktop: 55,
-                      ),
-                      color: AppTheme.iconscolor,
-                    ),
               SizedBox(
-                width: ResponsiveHelper.spacing(context, 12),
+                width: _quickActionIconSize(context),
+                height: _quickActionIconSize(context),
+                child: action.imagePath != null
+                    ? Image.asset(
+                        action.imagePath!,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            action.icon,
+                            size: _quickActionIconSize(context),
+                            color: AppTheme.iconscolor,
+                          );
+                        },
+                      )
+                    : Icon(
+                        action.icon,
+                        size: _quickActionIconSize(context),
+                        color: AppTheme.iconscolor,
+                      ),
               ),
+              ResponsiveHelper.hGap(context, 6), // Slightly reduced horizontal gap
               // Label/Name on Right
               Expanded(
                 child: Text(
                   action.label,
                   style: ResponsiveHelper.textStyle(
                     context,
-                    fontSize: ResponsiveHelper.fontSize(
-                      context,
-                      mobile: 14,
-                      tablet: 15,
-                      desktop: 16,
-                    ),
+                    fontSize: _quickActionLabelFontSize(context, action.label),
                     fontWeight: FontWeight.w600,
                     color: const Color(0xFF5F4628),
+                    height: 1.1,
                   ),
-                  maxLines: 2,
+                  maxLines: 1, // Forced to one line
                   overflow: TextOverflow.ellipsis,
+                  softWrap: false, // Disabled wrapping
                 ),
               ),
             ],
@@ -2989,12 +3106,7 @@ class HomeScreen extends GetView<HomeController> {
     
     // Handle route navigation
     if (action.route == Routes.GROUPS) {
-      onTap = () {
-        if (!Get.isRegistered<GroupsController>()) {
-          Get.put(GroupsController());
-        }
-        Get.toNamed(action.route);
-      };
+      onTap = () => HomeScreen.navigateToGroups(context);
     } else if (action.route == Routes.BLOGGER_ZONE) {
       onTap = () {
         try {
@@ -3101,14 +3213,12 @@ class HomeScreen extends GetView<HomeController> {
     } else if (label.contains('Blogger') || label.contains('blogger')) {
       onTap = () => HomeScreen.navigateToBloggerZone(context);
     } else if (label.contains('Fruit') || label.contains('fruit')) {
-      onTap = () => PaymentGate.navigateToFeature(Routes.FRUITS);
+      onTap = () => Get.toNamed(Routes.FRUIT)?.then( (_) {
+        final homeCtrl = Get.find<HomeController>();
+        homeCtrl.loadUserFeeling();
+      });
     } else if (label.contains('Group') || label.contains('group')) {
-      onTap = () {
-        if (!Get.isRegistered<GroupsController>()) {
-          Get.put(GroupsController());
-        }
-        Get.toNamed(Routes.GROUPS);
-      };
+      onTap = () => HomeScreen.navigateToGroups(context);
     }
 
     return Container(
@@ -3177,7 +3287,7 @@ class HomeScreen extends GetView<HomeController> {
     String? selectedFruitTag;
     var isLoading = false;
 
-    final fruits = [
+    final fruitNames = [
       'Love',
       'Joy',
       'Peace',
@@ -3338,7 +3448,7 @@ class HomeScreen extends GetView<HomeController> {
                           vertical: ResponsiveHelper.isMobile(context) ? 10 : 12,
                         ),
                       ),
-                      items: fruits.map((fruit) => DropdownMenuItem(
+                      items: fruitNames.map((fruit) => DropdownMenuItem(
                         value: fruit,
                         child: Text(fruit),
                       )).toList(),
@@ -3578,42 +3688,6 @@ class HomeScreen extends GetView<HomeController> {
     );
   }
 
-  String _getTimeAgo(String? dateTimeString) {
-    if (dateTimeString == null || dateTimeString.isEmpty) return 'Just now';
-    try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      DateTime date;
-      if (!dateTimeString.endsWith('Z')) {
-        date = DateTime.parse('${dateTimeString}Z').toLocal();
-      } else {
-        date = DateTime.parse(dateTimeString).toLocal();
-      }
-      
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
-
-      final difference = now.difference(date);
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
-    } catch (e) {
-      return 'Just now';
-    }
-  }
 
   // Build Prayer Card with View All button (for Dashboard Feed)
   Widget _buildPrayerCardWithViewAll(BuildContext context, Map<String, dynamic> prayer) {
@@ -3627,7 +3701,7 @@ class HomeScreen extends GetView<HomeController> {
       } else if (!photoPath.startsWith('assets/') &&
           !photoPath.startsWith('file://') &&
           !photoPath.startsWith('assets/images/')) {
-        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+        profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
       }
     }
 
@@ -3733,20 +3807,7 @@ class HomeScreen extends GetView<HomeController> {
           SizedBox(width: ResponsiveHelper.spacing(context, 8)),
           // View All button
           ElevatedButton(
-            onPressed: () {
-              // Reset filter to show all users' prayers
-              try {
-                final prayersController = Get.find<PrayersController>();
-                prayersController.filterUserId.value = 0;
-                // Performance: Only refresh if needed
-                if (prayersController.prayers.isEmpty) {
-                  prayersController.loadPrayers(refresh: true);
-                }
-              } catch (e) {
-                // Controller not found, will be created fresh
-              }
-              PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
-            },
+            onPressed: () => HomeScreen.navigateToPrayerRequests(context),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4CAF50), // Green button
               foregroundColor: Colors.white,
@@ -3786,7 +3847,7 @@ class HomeScreen extends GetView<HomeController> {
       } else if (!photoPath.startsWith('assets/') &&
           !photoPath.startsWith('file://') &&
           !photoPath.startsWith('assets/images/')) {
-        profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+        profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
       }
     }
 
@@ -3795,17 +3856,14 @@ class HomeScreen extends GetView<HomeController> {
       child: GestureDetector(
         onTap: () {
           if (prayer['id'] != null) {
-            PaymentGate.navigateToFeature(Routes.PRAYER_DETAILS, arguments: prayer['id']);
+            HomeScreen.navigateToPrayerDetail(
+              context,
+              prayer['id'] is int
+                  ? prayer['id'] as int
+                  : int.tryParse(prayer['id'].toString()) ?? 0,
+            );
           } else {
-            // Reset filter to show all users' prayers
-            try {
-              final prayersController = Get.find<PrayersController>();
-              prayersController.filterUserId.value = 0;
-              prayersController.loadPrayers(refresh: true);
-            } catch (e) {
-              // Controller not found, will be created fresh
-            }
-            PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
+            HomeScreen.navigateToPrayerRequests(context);
           }
         },
         child: Container(
@@ -3963,22 +4021,25 @@ class HomeScreen extends GetView<HomeController> {
             borderRadius: BorderRadius.vertical(
               top: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
             ),
-            child: blog['image_url'] != null
-                ? LazyCachedImage(
-                    imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${blog['image_url']}',
-                    height: ResponsiveHelper.imageHeight(context, mobile: 120),
+            child: Builder(
+              builder: (context) {
+                final mediaUrl = ImageHelper.resolveBlogMediaUrl(blog);
+                if (mediaUrl != null && mediaUrl.isNotEmpty) {
+                  return BlogMediaWidget(
+                    mediaUrl: mediaUrl,
+                    isVideo: ImageHelper.isVideoUrl(mediaUrl),
                     width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorWidget: Container(
-                      height: ResponsiveHelper.imageHeight(context, mobile: 120),
-                      color: Colors.grey[300],
-                      child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 40)),
-                    ),
-                  )
-                : Container(
                     height: ResponsiveHelper.imageHeight(context, mobile: 120),
-                    color: Colors.grey[300],
-                    child: Icon(Icons.article, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                    fit: BoxFit.cover,
+                    previewMode: true,
+                  );
+                }
+                return Container(
+                  height: ResponsiveHelper.imageHeight(context, mobile: 120),
+                  color: Colors.grey[300],
+                  child: Icon(Icons.article, size: ResponsiveHelper.iconSize(context, mobile: 40)),
+                );
+              },
             ),
           ),
           Padding(
@@ -4043,7 +4104,7 @@ class HomeScreen extends GetView<HomeController> {
             ),
             child: photo['file_path'] != null
                 ? LazyCachedImage(
-                    imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}',
+                    imageUrl: 'http://admin.fosmessenger.com/${photo['file_path']}',
                     height: ResponsiveHelper.imageHeight(context, mobile: 150),
                     width: double.infinity,
                     fit: BoxFit.cover,
@@ -4092,17 +4153,15 @@ class HomeScreen extends GetView<HomeController> {
   // Build Featured Video Card (with Video label and Kindness Moment overlay)
   Widget _buildFeaturedVideoCard(BuildContext context, Map<String, dynamic> video) {
     // Use helper function to get thumbnail
-    String? imageUrl = _getVideoThumbnail(video);
-    String? videoUrl = _getVideoUrl(video);
     final cardWidth = ResponsiveHelper.imageWidth(context, mobile: 260, tablet: 300, desktop: 340);
     final cardHeight = ResponsiveHelper.imageHeight(context, mobile: 180, tablet: 200, desktop: 220);
 
     return GestureDetector(
       onTap: () {
         if (video['id'] != null) {
-          PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
+          HomeScreen.navigateToVideoDetail(context, video['id']);
         } else {
-          PaymentGate.navigateToFeature(Routes.VIDEOS);
+          HomeScreen.navigateToVideos(context);
         }
       },
       child: Container(
@@ -4116,67 +4175,12 @@ class HomeScreen extends GetView<HomeController> {
           children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 10, tablet: 12, desktop: 14)),
-            child: imageUrl != null
-                ? LazyCachedImage(
-                    imageUrl: imageUrl!,
-                    height: cardHeight,
-                    width: cardWidth,
-                    fit: BoxFit.cover,
-                    errorWidget: videoUrl != null
-                        ? CustomVideoThumbnail(
-                            videoUrl: videoUrl,
-                            fit: BoxFit.cover,
-                            width: cardWidth,
-                            height: cardHeight,
-                          )
-                        : Container(
-                            height: cardHeight,
-                            width: cardWidth,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  AppTheme.themeColor,
-                                  AppTheme.primaryColor.withOpacity(0.3),
-                                ],
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.video_library_rounded,
-                              size: ResponsiveHelper.iconSize(context, mobile: 40, tablet: 45, desktop: 50),
-                              color: AppTheme.primaryColor,
-                            ),
-                          ),
-                  )
-                : videoUrl != null
-                    ? CustomVideoThumbnail(
-                        videoUrl: videoUrl,
-                        fit: BoxFit.cover,
-                        width: cardWidth,
-                        height: cardHeight,
-                      )
-                    : Container(
-                        height: cardHeight,
-                        width: cardWidth,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              AppTheme.themeColor,
-                              AppTheme.primaryColor.withOpacity(0.3),
-                            ],
-                          ),
-                        ),
-                        child: Center(
-                          child: Icon(
-                            Icons.video_library_rounded,
-                            size: ResponsiveHelper.iconSize(context, mobile: 40, tablet: 45, desktop: 50),
-                            color: AppTheme.primaryColor,
-                          ),
-                        ),
-                      ),
+            child: _buildFastVideoThumbnail(
+              context,
+              video,
+              width: cardWidth,
+              height: cardHeight,
+            ),
           ),
           Positioned.fill(
             child: Center(
@@ -4374,7 +4378,12 @@ class HomeScreen extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         if (blog['id'] != null) {
-          PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']);
+          HomeScreen.navigateToBlogDetail(
+            context,
+            blog['id'] is int
+                ? blog['id'] as int
+                : int.tryParse(blog['id'].toString()) ?? 0,
+          );
         } else {
           // Reset filter to show all users' blogs
           try {
@@ -4416,7 +4425,7 @@ class HomeScreen extends GetView<HomeController> {
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
                       child: LazyCachedImage(
-                        imageUrl: 'https://fruitofthespirit.templateforwebsites.com/${blog['image_url']}',
+                        imageUrl: 'http://admin.fosmessenger.com/${blog['image_url']}',
                         width: 70,
                         height: 70,
                         fit: BoxFit.cover,
@@ -4451,17 +4460,14 @@ class HomeScreen extends GetView<HomeController> {
               children: [
                   // Title
                 Text(
-                    AutoTranslateHelper.getTranslatedTextSync(
-                      text: blog['title'] ?? 'The Power of Forgiveness',
-                      sourceLanguage: blog['language'] as String?,
-                    ),
-                    style: TextStyle(
-                    fontWeight: FontWeight.bold,
+                    blog['title'] ?? 'The Power of Forgiveness',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
                       fontSize: 14,
                       color: Colors.black87,
-                  ),
+                    ),
                     maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                    overflow: TextOverflow.ellipsis,
                 ),
                   SizedBox(height: ResponsiveHelper.spacing(context, 3)),
                   // AON tag with emoji
@@ -4525,7 +4531,7 @@ class HomeScreen extends GetView<HomeController> {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
           Obx(() {
-                  // Get fruits from database - show images, not emoji text
+                  // Get fruit from database - show images, not emoji text
             if (controller.emojis.length >= 2) {
               final emoji1 = controller.emojis[0];
               final emoji2 = controller.emojis[1];
@@ -4594,15 +4600,14 @@ class HomeScreen extends GetView<HomeController> {
         child: InkWell(
           borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
       onTap: () {
-        // Check if this is a story or gallery photo
         if (photo['id'] != null) {
           if (photo['title'] != null || photo['content'] != null) {
-            PaymentGate.navigateToFeature(Routes.STORY_DETAILS, arguments: photo['id']);
+            HomeScreen.navigateToStoryDetails(context, photo['id'] as int);
           } else {
-            PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']);
+            HomeScreen.navigateToPhotoDetail(context, photo);
           }
         } else {
-          PaymentGate.navigateToFeature(Routes.STORIES);
+          HomeScreen.navigateToStories(context);
         }
       },
         child: Column(
@@ -4619,9 +4624,7 @@ class HomeScreen extends GetView<HomeController> {
                   photo['file_path'] != null
                   ? Builder(
                       builder: (context) {
-                        final imageUrl = 'https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}';
-                        print('🖼️ Loading gallery image: ${photo['file_path']}');
-                        print('   Full URL: $imageUrl');
+                        final imageUrl = ImageHelper.resolveGalleryPhotoUrl(photo) ?? '';
                         return LazyCachedImage(
                           imageUrl: imageUrl,
                               height: ResponsiveHelper.imageHeight(context, mobile: 150, tablet: 170, desktop: 190),
@@ -4764,9 +4767,9 @@ class HomeScreen extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         if (video['id'] != null) {
-          PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
+          HomeScreen.navigateToVideoDetail(context, video['id']);
         } else {
-          PaymentGate.navigateToFeature(Routes.VIDEOS);
+          HomeScreen.navigateToVideos(context);
         }
       },
       child: Container(
@@ -4892,9 +4895,9 @@ class HomeScreen extends GetView<HomeController> {
         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
         onTap: () {
           if (video['id'] != null) {
-            PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']);
+            HomeScreen.navigateToVideoDetail(context, video['id']);
           } else {
-            PaymentGate.navigateToFeature(Routes.VIDEOS);
+            HomeScreen.navigateToVideos(context);
           }
         },
         child: Container(
@@ -5124,6 +5127,7 @@ class HomeScreen extends GetView<HomeController> {
         print('❌ loadEmojis() failed with error: $error');
         print('❌ Error type: ${error.runtimeType}');
         print('❌ Error toString: ${error.toString()}');
+        return null;
       });
     } else {
       print('✅ Emojis already loaded - NO RELOAD');
@@ -5182,23 +5186,15 @@ class _BlogContentWidgetState extends State<_BlogContentWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final textToShow = widget.content.isNotEmpty 
-        ? AutoTranslateHelper.getTranslatedTextSync(
-            text: widget.content,
-            sourceLanguage: widget.language,
-          )
-        : AutoTranslateHelper.getTranslatedTextSync(
-            text: widget.title,
-            sourceLanguage: widget.language);
-    
+    final rawText = widget.content.isNotEmpty ? widget.content : widget.title;
     final maxLines = 4;
-    final needsMoreButton = textToShow.length > 200; // Approximate check for long text
-    
+    final needsMoreButton = rawText.length > 200; // Approximate check for long text
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          textToShow,
+          rawText,
           style: const TextStyle(
             fontSize: 14,
             color: Colors.black87,
@@ -5350,7 +5346,8 @@ class _EmojiSelectionDialogContentState extends State<_EmojiSelectionDialogConte
                             // Log server error to console
                             print('❌ Error loading emojis: ${error.toString()}');
                             print('❌ Error Type: ${error.runtimeType}');
-                            
+                            return null;
+
                             Get.snackbar(
                               'Connection Issue',
                               'Unable to load emojis. Please check your internet connection and try again.',
@@ -5423,7 +5420,7 @@ class _EmojiSelectionDialogContentState extends State<_EmojiSelectionDialogConte
     if (widget.controller.emojis.isEmpty) {
       return Center(
         child: Text(
-          'No fruits available',
+          'No fruit available',
           style: ResponsiveHelper.textStyle(
             context,
             fontSize: ResponsiveHelper.fontSize(context, mobile: 14),
@@ -5588,7 +5585,7 @@ class _EmojiCarouselWidgetState extends State<_EmojiCarouselWidget> {
               ),
               SizedBox(height: ResponsiveHelper.spacing(context, 12)),
               Text(
-                'No fruits available',
+                'No fruit available',
                 style: ResponsiveHelper.textStyle(
                   context,
                   fontSize: ResponsiveHelper.fontSize(context, mobile: 16),
@@ -5712,90 +5709,27 @@ class _EmojiCarouselWidgetState extends State<_EmojiCarouselWidget> {
                           return;
                         }
 
-                        try {
-                          // STEP 1: Update backend FIRST (replace existing feeling)
-                          print('📤 Step 1: Updating backend with new feeling (will replace existing)...');
-                          await EmojisService.useEmoji(
-                            userId: userId,
-                            emoji: emojiValue,
-                            // postType and postId are NULL for general feeling - this ensures it REPLACES existing
-                          );
-                          print('✅ Backend updated successfully - feeling replaced in database');
-                          
-                          // STEP 2: Wait a bit for backend to process
-                          await Future.delayed(const Duration(milliseconds: 500));
-                          
-                          // STEP 3: Close dialog
-                          if (widget.dialogContext.mounted) {
-                            Navigator.of(widget.dialogContext).pop();
-                          }
-                          
-                          // STEP 4: Update UI with new feeling from backend
-                          final controller = Get.find<HomeController>();
-                          
-                          // Update optimistically with emoji data for instant display
-                          // This already saves to local storage with correct emoji_details
-                          await controller.updateUserFeeling(emojiValue, emojiData: emoji);
-                          print('✅ UI updated optimistically with emoji: $emojiValue');
-                          print('✅ Saved to local storage with emoji_details: ${emoji['name']}');
-                          
-                          // STEP 5: Don't reload from API immediately - trust local storage
-                          // The local storage already has the correct data with proper emoji_details
-                          // Reloading from API might return old/wrong data (like ID instead of code)
-                          // and overwrite the correct local storage value
-                          print('✅ Skipping API reload - local storage has correct data');
-                          print('✅ UI should show the selected fruit: ${emoji['name']}');
-                          
-                          // Force UI refresh to ensure update is visible
-                          controller.userFeeling.refresh();
-                          print('✅ Forced UI refresh');
-                          
-                          // Show success message
-                          final userName = controller.userName.value;
-                          Get.snackbar(
-                            'Feeling Updated',
-                            userName.isNotEmpty 
-                                ? '$userName ka feeling update ho gaya!'
-                                : 'Your feeling has been updated!',
-                            snackPosition: SnackPosition.BOTTOM,
-                            backgroundColor: Colors.green.withOpacity(0.8),
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 2),
-                          );
-                        } catch (e) {
-                          print('❌ Error sending fruit: $e');
-                          if (widget.dialogContext.mounted) {
-                            Navigator.of(widget.dialogContext).pop();
-                          }
-                          // Still try to update feeling
-                          try {
-                            final controller = Get.find<HomeController>();
-                            await controller.updateUserFeeling(emojiValue);
-                            await Future.delayed(const Duration(milliseconds: 500));
-                            await controller.loadUserFeeling();
-                          } catch (updateError) {
-                            print('⚠️ Error updating feeling: $updateError');
-                          }
-                          // Log server error to console
-                          print('❌ Error recording feeling: ${e.toString()}');
-                          print('❌ Error Type: ${e.runtimeType}');
-                          
-                          Get.snackbar(
-                            'Unable to Save',
-                            'Failed to record your feeling. Please try again.',
-                            snackPosition: SnackPosition.BOTTOM,
-                            backgroundColor: Colors.red.withOpacity(0.9),
-                            colorText: Colors.white,
-                            duration: const Duration(seconds: 3),
-                            margin: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-                            borderRadius: ResponsiveHelper.borderRadius(context, mobile: 12),
-                            icon: Icon(
-                              Icons.error_outline,
-                              color: Colors.white,
-                              size: ResponsiveHelper.iconSize(context, mobile: 20),
-                            ),
-                          );
+                        final controller = Get.find<HomeController>();
+                        await controller.updateUserFeeling(
+                          emojiValue,
+                          emojiData: emoji,
+                        );
+
+                        if (widget.dialogContext.mounted) {
+                          Navigator.of(widget.dialogContext).pop();
                         }
+
+                        final userName = controller.userName.value;
+                        Get.snackbar(
+                          'Feeling Updated',
+                          userName.isNotEmpty
+                              ? '$userName ka feeling update ho gaya!'
+                              : 'Your feeling has been updated!',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: Colors.green.withOpacity(0.8),
+                          colorText: Colors.white,
+                          duration: const Duration(seconds: 2),
+                        );
                       } catch (e) {
                         if (widget.dialogContext.mounted) {
                           Navigator.of(widget.dialogContext).pop();
@@ -6039,6 +5973,7 @@ class _VideoPlayerThumbnailState extends State<_VideoPlayerThumbnail> with Widge
         }
       }).catchError((error) {
         print('Error initializing video: $error');
+        return null;
       });
   }
 
@@ -6333,19 +6268,7 @@ class _FeedCarouselWidgetState extends State<_FeedCarouselWidget> {
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () {
-                          try {
-                            final prayersController = Get.find<PrayersController>();
-                            prayersController.filterUserId.value = 0;
-                            // Performance: Only load if data doesn't exist
-                            if (prayersController.prayers.isEmpty) {
-                              prayersController.loadPrayers(refresh: true);
-                            }
-                          } catch (e) {
-                            Get.put(PrayersController());
-                          }
-                          PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
-                        },
+                        onTap: () => HomeScreen.navigateToPrayerRequests(context),
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 25)),
                         child: Container(
                           padding: ResponsiveHelper.padding(
@@ -6442,7 +6365,11 @@ class _PrayersCarouselWidgetState extends State<_PrayersCarouselWidget> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: ResponsiveHelper.padding(context, horizontal: 16, bottom: 20),
+      margin: EdgeInsets.only(
+        left: ResponsiveHelper.screenHorizontalInset(context),
+        right: ResponsiveHelper.screenHorizontalInset(context),
+        bottom: ResponsiveHelper.homeSectionGap(context, mobile: 16),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -6484,16 +6411,7 @@ class _PrayersCarouselWidgetState extends State<_PrayersCarouselWidget> {
                 ],
               ),
               TextButton(
-                onPressed: () {
-                  try {
-                    final prayersController = Get.find<PrayersController>();
-                    prayersController.filterUserId.value = 0;
-                    prayersController.loadPrayers(refresh: true);
-                  } catch (e) {
-                    Get.put(PrayersController());
-                  }
-                  PaymentGate.navigateToFeature(Routes.PRAYER_REQUESTS);
-                },
+                onPressed: () => HomeScreen.navigateToPrayerRequests(context),
                 child: Text(
                   'View All',
                   style: ResponsiveHelper.textStyle(
@@ -6554,14 +6472,16 @@ class _PrayersCarouselWidgetState extends State<_PrayersCarouselWidget> {
               (index) => AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
-                width: ResponsiveHelper.spacing(context, _currentPage == index ? 24 : 8),
-                height: ResponsiveHelper.spacing(context, 8),
+                width: _currentPage == index
+                    ? ResponsiveHelper.dim(context, mobile: 24, tablet: 32, desktop: 36)
+                    : ResponsiveHelper.dim(context, mobile: 8, tablet: 12, desktop: 14),
+                height: ResponsiveHelper.dim(context, mobile: 8, tablet: 12, desktop: 14),
                 margin: ResponsiveHelper.padding(context, horizontal: 3),
                 decoration: BoxDecoration(
                   color: _currentPage == index
                       ? const Color(0xFF5F4628)
                       : Colors.grey[300],
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 4)),
+                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 4, tablet: 6)),
                 ),
               ),
             ),
@@ -6591,35 +6511,33 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
   Widget build(BuildContext context) {
     if (widget.blogs.isEmpty) return const SizedBox.shrink();
     
-    // Calculate blog width: 2 full blogs + 10% of 3rd = 2.1 blogs visible (Responsive)
-    final screenWidth = ResponsiveHelper.screenWidth(context);
-    final horizontalPadding = ResponsiveHelper.spacing(
-      context, 
-      ResponsiveHelper.isMobile(context) ? 14 : 16,
-    ) * 2; // Left + Right padding
-    final spacingBetween = ResponsiveHelper.spacing(
-      context,
-      ResponsiveHelper.isMobile(context) ? 10 : 12,
-    );
+    final isTablet = ResponsiveHelper.isTablet(context);
+    final isDesktop = ResponsiveHelper.isDesktop(context);
+    
+    // Calculate blog width based on screen type (matches video carousel logic)
+    // Mobile: 2.1, Tablet: 3.2, Desktop: 4.2
+    final double itemsVisible = isDesktop ? 4.2 : (isTablet ? 3.2 : 2.1);
+    
+    final screenWidth = MediaQuery.of(context).size.width;
+    final horizontalInset = ResponsiveHelper.screenHorizontalInset(context);
+    final horizontalPadding = horizontalInset * 2;
+    final spacingBetween = ResponsiveHelper.spacing(context, 12);
+    
     final availableWidth = screenWidth - horizontalPadding;
-    final blogWidth = (availableWidth - spacingBetween) / 2.1; // 2 full + 10% of 3rd
+    final blogWidth = (availableWidth - (spacingBetween * (itemsVisible.floor()))) / itemsVisible;
     
     return Container(
-      margin: ResponsiveHelper.padding(
-        context, 
-        horizontal: ResponsiveHelper.isMobile(context) ? 0 : 4,
-        bottom: ResponsiveHelper.isMobile(context) ? 8 : 12,
-      ),
+      margin: EdgeInsets.only(bottom: ResponsiveHelper.homeSectionGap(context, mobile: 16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Section Header
+          // Section Header - Consistent with Videos and Prayers
           Padding(
-            padding: ResponsiveHelper.padding(
-              context, 
-              horizontal: ResponsiveHelper.isMobile(context) ? 14 : 16,
-              bottom: ResponsiveHelper.isMobile(context) ? 10 : 12,
+            padding: EdgeInsets.only(
+              left: horizontalInset,
+              right: horizontalInset,
+              bottom: ResponsiveHelper.spacing(context, 12),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -6633,7 +6551,7 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 10)),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.grey.withOpacity(0.3),
+                            color: Colors.grey.withOpacity(0.2),
                             blurRadius: 8,
                             offset: const Offset(0, 3),
                           ),
@@ -6642,7 +6560,7 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
                       child: Icon(
                         Icons.article_rounded,
                         color: AppTheme.iconscolor,
-                        size: ResponsiveHelper.iconSize(context, mobile: 20),
+                        size: ResponsiveHelper.iconSize(context, mobile: 20, tablet: 24),
                       ),
                     ),
                     SizedBox(width: ResponsiveHelper.spacing(context, 12)),
@@ -6650,7 +6568,7 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
                       'Blogs',
                       style: ResponsiveHelper.textStyle(
                         context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22, desktop: 24),
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 20, desktop: 22),
                         fontWeight: FontWeight.bold,
                         color: Colors.black,
                         letterSpacing: 0.3,
@@ -6673,30 +6591,22 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
               ],
             ),
           ),
-          // Blogs Horizontal Scroll - 2 full + 10% of 3rd visible
-          // Height increased to accommodate proper spacing between elements
+          // Blogs Horizontal Scroll
           SizedBox(
             height: ResponsiveHelper.safeHeight(
               context,
-              mobile: ResponsiveHelper.screenHeight(context) * 0.24,  // Increased from 0.20 to accommodate spacing
-              tablet: ResponsiveHelper.screenHeight(context) * 0.26,  // Increased from 0.22
-              desktop: ResponsiveHelper.screenHeight(context) * 0.28,  // Increased from 0.24
+              mobile: ResponsiveHelper.screenHeight(context) * 0.24,
+              tablet: ResponsiveHelper.screenHeight(context) * 0.26,
+              desktop: ResponsiveHelper.screenHeight(context) * 0.28,
             ),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: ResponsiveHelper.padding(
-                context, 
-                horizontal: ResponsiveHelper.isMobile(context) ? 14 : 16,
-              ),
+              padding: EdgeInsets.symmetric(horizontal: horizontalInset),
               itemCount: widget.blogs.length,
               itemBuilder: (context, index) {
                 final blog = widget.blogs[index];
                 return Container(
                   width: blogWidth,
-                  constraints: BoxConstraints(
-                    maxWidth: blogWidth,
-                    minWidth: blogWidth,
-                  ),
                   margin: EdgeInsets.only(
                     right: index < widget.blogs.length - 1 ? spacingBetween : 0,
                   ),
@@ -6705,8 +6615,8 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
               },
             ),
           ),
-          // Swipe Indicator (if more than 2 blogs)
-          if (widget.blogs.length > 2)
+          // Swipe Indicator
+          if (widget.blogs.length > itemsVisible.floor())
             Padding(
               padding: ResponsiveHelper.padding(context, top: 4),
               child: Center(
@@ -6716,15 +6626,15 @@ class _BlogsCarouselWidgetState extends State<_BlogsCarouselWidget> {
                     Icon(
                       Icons.swipe_left_alt,
                       size: ResponsiveHelper.iconSize(context, mobile: 16),
-                      color: Colors.grey[600],
+                      color: Colors.grey[500],
                     ),
                     SizedBox(width: ResponsiveHelper.spacing(context, 6)),
                     Text(
                       'Swipe to see more blogs',
                       style: ResponsiveHelper.textStyle(
                         context,
-                        fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                        color: Colors.grey[600],
+                        fontSize: 11,
+                        color: Colors.grey[500],
                       ).copyWith(fontStyle: FontStyle.italic),
                     ),
                   ],
@@ -6764,53 +6674,14 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
   }
 
   String? _getVideoThumbnail(Map<String, dynamic> video) {
-    // Priority 1: Check thumbnail_path (from database - generated during upload)
-    if (video['thumbnail_path'] != null && (video['thumbnail_path'] as String).isNotEmpty) {
-      final thumbnailPath = video['thumbnail_path'] as String;
-      if (!thumbnailPath.startsWith('http')) {
-        return 'https://fruitofthespirit.templateforwebsites.com/$thumbnailPath';
-      }
-      return thumbnailPath;
-    }
-    
-    // Priority 2: Check thumbnail (legacy field)
-    if (video['thumbnail'] != null && (video['thumbnail'] as String).isNotEmpty) {
-      final thumbnail = video['thumbnail'] as String;
-      if (!thumbnail.startsWith('http')) {
-        return 'https://fruitofthespirit.templateforwebsites.com/$thumbnail';
-      }
-      return thumbnail;
-    }
-    
-    // Priority 3: Check if file_path is an image (not a video)
-    if (video['file_path'] != null) {
-      final filePath = video['file_path'].toString();
-      final lowerPath = filePath.toLowerCase();
-      if (!lowerPath.endsWith('.mp4') &&
-          !lowerPath.endsWith('.mov') &&
-          !lowerPath.endsWith('.avi') &&
-          !lowerPath.endsWith('.webm') &&
-          !lowerPath.endsWith('.mkv')) {
-        if (!filePath.startsWith('http')) {
-          return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
-        }
-        return filePath;
-      }
-    }
-    
-    // Last resort: Try to use first frame of video or return null to show loading
-    // Don't use placeholder - let the UI handle missing thumbnails gracefully
-    return null;
+    return VideosService.getThumbnailUrl(video);
   }
 
   Widget _buildVerticalVideoCard(BuildContext context, Map<String, dynamic> video, int index) {
-    final thumbnail = _getVideoThumbnail(video);
-    final videoUrl = video['file_path'] != null
-        ? 'https://fruitofthespirit.templateforwebsites.com/${video['file_path']}'
-        : null;
+    final videoUrl = VideosService.getVideoUrl(video);
 
     return GestureDetector(
-      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => HomeScreen.navigateToVideoDetail(context, video['id']),
       child: Container(
         height: double.infinity,
         decoration: BoxDecoration(
@@ -6829,66 +6700,13 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Video Thumbnail - Proper fit to prevent stretching
-              thumbnail != null
-                  ? CachedImage(
-                      imageUrl: thumbnail,
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.cover,
-                      errorWidget: videoUrl != null
-                          ? CustomVideoThumbnail(
-                              videoUrl: videoUrl,
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              height: double.infinity,
-                            )
-                          : Container(
-                              width: double.infinity,
-                              height: double.infinity,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AppTheme.themeColor,
-                                    AppTheme.primaryColor.withOpacity(0.3),
-                                  ],
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.video_library_rounded,
-                                size: ResponsiveHelper.iconSize(context, mobile: 32, tablet: 40, desktop: 48),
-                                color: AppTheme.primaryColor,
-                              ),
-                            ),
-                    )
-                  : videoUrl != null
-                      ? CustomVideoThumbnail(
-                          videoUrl: videoUrl,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                        )
-                      : Container(
-                          width: double.infinity,
-                          height: double.infinity,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                AppTheme.themeColor,
-                                AppTheme.primaryColor.withOpacity(0.3),
-                              ],
-                            ),
-                          ),
-                          child: Icon(
-                            Icons.video_library_rounded,
-                            size: ResponsiveHelper.iconSize(context, mobile: 32, tablet: 40, desktop: 48),
-                            color: AppTheme.primaryColor,
-                          ),
-                        ),
+              VideoThumbnailWidget(
+                key: ValueKey('carousel-vthumb-${video['id']}'),
+                video: video,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+              ),
               // Gradient Overlay for better visibility
               Positioned(
                 bottom: 0,
@@ -6979,7 +6797,11 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
     }
 
     return Container(
-      margin: ResponsiveHelper.padding(context, horizontal: 16, bottom: 20),
+      margin: EdgeInsets.only(
+        left: ResponsiveHelper.screenHorizontalInset(context),
+        right: ResponsiveHelper.screenHorizontalInset(context),
+        bottom: ResponsiveHelper.homeSectionGap(context, mobile: 16),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -7029,7 +6851,7 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
                 ],
               ),
               TextButton(
-                onPressed: () => PaymentGate.navigateToFeature(Routes.VIDEOS),
+                onPressed: () => HomeScreen.navigateToVideos(context),
                 child: Text(
                   'View All',
                   style: ResponsiveHelper.textStyle(
@@ -7133,20 +6955,22 @@ class _VideosCarouselWidgetState extends State<_VideosCarouselWidget> {
               (index) => AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
-                width: ResponsiveHelper.spacing(context, _currentPage == index ? 24 : 8),
-                height: ResponsiveHelper.spacing(context, 8),
+                width: _currentPage == index
+                    ? ResponsiveHelper.dim(context, mobile: 24, tablet: 32, desktop: 36)
+                    : ResponsiveHelper.dim(context, mobile: 8, tablet: 12, desktop: 14),
+                height: ResponsiveHelper.dim(context, mobile: 8, tablet: 12, desktop: 14),
                 margin: ResponsiveHelper.padding(context, horizontal: 4),
                 decoration: BoxDecoration(
                   color: _currentPage == index
                       ? const Color(0xFF4CAF50)
                       : Colors.grey[300],
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 4)),
+                  borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 4, tablet: 6)),
                   boxShadow: _currentPage == index
                       ? [
                           BoxShadow(
                             color: const Color(0xFF4CAF50).withOpacity(0.4),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
+                            blurRadius: ResponsiveHelper.dim(context, mobile: 8, tablet: 10),
+                            offset: Offset(0, ResponsiveHelper.dim(context, mobile: 2, tablet: 3)),
                           ),
                         ]
                       : null,
@@ -7178,118 +7002,79 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
       final userFeeling = widget.controller.userFeeling.value;
       final userName = widget.controller.userName.value;
       final currentUserId = widget.controller.userId.value;
-      
-      // Debug logging
-      print('🔄 Obx rebuild triggered - userFeeling: ${userFeeling != null ? "exists" : "null"}');
-      if (userFeeling != null) {
-        print('  - emoji: ${userFeeling['emoji']}');
-        print('  - emoji_details: ${userFeeling['emoji_details'] != null ? "exists" : "null"}');
-      }
-      
+
       final hasFeeling = userFeeling != null && userFeeling['emoji'] != null;
       final emojiDetails = hasFeeling ? userFeeling['emoji_details'] as Map<String, dynamic>? : null;
       // Check if this is current user's feeling - don't show name to current user
       final isCurrentUser = hasFeeling && userFeeling['user_id'] != null && userFeeling['user_id'] == currentUserId;
-      
+
       return Container(
+        height: ResponsiveHelper.dim(context, mobile: 82, tablet: 96, desktop: 104), // Matches Shop Now height
         margin: EdgeInsets.symmetric(
-          horizontal: ResponsiveHelper.isMobile(context)
-              ? ResponsiveHelper.spacing(context, 16)
-              : ResponsiveHelper.isTablet(context)
-                  ? ResponsiveHelper.spacing(context, 20)
-                  : ResponsiveHelper.spacing(context, 24),
-          vertical: ResponsiveHelper.isMobile(context)
-              ? ResponsiveHelper.spacing(context, 8)
-              : ResponsiveHelper.isTablet(context)
-                  ? ResponsiveHelper.spacing(context, 10)
-                  : ResponsiveHelper.spacing(context, 12),
+          vertical: ResponsiveHelper.homeSectionGap(context, mobile: 2),
         ),
         child: Material(
           color: Colors.transparent,
           elevation: 0,
-          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12, tablet: 14, desktop: 16)),
+          borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
           child: InkWell(
             onTap: () {
-              // Navigate to fruits screen instead of showing dialog
-              Get.toNamed(
-                Routes.FRUITS
-              );
+              // Navigate to fruit screen instead of showing dialog
+              Get.toNamed(Routes.FRUIT);
             },
-            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12, tablet: 14, desktop: 16)),
+            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
             child: Container(
               padding: ResponsiveHelper.padding(
                 context,
-                horizontal: ResponsiveHelper.isMobile(context)
-                    ? ResponsiveHelper.spacing(context, 12)
-                    : ResponsiveHelper.isTablet(context)
-                    ? ResponsiveHelper.spacing(context, 16)
-                        : ResponsiveHelper.spacing(context, 20),
-                vertical: ResponsiveHelper.isMobile(context)
-                    ? ResponsiveHelper.spacing(context, 10)
-                    : ResponsiveHelper.isTablet(context)
-                        ? ResponsiveHelper.spacing(context, 12)
-                        : ResponsiveHelper.spacing(context, 14),
+                horizontal: ResponsiveHelper.spacing(context, 12),
+                vertical: ResponsiveHelper.spacing(context, 6),
               ),
               decoration: BoxDecoration(
                 color: Colors.white, // White background
-                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12, tablet: 14, desktop: 16)),
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16, tablet: 18)),
                 border: Border.all(
-                  color: Colors.grey.withOpacity(0.1),
+                  color: Colors.grey.withOpacity(0.15),
                   width: 1,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withOpacity(0.04),
                     spreadRadius: 0,
-                    blurRadius: 15,
-                    offset: const Offset(0, 4),
+                    blurRadius: 12,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
               child: hasFeeling
                   ? Row(
                       children: [
-                        // Left: Emoji without circular border - Compact design
+                        // Left: Emoji - Responsive Size
                         Builder(
                           builder: (context) {
-                            final emojiSize = (ResponsiveHelper.isMobile(context) ? 44.0 : ResponsiveHelper.isTablet(context) ? 50.0 : 56.0);
-                                  
-                                  // Debug logging
-                                  print('🔍 Building emoji display:');
-                                  print('  - hasFeeling: $hasFeeling');
-                                  print('  - emojiDetails: ${emojiDetails != null ? "exists" : "null"}');
+                            final emojiSize = ResponsiveHelper.dim(context, mobile: 42, tablet: 48, desktop: 54);
+
                                   if (emojiDetails != null) {
-                                    print('  - emojiDetails name: ${emojiDetails['name']}');
-                                    print('  - emojiDetails image_url: ${emojiDetails['image_url']}');
-                                  }
-                                  print('  - userFeeling emoji: ${userFeeling?['emoji']}');
-                                  
-                                  // Use emojiDetails if available (from optimistic update or API)
-                                  if (emojiDetails != null) {
-                                    print('✅ Using emojiDetails for display');
                                     return HomeScreen.buildEmojiDisplay(
                                       context,
                                       emojiDetails,
                                       size: emojiSize,
                                     );
                                   }
-                                  
+
                                   // Otherwise, check if userFeeling['emoji'] is an image URL
                                   final emojiValue = userFeeling?['emoji'] as String? ?? '';
                                   if (emojiValue.isNotEmpty) {
-                                    print('⚠️ emojiDetails is null, trying to use emojiValue: $emojiValue');
-                                    final isTruncatedUrl = emojiValue.startsWith('http') && 
-                                                            (emojiValue.length < 20 || 
-                                                             !emojiValue.contains('.png') && !emojiValue.contains('.jpg') && 
+                                    final isTruncatedUrl = emojiValue.startsWith('http') &&
+                                                            (emojiValue.length < 20 ||
+                                                             !emojiValue.contains('.png') && !emojiValue.contains('.jpg') &&
                                                              !emojiValue.contains('uploads/') && !emojiValue.contains('emojis/'));
-                                    
+
                                     if (!isTruncatedUrl && (emojiValue.contains('http') || emojiValue.contains('uploads/') || emojiValue.contains('.png') || emojiValue.contains('.jpg'))) {
                                       String imageUrl = emojiValue;
                                       if (imageUrl.startsWith('uploads/') && !imageUrl.startsWith('http')) {
-                                        imageUrl = 'https://fruitofthespirit.templateforwebsites.com/$imageUrl';
+                                        imageUrl = 'http://admin.fosmessenger.com/$imageUrl';
                                       }
-                                      
-                                      print('✅ Creating emojiData from image URL: $imageUrl');
+
                                       final emojiData = {
                                         'emoji_char': '',
                                         'name': 'Selected Emoji',
@@ -7301,7 +7086,6 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
                                         size: emojiSize,
                                       );
                                     } else if (!isTruncatedUrl) {
-                                      print('✅ Creating emojiData from emoji_char: $emojiValue');
                                       final emojiData = {
                                         'emoji_char': emojiValue,
                                         'name': emojiValue,
@@ -7314,14 +7098,12 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
                                       );
                                     }
                                   }
-                                  
-                                  // Fallback: Show placeholder
-                                  print('⚠️ No emoji data found, showing placeholder');
+
                                   return HomeScreen._buildPlaceholderIcon(context, emojiSize);
                                 },
                           ),
                         SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                        // Middle: Text Content (3 lines)
+                        // Middle: Text Content (2 lines now)
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -7332,7 +7114,7 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
                                 children: [
                                   Icon(
                                     Icons.favorite,
-                                    size: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
+                                    size: ResponsiveHelper.fontSize(context, mobile: 13, tablet: 14),
                                     color: const Color(0xFFFFB3BA), // Light pink heart
                                   ),
                                   SizedBox(width: ResponsiveHelper.spacing(context, 4)),
@@ -7340,14 +7122,14 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
                                     'feeling',
                                     style: ResponsiveHelper.textStyle(
                                       context,
-                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
+                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12),
                                       color: const Color(0xFF78909C), // Light grey-blue
-                                      fontWeight: FontWeight.w400,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ],
                               ),
-                              SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                              SizedBox(height: ResponsiveHelper.spacing(context, 2)),
                               // Line 2: Fruit Name (bold)
                               Builder(
                                 builder: (context) {
@@ -7362,14 +7144,14 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
                                         return name;
                                       }
                                     }
-                                    
+
                                     final emojiValue = userFeeling?['emoji'] as String? ?? '';
                                     if (emojiValue.isNotEmpty) {
-                                      final isTruncatedUrl = emojiValue.startsWith('http') && 
-                                                              (emojiValue.length < 20 || 
-                                                               !emojiValue.contains('.png') && !emojiValue.contains('.jpg') && 
+                                      final isTruncatedUrl = emojiValue.startsWith('http') &&
+                                                              (emojiValue.length < 20 ||
+                                                               !emojiValue.contains('.png') && !emojiValue.contains('.jpg') &&
                                                                !emojiValue.contains('uploads/') && !emojiValue.contains('emojis/'));
-                                      
+
                                       if (!isTruncatedUrl && (emojiValue.contains('http') || emojiValue.contains('uploads/'))) {
                                         try {
                                           final uri = Uri.decodeComponent(emojiValue);
@@ -7386,62 +7168,50 @@ class _ExpandableFeelSectionState extends State<_ExpandableFeelSection> {
                                         return emojiValue;
                                       }
                                     }
-                                    
+
                                     return 'Select a feeling';
                                   }
-                                  
+
                                   final fruitName = getFruitDisplayName();
-                                  final displayText = fruitName.length > 20 || fruitName.contains('http') 
-                                      ? 'Select a feeling' 
+                                  final displayText = fruitName.length > 20 || fruitName.contains('http')
+                                      ? 'Select a feeling'
                                       : fruitName;
-                                  
+
                                   return Text(
                                     displayText,
                                     style: ResponsiveHelper.textStyle(
                                       context,
-                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 24, desktop: 28),
+                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 22, desktop: 26),
                                       color: Colors.black,
                                       fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.2,
+                                      letterSpacing: 0.1,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   );
                                 },
                               ),
-                              SizedBox(height: ResponsiveHelper.spacing(context, 3)),
-                              // Line 3: "Tracking daily mood."
-                              Text(
-                                'Tracking daily mood.',
-                                style: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
-                                  color: const Color(0xFF78909C), // Light grey-blue
-                                  fontWeight: FontWeight.w400,
-                                ),
-                              ),
+                              // Line 3 (Tracking daily mood) - REMOVED for compact height
                             ],
                           ),
                         ),
-                        SizedBox(width: ResponsiveHelper.spacing(context, 12)),
-                        // Right: Oval Arrow Button
+                        SizedBox(width: ResponsiveHelper.spacing(context, 8)),
+                        // Right: Responsive Arrow Button
                         Container(
-                          width: ResponsiveHelper.isMobile(context) ? 36 : 40,
-                          height: ResponsiveHelper.isMobile(context) ? 48 : 52,
+                          width: ResponsiveHelper.dim(context, mobile: 32, tablet: 36),
+                          height: ResponsiveHelper.dim(context, mobile: 40, tablet: 44),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 18 : 20),
+                            borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 16)),
                             border: Border.all(
-                              color: const Color(0xFFE8E8D3), // Light beige border
-                              width: 1.5,
+                              color: const Color(0xFFF0F0E0), // Subtle border
+                              width: 1,
                             ),
                           ),
-                          child: Center(
-                            child: Icon(
-                              Icons.chevron_right_rounded,
-                              size: ResponsiveHelper.iconSize(context, mobile: 20, tablet: 22, desktop: 24),
-                              color: AppTheme.iconscolor, // Orange arrow matching icons color
-                            ),
+                          child: Icon(
+                            Icons.chevron_right_rounded,
+                            size: ResponsiveHelper.iconSize(context, mobile: 18, tablet: 20),
+                            color: AppTheme.iconscolor,
                           ),
                         ),
                       ],
@@ -7577,11 +7347,12 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
       return const SizedBox.shrink();
     }
 
-    final storySize = ResponsiveHelper.imageHeight(context, mobile: 70, tablet: 80, desktop: 90);
-    final buttonWidth = storySize + (ResponsiveHelper.spacing(context, 6) * 2); // Button width + margins
+    final isTablet = ResponsiveHelper.isTablet(context);
+    final storySize = ResponsiveHelper.dim(context, mobile: 70, tablet: 100, desktop: 110);
+    final horizontalInset = ResponsiveHelper.screenHorizontalInset(context);
     
     return Container(
-      height: ResponsiveHelper.imageHeight(context, mobile: 90, tablet: 100, desktop: 110),
+      height: ResponsiveHelper.dim(context, mobile: 90, tablet: 130, desktop: 145),
       padding: ResponsiveHelper.padding(context, vertical: 8),
       child: Row(
         children: [
@@ -7590,24 +7361,24 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: EdgeInsets.only(
-                left: ResponsiveHelper.spacing(context, 12),
+                left: horizontalInset,
                 right: ResponsiveHelper.spacing(context, 8),
               ),
               itemCount: widget.photos.length,
               itemBuilder: (context, index) {
                 final photo = widget.photos[index];
-                return _buildInstagramStoryCircle(context, photo, index);
+                return _buildInstagramStoryCircle(context, photo, index, storySize);
               },
             ),
           ),
-          // "View All" button on the right - No overlap
+          // "View All" button on the right
           Padding(
             padding: EdgeInsets.only(
               left: ResponsiveHelper.spacing(context, 8),
-              right: ResponsiveHelper.spacing(context, 12),
+              right: horizontalInset,
             ),
             child: Center(
-              child: _buildViewAllButton(context),
+              child: _buildViewAllButton(context, storySize),
             ),
           ),
         ],
@@ -7615,15 +7386,9 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
     );
   }
 
-  Widget _buildViewAllButton(BuildContext context) {
-    final storySize = ResponsiveHelper.imageHeight(context, mobile: 70, tablet: 80, desktop: 90);
-    
-    // Check if there's an image for View All (you can add image path here if available)
-    final String? viewAllImagePath = null; // Add image path if you have one: 'assets/quickactions/view-all.png'
-    
+  Widget _buildViewAllButton(BuildContext context, double storySize) {
     return GestureDetector(
       onTap: () {
-        // Open Gallery screen (all moments)
         HomeScreen.navigateToGallery(context);
       },
       child: Container(
@@ -7631,7 +7396,6 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // "View All" Button - Home Screen Theme Style
             Container(
               width: storySize,
               height: storySize,
@@ -7654,26 +7418,35 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
                   ),
                 ],
               ),
-              padding: EdgeInsets.all(3),
+              padding: const EdgeInsets.all(3),
               child: Container(
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.white,
                 ),
-                child: viewAllImagePath != null
-                    ? ClipOval(
-                        child: Image.asset(
-                          viewAllImagePath,
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            // Fallback to text if image fails
-                            return _buildViewAllText(context, storySize);
-                          },
-                        ),
-                      )
-                    : _buildViewAllText(context, storySize),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.grid_view_rounded,
+                      size: storySize * 0.3,
+                      color: AppTheme.iconscolor,
+                    ),
+                    SizedBox(height: ResponsiveHelper.spacing(context, 4)),
+                    Text(
+                      'View All',
+                      style: ResponsiveHelper.textStyle(
+                        context,
+                        fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 13),
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -7682,51 +7455,21 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
     );
   }
 
-  Widget _buildViewAllText(BuildContext context, double storySize) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(
-          Icons.grid_view_rounded,
-          size: storySize * 0.28,
-          color: AppTheme.iconscolor,
-        ),
-        SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-        Text(
-          'View All',
-          style: ResponsiveHelper.textStyle(
-            context,
-            fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11, desktop: 12),
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-          ),
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInstagramStoryCircle(BuildContext context, Map<String, dynamic> photo, int index) {
-    final storySize = ResponsiveHelper.imageHeight(context, mobile: 70, tablet: 80, desktop: 90);
-    final borderWidth = 3.0;
+  Widget _buildInstagramStoryCircle(BuildContext context, Map<String, dynamic> photo, int index, double storySize) {
+    final borderWidth = ResponsiveHelper.dim(context, mobile: 2.5, tablet: 3.5);
     
-    // Get image URL
     String? imageUrl;
     if (photo['file_path'] != null) {
-      imageUrl = 'https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}';
+      imageUrl = 'http://admin.fosmessenger.com/${photo['file_path']}';
     } else if (photo['image_url'] != null) {
-      imageUrl = 'https://fruitofthespirit.templateforwebsites.com/${photo['image_url']}';
+      imageUrl = 'http://admin.fosmessenger.com/${photo['image_url']}';
     }
 
     return GestureDetector(
       onTap: () {
-        // Open the specific story/post details when tapped
         if (photo['id'] != null) {
           HomeScreen.navigateToStoryDetails(context, photo['id']);
         } else {
-          // Fallback to Gallery screen if no id
           HomeScreen.navigateToGallery(context);
         }
       },
@@ -7735,25 +7478,24 @@ class _StoriesCarouselWidgetState extends State<_StoriesCarouselWidget> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Circular Story Avatar with App Theme Color Border
             Container(
               width: storySize,
               height: storySize,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFF8B4513), // App theme brown color
+                color: Color(0xFF8B4513),
               ),
               padding: EdgeInsets.all(borderWidth),
               child: Container(
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.white,
                 ),
-                padding: EdgeInsets.all(2),
+                padding: const EdgeInsets.all(2),
                 child: ClipOval(
                   child: imageUrl != null
                       ? CachedImage(
-                          imageUrl: imageUrl!,
+                          imageUrl: imageUrl,
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
@@ -7916,14 +7658,16 @@ class _QuickActionsCarouselWidgetState extends State<_QuickActionsCarouselWidget
           children: List.generate(
             widget.quickActions.length,
             (index) => Container(
-              width: ResponsiveHelper.spacing(context, _currentPage == index ? 24 : 8),
-              height: ResponsiveHelper.spacing(context, 8),
+              width: _currentPage == index
+                  ? ResponsiveHelper.dim(context, mobile: 24, tablet: 32, desktop: 36)
+                  : ResponsiveHelper.dim(context, mobile: 8, tablet: 12, desktop: 14),
+              height: ResponsiveHelper.dim(context, mobile: 8, tablet: 12, desktop: 14),
               margin: ResponsiveHelper.padding(context, horizontal: 4),
               decoration: BoxDecoration(
                 color: _currentPage == index
                     ? const Color(0xFF5F4628)
                     : Colors.grey[300],
-                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 4)),
+                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 4, tablet: 6)),
               ),
             ),
           ),
@@ -7961,12 +7705,9 @@ class _QuickActionsCarouselWidgetState extends State<_QuickActionsCarouselWidget
             } else if (label.contains('Blogger') || label.contains('blogger')) {
               HomeScreen.navigateToBloggerZone(context);
             } else if (label.contains('Fruit') || label.contains('fruit')) {
-              PaymentGate.navigateToFeature(Routes.FRUITS);
+              Get.toNamed(Routes.FRUIT);
               } else if (label.contains('Group') || label.contains('group')) {
-                if (!Get.isRegistered<GroupsController>()) {
-                  Get.put(GroupsController());
-                }
-                Get.toNamed(Routes.GROUPS);
+                HomeScreen.navigateToGroups(context);
               }
             },
             onLongPress: () {
@@ -8056,4 +7797,193 @@ class _EmojiLoadingWrapperState extends State<_EmojiLoadingWrapper> {
   }
 }
 
+// Banners Carousel Widget
+class _BannersCarouselWidget extends StatefulWidget {
+  final List<Map<String, dynamic>> banners;
+
+  const _BannersCarouselWidget({
+    Key? key,
+    required this.banners,
+  }) : super(key: key);
+
+  @override
+  State<_BannersCarouselWidget> createState() => _BannersCarouselWidgetState();
+}
+
+class _BannersCarouselWidgetState extends State<_BannersCarouselWidget> {
+  late PageController _pageController;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.banners.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: EdgeInsets.symmetric(
+        horizontal: ResponsiveHelper.screenHorizontalInset(context),
+      ),
+      height: ResponsiveHelper.safeHeight(context, mobile: 180, tablet: 220, desktop: 260),
+      child: Column(
+        children: [
+          // Banner Carousel
+          Expanded(
+            child: PageView.builder(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() {
+                  _currentPage = index;
+                });
+                // Update BannersController current index
+                if (Get.isRegistered<BannersController>()) {
+                  Get.find<BannersController>().updateBannerIndex(index);
+                }
+              },
+              itemCount: widget.banners.length,
+              itemBuilder: (context, index) {
+                final banner = widget.banners[index];
+                return _buildBannerItem(context, banner);
+              },
+            ),
+          ),
+          
+          // Dot Indicators
+          if (widget.banners.length > 1) ...[
+            SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                widget.banners.length,
+                (index) => AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  margin: EdgeInsets.symmetric(horizontal: ResponsiveHelper.spacing(context, 4)),
+                  height: ResponsiveHelper.isMobile(context) ? 6 : 8,
+                  width: _currentPage == index 
+                    ? ResponsiveHelper.isMobile(context) ? 20 : 24
+                    : ResponsiveHelper.isMobile(context) ? 6 : 8,
+                  decoration: BoxDecoration(
+                    color: _currentPage == index 
+                      ? AppTheme.iconscolor 
+                      : Colors.grey.withOpacity(0.4),
+                    borderRadius: BorderRadius.circular(
+                      ResponsiveHelper.isMobile(context) ? 3 : 4,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBannerItem(BuildContext context, Map<String, dynamic> banner) {
+    final imageUrl = BannersService.getBannerImageUrl(banner['file_path'] ?? '');
+    final title = banner['title'] as String? ?? '';
+    
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: ResponsiveHelper.spacing(context, 4)),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(
+          ResponsiveHelper.borderRadius(context, mobile: 12, tablet: 16, desktop: 20),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(
+          ResponsiveHelper.borderRadius(context, mobile: 12, tablet: 16, desktop: 20),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Banner Image
+            CachedImage(
+              imageUrl: imageUrl,
+              fit: BoxFit.cover,
+              placeholder: Container(
+                color: Colors.grey[200],
+                child: Center(
+                  child: CircularProgressIndicator(
+                    color: AppTheme.iconscolor,
+                    strokeWidth: 2,
+                  ),
+                ),
+              ),
+              errorWidget: Container(
+                color: Colors.grey[200],
+                child: Icon(
+                  Icons.image_not_supported,
+                  color: Colors.grey[400],
+                  size: ResponsiveHelper.iconSize(context, mobile: 40),
+                ),
+              ),
+            ),
+            
+            // Optional: Title overlay removed as per request
+            // if (title.isNotEmpty)
+            //   Positioned(
+            //     bottom: 0,
+            //     left: 0,
+            //     right: 0,
+            //     child: Container(
+            //       padding: ResponsiveHelper.padding(
+            //         context,
+            //         vertical: 8,
+            //         horizontal: 12,
+            //       ),
+            //       decoration: BoxDecoration(
+            //         gradient: LinearGradient(
+            //           begin: Alignment.bottomCenter,
+            //           end: Alignment.topCenter,
+            //           colors: [
+            //             Colors.black.withOpacity(0.7),
+            //             Colors.transparent,
+            //           ],
+            //         ),
+            //       ),
+            //       child: Text(
+            //         title,
+            //         style: ResponsiveHelper.textStyle(
+            //           context,
+            //           fontSize: ResponsiveHelper.fontSize(
+            //             context,
+            //             mobile: 12,
+    //                     tablet: 14,
+    //                     desktop: 16,
+    //                   ),
+    //                   color: Colors.white,
+    //                   fontWeight: FontWeight.w600,
+    //                 ),
+    //                 textAlign: TextAlign.center,
+    //                 maxLines: 2,
+    //                 overflow: TextOverflow.ellipsis,
+    //               ),
+    //             ),
+    //           ),
+    //       ],
+    //     ),
+    //   ),
+    // );
+  ])));}
+}
 

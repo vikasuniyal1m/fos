@@ -93,8 +93,8 @@ class ScreenSize {
   
   /// Calculate responsive scale factors
   static void _calculateScaleFactors() {
-    // Base scale on screen width (375 is reference - iPhone X standard)
-    final baseWidth = 375.0;
+    // Base scale on reference device (OnePlus CPH2707 — 360×800 logical)
+    final baseWidth = 360.0;
     scaleFactor = screenWidth / baseWidth;
     
     textScale = 1.0;

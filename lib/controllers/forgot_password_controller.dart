@@ -31,12 +31,6 @@ class ForgotPasswordController extends GetxController {
       }
 
       message.value = successMessage;
-      
-      // Wait for 5 seconds as requested by the user
-      await Future.delayed(const Duration(seconds: 5));
-
-      // Navigate to ResetPasswordScreen
-      print('🚀 Navigating to ResetPasswordScreen with: $input');
       Get.toNamed(Routes.RESET_PASSWORD, arguments: input);
     } on ApiException catch (e) {
       message.value = e.message;

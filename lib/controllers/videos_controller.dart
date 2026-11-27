@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:get/get.dart';
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
+import 'package:fruitsofspirit/services/image_preload_service.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
@@ -9,12 +11,17 @@ import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/advanced_service.dart';
 import 'package:fruitsofspirit/services/content_moderation_service.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
+import 'package:fruitsofspirit/routes/routes.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
+import 'package:fruitsofspirit/services/payment_gate.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
 
 /// Videos Controller
 /// Manages videos data and operations
 class VideosController extends GetxController {
   // Observable variables
   var isLoading = false.obs;
+  var isDetailsSilentSyncing = false.obs;
   var message = ''.obs;
   
   // Data
@@ -38,19 +45,281 @@ class VideosController extends GetxController {
   // Performance: Track if data is already loaded to prevent unnecessary reloads
   var _isDataLoaded = false;
   var _isLoading = false;
+  int _loadGeneration = 0;
+  DateTime? _lastSyncedAt;
+  static const Duration _minSyncInterval = Duration(minutes: 2);
+  static const Duration _detailsMinSyncInterval = Duration(minutes: 2);
+  static const String _videosListHiveKey = 'videos_list';
+  Completer<void>? _activeLoadCompleter;
+  DateTime? _detailsLastSyncedAt;
+  int _detailsLoadGeneration = 0;
+  int? preparedDetailVideoId;
+  final Set<int> _deletedCommentIds = {};
 
   @override
   void onInit() {
     super.onInit();
     _loadUserId();
+    loadFromHiveIfEmpty();
   }
 
   @override
   void onReady() {
     super.onReady();
-    // Load videos including pending ones for the current user
-    loadVideos(includePending: true);
-    loadLiveVideos();
+    _seedFromHomeIfRegistered();
+    loadFromHiveIfEmpty();
+    if (_allVideos.isNotEmpty) {
+      _applyClientSideFilter();
+    }
+    unawaited(loadVideos(refresh: true, silent: true, includePending: true));
+    unawaited(loadLiveVideos());
+  }
+
+  void _seedFromHomeIfRegistered() {
+    if (!Get.isRegistered<HomeController>()) return;
+    final home = Get.find<HomeController>();
+    seedFromHomeIfEmpty(
+      homeVideos: home.videos.toList(),
+      homeLiveVideos: home.liveVideos.toList(),
+    );
+  }
+
+  /// Seed videos from home cache for instant open.
+  void seedFromHomeIfEmpty({
+    List<Map<String, dynamic>>? homeVideos,
+    List<Map<String, dynamic>>? homeLiveVideos,
+  }) {
+    if (_allVideos.isEmpty && homeVideos != null && homeVideos.isNotEmpty) {
+      _allVideos = List<Map<String, dynamic>>.from(homeVideos);
+      _isDataLoaded = true;
+      _applyClientSideFilter();
+    }
+    if (liveVideos.isEmpty && homeLiveVideos != null && homeLiveVideos.isNotEmpty) {
+      liveVideos.value = List<Map<String, dynamic>>.from(homeLiveVideos);
+    }
+    if (_allVideos.isNotEmpty) {
+      _preloadVideoThumbnails(_allVideos);
+    }
+  }
+
+  void loadFromHiveIfEmpty() {
+    if (_allVideos.isNotEmpty) return;
+    var cached = HiveCacheService.getCachedList(_videosListHiveKey);
+    if (cached.isEmpty) {
+      cached = HiveCacheService.getCachedList('home_videos');
+    }
+    if (cached.isEmpty) return;
+    _allVideos = List<Map<String, dynamic>>.from(cached);
+    _isDataLoaded = true;
+    _applyClientSideFilter();
+  }
+
+  int? _videoIdFromMap(Map<String, dynamic> map) {
+    final id = map['id'];
+    if (id is int) return id;
+    if (id is String) return int.tryParse(id);
+    return null;
+  }
+
+  String _videoDetailHiveKey(int videoId) => 'video_detail_$videoId';
+
+  void bootstrapVideoDetail(int videoId) {
+    if (videoId <= 0) return;
+
+    final currentId = _videoIdFromMap(selectedVideo);
+    if (currentId != null && currentId != videoId) {
+      videoComments.clear();
+      videoEmojiReactions.clear();
+      _deletedCommentIds.clear();
+    }
+
+    loadVideoDetailFromHive(videoId);
+    if (_videoIdFromMap(selectedVideo) != videoId || selectedVideo.isEmpty) {
+      if (Get.isRegistered<HomeController>()) {
+        final home = Get.find<HomeController>();
+        seedVideoDetailFromHome(
+          [
+            ...home.videos,
+            ...home.liveVideos,
+          ],
+          videoId,
+        );
+      }
+      if (_videoIdFromMap(selectedVideo) != videoId || selectedVideo.isEmpty) {
+        seedVideoDetailFromList(videoId);
+      }
+    }
+    preparedDetailVideoId = videoId;
+  }
+
+  void loadVideoDetailFromHive(int videoId) {
+    final cached = HiveCacheService.getCachedMap(_videoDetailHiveKey(videoId));
+    if (cached.isEmpty) return;
+
+    if (cached['video'] is Map) {
+      selectedVideo.value =
+          Map<String, dynamic>.from(cached['video'] as Map<String, dynamic>);
+    } else {
+      selectedVideo.value = Map<String, dynamic>.from(cached);
+    }
+
+    if (cached['comments'] is List && videoComments.isEmpty) {
+      videoComments.value = (cached['comments'] as List)
+          .whereType<Map>()
+          .map((c) => Map<String, dynamic>.from(c))
+          .where((c) => !_isCommentDeleted(c))
+          .map(_filterDeletedFromTree)
+          .toList();
+    }
+
+    if (cached['emoji_reactions'] is Map && videoEmojiReactions.isEmpty) {
+      final reactions = <String, List<Map<String, dynamic>>>{};
+      (cached['emoji_reactions'] as Map).forEach((key, value) {
+        if (value is List) {
+          reactions['$key'] = value
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+        }
+      });
+      if (reactions.isNotEmpty) {
+        videoEmojiReactions.value = reactions;
+      }
+    }
+  }
+
+  Future<void> _cacheVideoDetailSnapshot(int videoId) async {
+    if (selectedVideo.isEmpty) return;
+    await HiveCacheService.cacheMap(
+      _videoDetailHiveKey(videoId),
+      {
+        'video': Map<String, dynamic>.from(selectedVideo),
+        'comments': videoComments.toList(),
+        'emoji_reactions': videoEmojiReactions.map(
+          (key, value) => MapEntry(key, List<Map<String, dynamic>>.from(value)),
+        ),
+      },
+      expiryHours: 24,
+    );
+  }
+
+  void seedVideoDetailFromList(int videoId) {
+    if (_videoIdFromMap(selectedVideo) == videoId && selectedVideo.isNotEmpty) {
+      return;
+    }
+
+    Map<String, dynamic>? found;
+    for (final video in _allVideos) {
+      if (_videoIdFromMap(video) == videoId) {
+        found = video;
+        break;
+      }
+    }
+    if (found == null) {
+      for (final video in videos) {
+        if (_videoIdFromMap(video) == videoId) {
+          found = video;
+          break;
+        }
+      }
+    }
+    if (found == null) {
+      for (final video in liveVideos) {
+        if (_videoIdFromMap(video) == videoId) {
+          found = video;
+          break;
+        }
+      }
+    }
+
+    if (found != null) {
+      selectedVideo.value = Map<String, dynamic>.from(found);
+    }
+  }
+
+  void seedVideoDetailFromHome(
+    List<Map<String, dynamic>> homeVideos,
+    int videoId,
+  ) {
+    if (_videoIdFromMap(selectedVideo) == videoId && selectedVideo.isNotEmpty) {
+      return;
+    }
+    for (final video in homeVideos) {
+      if (_videoIdFromMap(video) == videoId) {
+        selectedVideo.value = Map<String, dynamic>.from(video);
+        return;
+      }
+    }
+  }
+
+  Future<void> prepareVideoDetails(int videoId) async {
+    if (videoId <= 0) return;
+
+    bootstrapVideoDetail(videoId);
+
+    final hasPreview =
+        _videoIdFromMap(selectedVideo) == videoId && selectedVideo.isNotEmpty;
+    unawaited(loadQuickEmojis());
+    unawaited(loadAvailableEmojis());
+    unawaited(loadVideoComments(videoId));
+
+    if (!hasPreview) {
+      unawaited(loadVideoDetails(videoId, silent: false));
+    } else {
+      unawaited(loadVideoDetails(videoId, silent: true));
+    }
+  }
+
+  bool _videoDetailNeedsUpdate(
+    Map<String, dynamic> local,
+    Map<String, dynamic> remote,
+  ) {
+    const keys = [
+      'updated_at',
+      'view_count',
+      'comment_count',
+      'title',
+      'description',
+      'file_path',
+      'status',
+      'thumbnail',
+      'thumbnail_url',
+    ];
+    for (final key in keys) {
+      if (local[key] != remote[key]) return true;
+    }
+    return false;
+  }
+
+  void _mergeVideoFields(Map<String, dynamic> remote) {
+    var changed = false;
+    for (final entry in remote.entries) {
+      if (selectedVideo[entry.key] != entry.value) {
+        selectedVideo[entry.key] = entry.value;
+        changed = true;
+      }
+    }
+    if (changed) {
+      selectedVideo.refresh();
+    }
+  }
+
+  Future<void> _cacheVideosList() async {
+    if (_allVideos.isEmpty) return;
+    final snapshot = List<Map<String, dynamic>>.from(_allVideos);
+    await HiveCacheService.cacheList(
+      _videosListHiveKey,
+      snapshot,
+      expiryHours: 24,
+    );
+    final homeSlice = snapshot.take(5).toList();
+    if (homeSlice.isNotEmpty) {
+      await HiveCacheService.cacheList(
+        'home_videos',
+        homeSlice,
+        expiryHours: 24,
+      );
+    }
   }
 
   /// Set initial data from cache
@@ -71,78 +340,155 @@ class VideosController extends GetxController {
   }
 
   /// Load videos
-  Future<void> loadVideos({bool refresh = false, bool includePending = false}) async {
-    if (refresh) {
-      currentPage.value = 0;
+  Future<void> loadVideos({
+    bool refresh = false,
+    bool includePending = false,
+    bool silent = false,
+  }) async {
+    if (_isLoading) {
+      if (_activeLoadCompleter != null) {
+        await _activeLoadCompleter!.future;
+      }
+      if (_allVideos.isNotEmpty) {
+        _applyClientSideFilter();
+      }
+      return;
     }
 
-    isLoading.value = true;
+    if (_isDataLoaded && !refresh && _allVideos.isNotEmpty) {
+      _applyClientSideFilter();
+      return;
+    }
+
+    if (silent &&
+        _lastSyncedAt != null &&
+        DateTime.now().difference(_lastSyncedAt!) < _minSyncInterval) {
+      if (_allVideos.isNotEmpty) {
+        _applyClientSideFilter();
+      }
+      return;
+    }
+
+    final generation = silent ? _loadGeneration : ++_loadGeneration;
+    _activeLoadCompleter = Completer<void>();
+
+    if (refresh) {
+      currentPage.value = 0;
+      _isDataLoaded = false;
+    }
+
+    _isLoading = true;
+    if (!silent) {
+      isLoading.value = true;
+    }
     message.value = '';
 
     try {
-      // Performance: Always load ALL videos (no fruit tag filter) to populate cache
-      // Then apply client-side filtering for instant updates
+      if (userId.value == 0) {
+        await _loadUserId();
+      }
+
       final approvedVideos = await VideosService.getVideos(
         status: 'Approved',
-        fruitTag: null, // Always load all videos for cache
+        fruitTag: null,
         currentUserId: userId.value > 0 ? userId.value : null,
         limit: itemsPerPage,
         offset: currentPage.value * itemsPerPage,
       );
 
-      // If user wants to see their pending videos, load them too
+      if (generation != _loadGeneration) {
+        return;
+      }
+
       List<Map<String, dynamic>> allVideos = List.from(approvedVideos);
-      
-      // Always include pending videos if a user is logged in
-      if (userId.value > 0) {
+
+      if (userId.value > 0 && (includePending || refresh || currentPage.value == 0)) {
         try {
           final pendingVideos = await VideosService.getVideos(
             status: 'Pending',
             userId: userId.value,
-            fruitTag: null, // Always load all videos for cache
+            fruitTag: null,
             limit: 10,
             offset: 0,
           );
-          // Add pending videos at the beginning
           allVideos.insertAll(0, pendingVideos);
         } catch (e) {
           print('Error loading pending videos: $e');
         }
       }
 
-      print('📹 Total Videos Loaded: ${allVideos.length} (Approved: ${approvedVideos.length})');
-      for (var video in allVideos) {
-        final status = video['status'] ?? 'Unknown';
-        final thumbnailPath = video['thumbnail_path'] ?? 'N/A';
-        print('   - Video: ${video['file_path']} (Status: $status, Thumbnail: $thumbnailPath)');
+      if (!silent && generation != _loadGeneration) {
+        return;
       }
 
       if (refresh || currentPage.value == 0) {
-        // Performance: Store ALL videos in cache (no filters)
-        _allVideos = List<Map<String, dynamic>>.from(allVideos);
-        // Apply current filter to display
-        _applyClientSideFilter();
+        final hasChanged = !_videoListsEqual(_allVideos, allVideos);
+        if (hasChanged || _allVideos.isEmpty) {
+          _allVideos = List<Map<String, dynamic>>.from(allVideos);
+          _applyClientSideFilter();
+        }
       } else {
-        // Performance: Add to all videos cache
         _allVideos.addAll(allVideos);
-        // Apply current filter to display
         _applyClientSideFilter();
       }
-      
-      // Force UI refresh to ensure changes are visible
+
       videos.refresh();
-      
-      // Performance: Mark as loaded
       _isDataLoaded = true;
+      _lastSyncedAt = DateTime.now();
+      unawaited(_cacheVideosList());
+      _preloadVideoThumbnails(_allVideos);
     } catch (e) {
-      message.value = 'Error loading videos: ${e.toString().replaceAll('Exception: ', '')}';
+      if (!silent) {
+        message.value = 'Error loading videos: ${e.toString().replaceAll('Exception: ', '')}';
+      }
       print('Error loading videos: $e');
-      if (refresh || currentPage.value == 0) {
+      if (!silent && (refresh || currentPage.value == 0) && _allVideos.isEmpty) {
         videos.value = [];
+        _isDataLoaded = false;
+      } else if (_allVideos.isNotEmpty) {
+        _applyClientSideFilter();
       }
     } finally {
-      isLoading.value = false;
+      _isLoading = false;
+      _activeLoadCompleter?.complete();
+      _activeLoadCompleter = null;
+      if (!silent) {
+        isLoading.value = false;
+      }
     }
+  }
+
+  void _preloadVideoThumbnails(List<Map<String, dynamic>> items) {
+    final urls = <String>[];
+    for (final video in items) {
+      final url = VideosService.getThumbnailUrl(video);
+      if (url != null && url.isNotEmpty) {
+        urls.add(url);
+      }
+      if (urls.length >= 16) break;
+    }
+    if (urls.isNotEmpty) {
+      unawaited(ImagePreloadService().preloadImages(urls, priorityLimit: 6));
+    }
+  }
+
+  bool _videoListsEqual(
+    List<Map<String, dynamic>> previous,
+    List<Map<String, dynamic>> next,
+  ) {
+    if (identical(previous, next)) return true;
+    if (previous.length != next.length) return false;
+
+    for (var i = 0; i < previous.length; i++) {
+      final prev = previous[i];
+      final curr = next[i];
+      if (prev['id'] != curr['id']) return false;
+      if (prev['updated_at'] != curr['updated_at']) return false;
+      if (prev['status'] != curr['status']) return false;
+      if (prev['view_count'] != curr['view_count']) return false;
+      if (prev['comment_count'] != curr['comment_count']) return false;
+    }
+    return true;
   }
 
   /// Load live videos
@@ -164,28 +510,75 @@ class VideosController extends GetxController {
     await loadVideos();
   }
 
-  /// Load single video with comments
-  Future<void> loadVideoDetails(int videoId) async {
-    isLoading.value = true;
+  /// Load single video with comments (silent = no blocking spinner if preview exists).
+  Future<void> loadVideoDetails(
+    int videoId, {
+    bool silent = false,
+    bool force = false,
+  }) async {
+    if (silent &&
+        !force &&
+        _detailsLastSyncedAt != null &&
+        _videoIdFromMap(selectedVideo) == videoId &&
+        DateTime.now().difference(_detailsLastSyncedAt!) < _detailsMinSyncInterval) {
+      return;
+    }
+
+    final generation = silent ? _detailsLoadGeneration : ++_detailsLoadGeneration;
+    final hadPreview =
+        _videoIdFromMap(selectedVideo) == videoId && selectedVideo.isNotEmpty;
+
+    if (!silent && !hadPreview) {
+      isLoading.value = true;
+    } else if (silent && hadPreview) {
+      isDetailsSilentSyncing.value = true;
+    }
     message.value = '';
 
     try {
+      if (userId.value == 0) {
+        await _loadUserId();
+      }
+
       final video = await VideosService.getVideoDetails(
         videoId,
         currentUserId: userId.value > 0 ? userId.value : null,
       );
-      selectedVideo.value = video;
-      
-      // Load comments and emojis
-      await Future.wait([
-        loadVideoComments(videoId),
-        loadAvailableEmojis(),
-      ]);
+
+      if (generation != _detailsLoadGeneration) {
+        return;
+      }
+
+      if (silent &&
+          hadPreview &&
+          !force &&
+          !_videoDetailNeedsUpdate(selectedVideo, video)) {
+        _detailsLastSyncedAt = DateTime.now();
+        unawaited(loadVideoComments(videoId));
+        return;
+      }
+
+      if (silent && hadPreview) {
+        _mergeVideoFields(video);
+      } else {
+        selectedVideo.value = video;
+      }
+
+      _detailsLastSyncedAt = DateTime.now();
+      unawaited(_cacheVideoDetailSnapshot(videoId));
+
+      unawaited(loadVideoComments(videoId));
+      unawaited(loadAvailableEmojis());
+      unawaited(loadQuickEmojis());
     } catch (e) {
-      message.value = 'Error loading video: ${e.toString().replaceAll('Exception: ', '')}';
+      if (!silent || !hadPreview) {
+        message.value =
+            'Error loading video: ${e.toString().replaceAll('Exception: ', '')}';
+      }
       print('Error loading video details: $e');
     } finally {
       isLoading.value = false;
+      isDetailsSilentSyncing.value = false;
     }
   }
 
@@ -218,10 +611,13 @@ class VideosController extends GetxController {
         final content = comment['content'] as String? ?? '';
         final trimmed = content.trim();
         final parentId = comment['parent_comment_id'];
-        final commentId = comment['id'];
-        
+
         // Skip replies (they should be in replies array)
         if (parentId != null && parentId != 0) {
+          continue;
+        }
+
+        if (_isCommentDeleted(comment)) {
           continue;
         }
         
@@ -260,37 +656,30 @@ class VideosController extends GetxController {
         }
         
         if (isEmojiReaction && emojiKey != null) {
-          // It's an emoji reaction - store user information
           if (!emojiReactions.containsKey(emojiKey)) {
             emojiReactions[emojiKey] = [];
           }
-          // Add user info for this reaction
           emojiReactions[emojiKey]!.add({
             'user_id': comment['user_id'],
             'user_name': comment['user_name'] ?? 'Anonymous',
             'profile_photo': comment['profile_photo'],
             'created_at': comment['created_at'],
           });
-          print('✅ Added emoji reaction: $emojiKey by ${comment['user_name']} (total: ${emojiReactions[emojiKey]!.length})');
-        } else {
-          // It's a text comment - only add top-level comments
-          if (parentId == null || parentId == 0) {
-            textComments.add(comment);
-          }
         }
+
+        textComments.add(_filterDeletedFromTree(comment));
       }
-      
-      print('📊 Loaded ${emojiReactions.length} emoji reaction types and ${textComments.length} top-level comments');
-      for (var emoji in emojiReactions.keys) {
-        print('   - $emoji: ${emojiReactions[emoji]!.length} reactions');
-      }
-      
+
       videoComments.value = textComments;
       videoEmojiReactions.value = emojiReactions;
+      _deletedCommentIds.removeWhere((id) => !_commentExistsInList(textComments, id));
+      unawaited(_cacheVideoDetailSnapshot(videoId));
     } catch (e) {
       print('Error loading video comments: $e');
-      videoComments.value = [];
-      videoEmojiReactions.value = {};
+      if (videoComments.isEmpty) {
+        videoComments.value = [];
+        videoEmojiReactions.value = {};
+      }
     }
   }
 
@@ -324,36 +713,14 @@ class VideosController extends GetxController {
   /// Load available emojis
   /// Loads all emojis from database so reactions can be mapped correctly
   Future<void> loadAvailableEmojis() async {
+    if (availableEmojis.isNotEmpty) return;
     try {
-      print('🔄 Loading all available emojis from database for reactions mapping...');
       final emojis = await EmojisService.getEmojis(
         status: 'Active',
         sortBy: 'image_url',
         order: 'ASC',
       );
       availableEmojis.value = emojis;
-      print('✅ Loaded ${emojis.length} available emojis');
-      if (emojis.isNotEmpty) {
-        print('📋 Sample emojis:');
-        for (var i = 0; i < (emojis.length > 10 ? 10 : emojis.length); i++) {
-          print('   ${i + 1}. ${emojis[i]['name']} - emoji_char: "${emojis[i]['emoji_char']}" - code: ${emojis[i]['code']} - image: ${emojis[i]['image_url']}');
-        }
-        // Group by name to show all variants
-        final grouped = <String, List<Map<String, dynamic>>>{};
-        for (var emoji in emojis) {
-          final name = emoji['name'] as String? ?? 'Unknown';
-          if (!grouped.containsKey(name)) {
-            grouped[name] = [];
-          }
-          grouped[name]!.add(emoji);
-        }
-        print('📊 Emojis grouped by name:');
-        grouped.forEach((name, emojiList) {
-          print('   $name: ${emojiList.length} variants');
-        });
-      } else {
-        print('⚠️ WARNING: No emojis loaded! Check API endpoint and database.');
-      }
     } catch (e) {
       print('❌ Error loading emojis: $e');
       availableEmojis.value = [];
@@ -362,6 +729,7 @@ class VideosController extends GetxController {
 
   /// Load quick emojis (top 6 by usage)
   Future<void> loadQuickEmojis() async {
+    if (quickEmojis.isNotEmpty) return;
     try {
       final emojis = await EmojisService.getQuickEmojis();
       quickEmojis.value = emojis;
@@ -394,8 +762,7 @@ class VideosController extends GetxController {
       // This line should not exist - reactions are loaded from comments API
       // videoEmojiReactions are now loaded from loadVideoComments()
       
-      // Reload comments to get updated counts
-      await loadVideoComments(videoId);
+      unawaited(loadVideoComments(videoId));
       
       return true;
     } catch (e) {
@@ -556,6 +923,106 @@ class VideosController extends GetxController {
     }
   }
 
+  int _commentIdFromMap(Map<String, dynamic> comment) {
+    final id = comment['id'];
+    if (id is int) return id;
+    return int.tryParse('$id') ?? 0;
+  }
+
+  bool _isCommentDeleted(Map<String, dynamic> comment) {
+    final id = _commentIdFromMap(comment);
+    if (_deletedCommentIds.contains(id)) return true;
+    final deleted = comment['is_deleted'];
+    return deleted == 1 || deleted == true || deleted == '1';
+  }
+
+  bool _commentExistsInList(List<Map<String, dynamic>> items, int commentId) {
+    for (final comment in items) {
+      if (_commentIdFromMap(comment) == commentId) return true;
+      final replies = comment['replies'];
+      if (replies is List && replies.isNotEmpty) {
+        final nested = replies
+            .whereType<Map>()
+            .map((r) => Map<String, dynamic>.from(r))
+            .toList();
+        if (_commentExistsInList(nested, commentId)) return true;
+      }
+    }
+    return false;
+  }
+
+  Map<String, dynamic> _filterDeletedFromTree(Map<String, dynamic> comment) {
+    final copy = Map<String, dynamic>.from(comment);
+    final replies = copy['replies'];
+    if (replies is List && replies.isNotEmpty) {
+      final filtered = replies
+          .whereType<Map>()
+          .map((r) => Map<String, dynamic>.from(r))
+          .where((r) => !_isCommentDeleted(r))
+          .map(_filterDeletedFromTree)
+          .toList();
+      copy['replies'] = filtered;
+      copy['reply_count'] = filtered.length;
+    }
+    return copy;
+  }
+
+  void _removeCommentLocally(int commentId) {
+    if (commentId <= 0) return;
+
+    videoComments.removeWhere((c) => _commentIdFromMap(c) == commentId);
+
+    final updated = <Map<String, dynamic>>[];
+    for (final comment in videoComments) {
+      final copy = Map<String, dynamic>.from(comment);
+      final replies = copy['replies'];
+      if (replies is List && replies.isNotEmpty) {
+        copy['replies'] = replies
+            .whereType<Map>()
+            .map((r) => Map<String, dynamic>.from(r))
+            .where((r) => _commentIdFromMap(r) != commentId)
+            .toList();
+      }
+      updated.add(copy);
+    }
+    videoComments.value = updated;
+  }
+
+  Future<void> _deleteCommentOnServer(int videoId, int commentId) async {
+    try {
+      await CommentsService.deleteComment(
+        userId: userId.value,
+        commentId: commentId,
+        postType: 'video',
+      );
+      await _cacheVideoDetailSnapshot(videoId);
+    } catch (e) {
+      _deletedCommentIds.remove(commentId);
+      message.value = 'Error: ${e.toString().replaceAll('Exception: ', '')}';
+      await loadVideoComments(videoId);
+      videoComments.refresh();
+    }
+  }
+
+  /// Delete comment with instant UI update.
+  Future<bool> deleteVideoComment(int videoId, int commentId) async {
+    if (userId.value == 0) {
+      await _loadUserId();
+    }
+    if (userId.value == 0) {
+      message.value = 'Please login first';
+      return false;
+    }
+    if (commentId <= 0) return false;
+
+    _deletedCommentIds.add(commentId);
+    _removeCommentLocally(commentId);
+    videoComments.refresh();
+    unawaited(_cacheVideoDetailSnapshot(videoId));
+    unawaited(_deleteCommentOnServer(videoId, commentId));
+    return true;
+  }
+
   /// Toggle comment like
   Future<Map<String, dynamic>?> toggleCommentLike(int commentId) async {
     if (userId.value == 0) {
@@ -714,5 +1181,42 @@ class VideosController extends GetxController {
         ),
       );
     }
+  }
+
+  static int _parseVideoId(dynamic videoId) {
+    if (videoId is int) return videoId;
+    return int.tryParse('$videoId') ?? 0;
+  }
+
+  /// Pre-warm cache then open video detail (use from any screen).
+  static Future<void> openVideoDetail(dynamic videoId) async {
+    final id = _parseVideoId(videoId);
+    if (id <= 0) return;
+
+    final VideosController controller;
+    if (Get.isRegistered<VideosController>()) {
+      controller = Get.find<VideosController>();
+    } else {
+      controller = Get.put(VideosController(), permanent: true);
+    }
+
+    controller.bootstrapVideoDetail(id);
+    final thumb = VideosService.getThumbnailUrl(controller.selectedVideo);
+    if (thumb != null && thumb.isNotEmpty) {
+      unawaited(ImagePreloadService().preloadImages([thumb], priorityLimit: 1));
+    }
+    unawaited(controller.prepareVideoDetails(id));
+    await PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: id);
+  }
+
+  @override
+  void onClose() {
+    videos.clear();
+    _allVideos.clear();
+    liveVideos.clear();
+    videoComments.clear();
+    videoEmojiReactions.clear();
+    _isDataLoaded = false;
+    super.onClose();
   }
 }

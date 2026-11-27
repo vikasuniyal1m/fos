@@ -1,14 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
-import 'package:fruitsofspirit/config/image_config.dart';
-import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
-import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
+import 'package:fruitsofspirit/widgets/video_thumbnail_widget.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
 
 /// Videos Screen
@@ -26,9 +25,13 @@ class _VideosScreenState extends State<VideosScreen> {
   @override
   void initState() {
     super.initState();
-    // Refresh videos when screen is opened
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      controller.loadVideos(refresh: true, includePending: true);
+      controller.selectedFruitTag.value = '';
+      controller.loadFromHiveIfEmpty();
+      unawaited(
+        controller.loadVideos(refresh: true, silent: true, includePending: true),
+      );
+      unawaited(controller.loadLiveVideos());
     });
   }
 
@@ -49,15 +52,7 @@ class _VideosScreenState extends State<VideosScreen> {
           ),
         ],
       ),
-      body: PopScope(
-        canPop: true,
-        onPopInvoked: (didPop) {
-          if (didPop) {
-            // Refresh videos when user navigates back
-            controller.loadVideos(refresh: true, includePending: true);
-          }
-        },
-        child: Obx(() {
+      body: Obx(() {
           if (controller.isLoading.value && controller.videos.isEmpty) {
           return Center(
             child: CircularProgressIndicator(
@@ -114,6 +109,7 @@ class _VideosScreenState extends State<VideosScreen> {
           onRefresh: () => controller.refresh(),
           color: AppTheme.iconscolor,
           child: GridView.builder(
+            cacheExtent: 800,
             padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: ResponsiveHelper.isTablet(context) ? 3 : 2,
@@ -124,12 +120,14 @@ class _VideosScreenState extends State<VideosScreen> {
             itemCount: controller.videos.length,
             itemBuilder: (context, index) {
               final video = controller.videos[index];
-              return _buildVideoCard(context, video, controller);
+              return KeyedSubtree(
+                key: ValueKey('video-card-${video['id'] ?? index}'),
+                child: _buildVideoCard(context, video, controller),
+              );
             },
           ),
         );
-        }        ),
-      ),
+      }),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           await PaymentGate.navigateToFeature(Routes.UPLOAD_VIDEO);
@@ -154,15 +152,20 @@ class _VideosScreenState extends State<VideosScreen> {
 
   Widget _buildVideoCard(BuildContext context, Map<String, dynamic> video, VideosController controller) {
     final isPending = video['status'] == 'Pending' || video['status'] == 'pending';
-    final filePath = video['file_path'] as String? ?? '';
-    final thumbnailPath = video['thumbnail_path'] as String?;
 
-    
     return GestureDetector(
-      onTap: () => PaymentGate.navigateToFeature(
-        Routes.VIDEO_DETAILS,
-        arguments: video['id'],
-      ),
+      onTap: () {
+        final id = video['id'];
+        controller.bootstrapVideoDetail(
+          id is int ? id : int.tryParse('$id') ?? 0,
+        );
+        unawaited(
+          controller.prepareVideoDetails(
+            id is int ? id : int.tryParse('$id') ?? 0,
+          ),
+        );
+        PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: id);
+      },
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -189,37 +192,11 @@ class _VideosScreenState extends State<VideosScreen> {
                 ),
                 child: Stack(
                   children: [
-                    // Background Image
                     Positioned.fill(
-                      child: _getThumbnailUrl(video) != ImageConfig.videoThumbnail
-                          ? CachedImage(
-                              imageUrl: _getThumbnailUrl(video),
-                              fit: BoxFit.cover,
-                              errorWidget: _getVideoUrl(video) != null
-                                  ? CustomVideoThumbnail(
-                                      videoUrl: _getVideoUrl(video)!,
-                                      fit: BoxFit.cover,
-                                    )
-                                  : Image.network(
-                                      ImageConfig.videoThumbnail,
-                                      fit: BoxFit.cover,
-                                    ),
-                              placeholder: Container(
-                                color: Colors.grey[200],
-                                child: const Center(
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              ),
-                            )
-                          : _getVideoUrl(video) != null
-                              ? CustomVideoThumbnail(
-                                  videoUrl: _getVideoUrl(video)!,
-                                  fit: BoxFit.cover,
-                                )
-                              : Image.network(
-                                  ImageConfig.videoThumbnail,
-                                  fit: BoxFit.cover,
-                                ),
+                      child: VideoThumbnailWidget(
+                        video: video,
+                        fit: BoxFit.cover,
+                      ),
                     ),
                     // Pending Badge
                     if (isPending)
@@ -331,70 +308,5 @@ class _VideosScreenState extends State<VideosScreen> {
     );
   }
 
-  String _getThumbnailUrl(Map<String, dynamic> video) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
-
-    // Priority 1: Check thumbnail_path (from database - generated during upload)
-    if (video['thumbnail_path'] != null && (video['thumbnail_path'] as String).isNotEmpty) {
-      final thumbnailPath = video['thumbnail_path'] as String;
-      if (!thumbnailPath.startsWith('http')) {
-        final cleanPath = thumbnailPath.startsWith('/') ? thumbnailPath.substring(1) : thumbnailPath;
-        return baseUrl + cleanPath;
-      }
-      return thumbnailPath;
-    }
-    
-    // Priority 2: Check thumbnail (legacy field)
-    if (video['thumbnail'] != null && (video['thumbnail'] as String).isNotEmpty) {
-      final thumbnail = video['thumbnail'] as String;
-      if (!thumbnail.startsWith('http')) {
-        final cleanPath = thumbnail.startsWith('/') ? thumbnail.substring(1) : thumbnail;
-        return baseUrl + cleanPath;
-      }
-      return thumbnail;
-    }
-
-    // Priority 3: Check if file_path is an image (not a video)
-    if (video['file_path'] != null) {
-      final filePath = video['file_path'].toString();
-      final lowerPath = filePath.toLowerCase();
-      if (!lowerPath.endsWith('.mp4') &&
-          !lowerPath.endsWith('.mov') &&
-          !lowerPath.endsWith('.avi') &&
-          !lowerPath.endsWith('.webm') &&
-          !lowerPath.endsWith('.mkv')) {
-        if (!filePath.startsWith('http')) {
-          final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-          return baseUrl + cleanPath;
-        }
-        return filePath;
-      }
-    }
-    
-    // Fallback
-    return ImageConfig.videoThumbnail;
-  }
-
-  String? _getVideoUrl(Map<String, dynamic> video) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
-    if (video['file_path'] != null) {
-      final filePath = video['file_path'].toString();
-      if (filePath.isNotEmpty) {
-        final lowerPath = filePath.toLowerCase();
-        if (lowerPath.endsWith('.mp4') ||
-            lowerPath.endsWith('.mov') ||
-            lowerPath.endsWith('.avi') ||
-            lowerPath.endsWith('.webm') ||
-            lowerPath.endsWith('.mkv')) {
-          if (filePath.startsWith('http')) {
-            return filePath;
-          }
-          final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-          return baseUrl + cleanPath;
-        }
-      }
-    }
-    return null;
-  }
 }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/groups_controller.dart';
@@ -64,17 +66,13 @@ class GroupDetailsScreen extends GetView<GroupsController> {
     final int? currentGroupId = groupId ?? Get.arguments as int?;
     final int effectiveGroupId = currentGroupId ?? 0;
     
-    // Always load group details when navigating to this screen
-    // This ensures fresh data is loaded every time the screen is accessed
     if (effectiveGroupId > 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        // Ensure user groups are loaded for membership check
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.bootstrapGroupDetail(effectiveGroupId);
         if (controller.userGroups.isEmpty) {
-          await controller.loadUserGroups();
+          unawaited(controller.loadUserGroups(silent: true));
         }
-        // Always load group details regardless of current state
-        // This fixes the issue where group content wasn't loading on navigation
-        await controller.loadGroupDetails(effectiveGroupId);
+        unawaited(controller.prepareGroupDetails(effectiveGroupId));
       });
     }
 
@@ -119,7 +117,7 @@ class GroupDetailsScreen extends GetView<GroupsController> {
 
         final group = controller.selectedGroup;
         final isMember = controller.isMember(effectiveGroupId);
-        final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+        final baseUrl = 'http://admin.fosmessenger.com/';
         String? imageUrl;
         if (group['group_image'] != null && group['group_image'].toString().isNotEmpty) {
           final imgPath = group['group_image'].toString();
@@ -133,10 +131,10 @@ class GroupDetailsScreen extends GetView<GroupsController> {
         final memberCount = controller.groupMembers.length;
 
         return RefreshIndicator(
-          onRefresh: () async {
-            // Refresh group details when user pulls down
-            await controller.loadGroupDetails(effectiveGroupId);
-          },
+          onRefresh: () => controller.loadGroupDetails(
+            effectiveGroupId,
+            force: true,
+          ),
           color: AppTheme.iconscolor,
           backgroundColor: Colors.white,
           child: SingleChildScrollView(
@@ -363,13 +361,11 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                       // Get category and play jingle before navigation
                       final group = controller.selectedGroup;
                       final category = group['category'] as String? ?? '';
-                      
-                      if (category.isNotEmpty) {
-                        final jingleService = Get.find<JingleService>();
-                        // Start jingle first (non-blocking)
-                        jingleService.startJingle(category);
-                      }
-                      
+                      final groupName = group['name'] as String? ?? '';
+                      print('🔊 Group category: $category, Group name: $groupName');
+                      // Play jingle for the group category
+                      final jingleService = Get.find<JingleService>();
+                      await jingleService.startJingle(category, groupName: groupName);
                       // Navigate to chat (payment gate)
                       await PaymentGate.navigateToFeature(Routes.GROUP_CHAT, arguments: effectiveGroupId);
                     },
@@ -437,7 +433,9 @@ class GroupDetailsScreen extends GetView<GroupsController> {
                   ),
                 )
               else
-                ...controller.groupMembers.map((member) => _buildMemberCard(context, member)),
+                ...controller.groupMembers.map(
+                  (member) => _buildMemberCard(context, member, effectiveGroupId),
+                ),
             ],
           ),
         ),
@@ -446,8 +444,8 @@ class GroupDetailsScreen extends GetView<GroupsController> {
   );
 }
 
-  Widget _buildMemberCard(BuildContext context, Map<String, dynamic> member) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+  Widget _buildMemberCard(BuildContext context, Map<String, dynamic> member, int groupId) {
+    final baseUrl = 'http://admin.fosmessenger.com/';
     String? profilePhoto;
     if (member['profile_photo'] != null && member['profile_photo'].toString().isNotEmpty) {
       final photoPath = member['profile_photo'].toString();
@@ -522,8 +520,75 @@ class GroupDetailsScreen extends GetView<GroupsController> {
               ],
             ),
           ),
+          if (_canRemoveMember(member, groupId))
+            IconButton(
+              icon: const Icon(Icons.person_remove_outlined, color: Colors.red, size: 22),
+              tooltip: 'Remove member',
+              onPressed: () => _confirmRemoveMember(context, member, groupId),
+            ),
         ],
       ),
     );
+  }
+
+  bool _canRemoveMember(Map<String, dynamic> member, int groupId) {
+    if (!controller.isGroupOwner(groupId)) return false;
+
+    final memberUserId = member['user_id'];
+    final memberId = memberUserId is int
+        ? memberUserId
+        : int.tryParse(memberUserId?.toString() ?? '') ?? 0;
+
+    if (memberId <= 0 || memberId == controller.userId.value) return false;
+
+    final createdBy = controller.selectedGroup['created_by'];
+    final ownerId = createdBy is int
+        ? createdBy
+        : int.tryParse(createdBy?.toString() ?? '') ?? 0;
+
+    return memberId != ownerId;
+  }
+
+  Future<void> _confirmRemoveMember(
+    BuildContext context,
+    Map<String, dynamic> member,
+    int groupId,
+  ) async {
+    final memberName = member['name'] as String? ?? 'this member';
+    final memberUserId = member['user_id'];
+    final memberId = memberUserId is int
+        ? memberUserId
+        : int.tryParse(memberUserId?.toString() ?? '') ?? 0;
+
+    if (memberId <= 0) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove Member'),
+        content: Text('Remove $memberName from this group?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    final success = await controller.removeMember(groupId, memberId);
+    if (!context.mounted) return;
+
+    if (success) {
+      _showCustomSnackbar(context, 'Member removed successfully');
+    } else if (controller.message.value.isNotEmpty) {
+      _showCustomSnackbar(context, controller.message.value, isError: true);
+    }
   }
 }

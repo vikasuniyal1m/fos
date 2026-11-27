@@ -101,24 +101,10 @@ class UserStorage {
   static Future<void> saveUser(Map<String, dynamic> user) async {
     final box = await _getBox();
     await box.put(_keyUser, jsonEncode(user));
-
-    // Safely parse ID which might be String or Int from different APIs
-    int? userId;
-    if (user['id'] != null) {
-      if (user['id'] is int) {
-        userId = user['id'] as int;
-      } else if (user['id'] is String) {
-        userId = int.tryParse(user['id']);
-      }
-    }
-
-    if (userId != null) {
+    final userId = user['id'];
+    if (userId is int) {
       await box.put(_keyUserId, userId);
-      print('✅ User ID saved to storage: $userId');
-    } else {
-      print('⚠️ Warning: No valid ID found in user data: ${user['id']}');
     }
-
     await box.put(_keyIsLoggedIn, true);
   }
 
@@ -144,21 +130,24 @@ class UserStorage {
       final userId = box.get(_keyUserId);
       if (userId is int) {
         return userId;
-      } else if (userId is String) {
-        final parsed = int.tryParse(userId);
-        if (parsed != null) return parsed;
       }
-
-      // Fallback: Check in user_data map if ID exists there
-      final user = await getUser();
-      if (user != null && user['id'] != null) {
-        if (user['id'] is int) return user['id'] as int;
-        if (user['id'] is String) return int.tryParse(user['id']);
-      }
-
       return null;
     } catch (e) {
       print('⚠️ Error getting user ID from Hive: $e');
+      return null;
+    }
+  }
+
+  /// Get User Email
+  static Future<String?> getUserEmail() async {
+    try {
+      final user = await getUser();
+      if (user != null && user.containsKey('email')) {
+        return user['email'] as String?;
+      }
+      return null;
+    } catch (e) {
+      print('⚠️ Error getting user email from Hive: $e');
       return null;
     }
   }
@@ -184,12 +173,14 @@ class UserStorage {
 
   /// Clear User Data (Logout)
   static Future<void> clearUser() async {
-    final box = await _getBox();
-    await box.delete(_keyUser);
-    await box.delete(_keyUserId);
-    await box.delete(_keyUserFeeling); // Also clear feeling on logout
-    await box.delete(_keyUgcTermsAccepted); // Clear terms acceptance on logout to ensure safety
-    await box.put(_keyIsLoggedIn, false);
+    try {
+      final box = await _getBox();
+      await box.clear(); // Thoroughly clear all data in the box
+      await box.put(_keyIsLoggedIn, false);
+      print('✅ All user storage data cleared');
+    } catch (e) {
+      print('⚠️ Error clearing user storage: $e');
+    }
   }
 
   /// Clear User Data (Alias for clearUser - for account deletion)
@@ -310,4 +301,3 @@ class UserStorage {
     }
   }
 }
-

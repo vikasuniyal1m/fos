@@ -1,0 +1,59 @@
+name: Build Android
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-android:
+    name: Build Android Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          cache: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # key.properties is not in the repo. Create a throwaway key so the release
+      # build can be verified in CI. Output is NOT for store upload.
+      - name: Create temporary CI signing key
+        run: |
+          keytool -genkeypair -keystore android/app/ci-keystore.jks \
+            -storepass ci-password -keypass ci-password -alias ci \
+            -keyalg RSA -keysize 2048 -validity 10 -dname "CN=CI"
+          printf 'storePassword=ci-password\nkeyPassword=ci-password\nkeyAlias=ci\nstoreFile=app/ci-keystore.jks\n' > android/key.properties
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Build App Bundle (AAB)
+        run: flutter build appbundle --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: build/app/outputs/bundle/release/app-release.aab

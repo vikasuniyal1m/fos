@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:fruitsofspirit/controllers/home_controller.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/services/search_service.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
@@ -12,8 +16,11 @@ import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/widgets/blog_media_widget.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
 import 'package:fruitsofspirit/widgets/custom_video_thumbnail.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
+import 'package:fruitsofspirit/screens/home_screen.dart';
 
 /// Search Screen
 class SearchScreen extends StatefulWidget {
@@ -24,146 +31,277 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
+  // Survives route pop so reopening Search from Home is instant.
+  static final Map<String, Map<String, dynamic>> _sessionResultsCache = {};
+  static final Map<String, DateTime> _sessionCacheFetchedAt = {};
+  static bool _sessionAuthChecked = false;
+  static bool _sessionAuthenticated = false;
+
+  static const Duration _cacheMaxAge = Duration(minutes: 5);
+  static const List<String> _resultTypes = [
+    'blogs',
+    'prayers',
+    'videos',
+    'photos',
+    'stories',
+  ];
+
   final searchController = TextEditingController();
   var isLoading = false;
+  var _isSilentSyncing = false;
   var searchResults = <String, dynamic>{};
   String selectedType = 'all';
+  String _activeQueryKey = '';
   bool _isAuthenticated = false;
   bool _authChecked = false;
   Timer? _debounceTimer;
+  int _searchGeneration = 0;
+  final Map<String, Map<String, dynamic>> _resultsCache = _sessionResultsCache;
+  final Map<String, DateTime> _cacheFetchedAt = _sessionCacheFetchedAt;
 
   @override
   void initState() {
     super.initState();
-    _checkAuthAndLoadInitial();
+    // Logged-in users open Search from Home — show UI immediately, verify auth in background.
+    _authChecked = true;
+    _isAuthenticated = _sessionAuthChecked ? _sessionAuthenticated : true;
+    _restoreSessionOrLoad();
+  }
+
+  void _restoreFromHiveIfEmpty() {
+    if (_resultsCache.containsKey('')) return;
+    final cached = HiveCacheService.getCachedData('search_default');
+    if (cached is! Map<String, dynamic>) return;
+    _resultsCache[''] = Map<String, dynamic>.from(cached);
+    _cacheFetchedAt[''] = DateTime.now().subtract(_cacheMaxAge);
+  }
+
+  void _seedFromHomeIfEmpty() {
+    if (_resultsCache.containsKey('')) return;
+    if (!Get.isRegistered<HomeController>()) return;
+
+    final home = Get.find<HomeController>();
+    final seeded = <String, dynamic>{
+      'results': {
+        'blogs': home.blogs.map((e) => Map<String, dynamic>.from(e)).toList(),
+        'prayers': home.prayers.map((e) => Map<String, dynamic>.from(e)).toList(),
+        'videos': home.videos.map((e) => Map<String, dynamic>.from(e)).toList(),
+        'photos': home.galleryPhotos.map((e) => Map<String, dynamic>.from(e)).toList(),
+        'stories': home.stories.map((e) => Map<String, dynamic>.from(e)).toList(),
+      },
+    };
+    final resultsMap = seeded['results']! as Map<String, dynamic>;
+    final hasAny = resultsMap.values.any((l) => l is List && l.isNotEmpty);
+    if (!hasAny) return;
+
+    _storeInCache('', seeded);
+    _cacheFetchedAt[''] = DateTime.now().subtract(_cacheMaxAge);
+  }
+
+  void _restoreSessionOrLoad() {
+    _restoreFromHiveIfEmpty();
+    _seedFromHomeIfEmpty();
+
+    if (_resultsCache.containsKey('')) {
+      _applyCachedResults('');
+      isLoading = false;
+      unawaited(_verifyAuth());
+      if (_isCacheStale('')) {
+        unawaited(_performSearch('', silent: true));
+      }
+      return;
+    }
+
+    unawaited(_verifyAuth());
+    unawaited(_performSearch('', silent: true));
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _searchGeneration++;
     searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _checkAuthAndLoadInitial() async {
-    final isLoggedIn = await UserStorage.isLoggedIn();
-    setState(() {
-      _isAuthenticated = isLoggedIn;
-      _authChecked = true;
-    });
+  Future<void> _verifyAuth() async {
+    if (_sessionAuthChecked && _sessionAuthenticated) return;
 
+    final isLoggedIn = await UserStorage.isLoggedIn();
+    _sessionAuthChecked = true;
+    _sessionAuthenticated = isLoggedIn;
+
+    if (!mounted) return;
     if (!isLoggedIn) {
-      // Redirect to login
       Get.offAllNamed(Routes.LOGIN);
       return;
     }
 
-    // Load all content initially
-    await _performSearch('');
+    setState(() {
+      _isAuthenticated = true;
+      _authChecked = true;
+    });
   }
 
-  Future<void> _performSearch(String query) async {
-    // Check authentication again
+  bool _hasDisplayableResults() {
+    final results = searchResults['results'] as Map<String, dynamic>? ?? {};
+    return results.values.any((list) => list is List && list.isNotEmpty);
+  }
+
+  bool _isCacheStale(String queryKey) {
+    final fetchedAt = _cacheFetchedAt[queryKey];
+    if (fetchedAt == null) return true;
+    return DateTime.now().difference(fetchedAt) > _cacheMaxAge;
+  }
+
+  void _applyCachedResults(String queryKey) {
+    final cached = _resultsCache[queryKey];
+    if (cached == null) return;
+    _activeQueryKey = queryKey;
+    searchResults = Map<String, dynamic>.from(cached);
+  }
+
+  void _storeInCache(String queryKey, Map<String, dynamic> results) {
+    _resultsCache[queryKey] = Map<String, dynamic>.from(results);
+    _cacheFetchedAt[queryKey] = DateTime.now();
+    _activeQueryKey = queryKey;
+    if (queryKey.isEmpty) {
+      unawaited(
+        HiveCacheService.cacheData('search_default', results, expiryHours: 1),
+      );
+    }
+  }
+
+  /// Tab switch: client-side filter only — no API.
+  void _onFilterTypeSelected(String type) {
+    if (selectedType == type) return;
+    setState(() => selectedType = type);
+  }
+
+  Future<void> _performSearch(String query, {bool silent = false}) async {
     if (!_isAuthenticated) {
       final isLoggedIn = await UserStorage.isLoggedIn();
       if (!isLoggedIn) {
         Get.offAllNamed(Routes.LOGIN);
         return;
       }
+      if (!mounted) return;
       setState(() {
         _isAuthenticated = true;
       });
     }
 
+    final trimmed = query.trim();
+    final queryKey = trimmed;
+
+    // Same query + fresh cache → show instantly, no network.
+    if (!silent && _resultsCache.containsKey(queryKey) && !_isCacheStale(queryKey)) {
+      if (!mounted) return;
+      setState(() {
+        _applyCachedResults(queryKey);
+        isLoading = false;
+        _isSilentSyncing = false;
+      });
+      return;
+    }
+
+    // Stale cache → show old data immediately, refresh quietly in background.
+    if (!silent && _resultsCache.containsKey(queryKey)) {
+      if (!mounted) return;
+      setState(() {
+        _applyCachedResults(queryKey);
+        isLoading = false;
+      });
+      if (_isCacheStale(queryKey)) {
+        unawaited(_performSearch(query, silent: true));
+      }
+      return;
+    }
+
+    final generation = silent ? _searchGeneration : ++_searchGeneration;
+    final hadResults = _hasDisplayableResults();
+
+    if (!mounted) return;
     setState(() {
-      isLoading = true;
-      searchResults = {};
+      if (silent) {
+        _isSilentSyncing = true;
+      } else if (!hadResults) {
+        isLoading = true;
+      } else {
+        _isSilentSyncing = true;
+      }
     });
 
     try {
-      print('🔍 Starting search with query: "${query.trim()}", type: "$selectedType"');
+      // One API call loads every tab; chips filter locally.
       final results = await SearchService.search(
-        query: query.trim(),
-        type: selectedType,
+        query: trimmed,
+        type: 'all',
       );
-      
-      print('🔍 Search results received: ${results.keys}');
-      print('🔍 Results structure: ${results['results']?.keys}');
-      print('🔍 Full results: $results');
-      print('🔍 Results type: ${results.runtimeType}');
-      
-      // Ensure we have the results structure
+
+      if (!mounted || generation != _searchGeneration) return;
+
       if (results['results'] == null) {
-        print('⚠️ Results key is null in response, initializing empty structure');
         results['results'] = {
-          'blogs': [],
-          'prayers': [],
-          'videos': [],
-          'photos': [],
-          'stories': [],
+          for (final type in _resultTypes) type: <Map<String, dynamic>>[],
         };
       }
-      
+
+      _storeInCache(queryKey, results);
+
+      if (!mounted) return;
+      if (!silent && generation != _searchGeneration) return;
+
+      final isCurrentQuery = searchController.text.trim() == queryKey;
       setState(() {
-        searchResults = results;
+        if (isCurrentQuery) {
+          searchResults = Map<String, dynamic>.from(results);
+        }
         isLoading = false;
+        _isSilentSyncing = false;
       });
-      
-      print('🔍 After setState - searchResults keys: ${searchResults.keys}');
-      print('🔍 After setState - searchResults[results]: ${searchResults['results']}');
-      print('🔍 After setState - searchResults[results] type: ${searchResults['results'].runtimeType}');
-      
-      // Check if we have any results
+
+      if (silent) return;
+
       final resultsData = results['results'] as Map<String, dynamic>? ?? {};
-      final hasResults = resultsData.values.any((list) => 
-        list is List && list.isNotEmpty
+      final hasResults = resultsData.values.any(
+        (list) => list is List && list.isNotEmpty,
       );
-      
-      // Only show "No Results" message if there was a search query
-      if (!hasResults && query.trim().isNotEmpty) {
+
+      if (!hasResults && trimmed.isNotEmpty) {
         Get.snackbar(
           'No Results',
-          'No content found for "$query"',
+          'No content found for "$trimmed"',
           backgroundColor: Colors.orange,
           colorText: Colors.white,
           duration: const Duration(seconds: 2),
         );
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
+      if (!mounted || generation != _searchGeneration) return;
+
       setState(() {
         isLoading = false;
-        searchResults = {};
+        _isSilentSyncing = false;
+        if (!hadResults) {
+          searchResults = {};
+        }
       });
-      print('❌ Search error: $e');
-      print('❌ Stack trace: $stackTrace');
-      print('❌ Error type: ${e.runtimeType}');
-      
-      // Show error to user
-      Get.snackbar(
-        'Search Error',
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
+
+      if (!silent) {
+        Get.snackbar(
+          'Search Error',
+          e.toString().replaceAll('Exception: ', ''),
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Show loading while checking authentication
-    if (!_authChecked) {
-      return Scaffold(
-        backgroundColor: AppTheme.themeColor,
-        body: Center(
-          child: CircularProgressIndicator(
-            color: AppTheme.primaryColor,
-          ),
-        ),
-      );
-    }
-
-    // If not authenticated, show nothing (will redirect)
     if (!_isAuthenticated) {
       return Scaffold(
         backgroundColor: AppTheme.themeColor,
@@ -260,12 +398,19 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           
-          // Results
+          if (_isSilentSyncing)
+            const LinearProgressIndicator(
+              minHeight: 2,
+              color: Color(0xFF8B4513),
+              backgroundColor: Colors.transparent,
+            ),
+
+          // Results — tabs filter locally; spinner only when no data yet.
           Expanded(
-            child: isLoading
-                ? Center(
+            child: isLoading && !_hasDisplayableResults()
+                ? const Center(
                     child: CircularProgressIndicator(
-                      color: const Color(0xFF8B4513),
+                      color: Color(0xFF8B4513),
                     ),
                   )
                 : _buildEmptyOrResults(),
@@ -281,15 +426,8 @@ class _SearchScreenState extends State<SearchScreen> {
       label: Text(label),
       selected: isSelected,
       onSelected: (selected) {
-        if (isSelected) return; // Don't do anything if already selected
-        
-        setState(() {
-          selectedType = type;
-        });
-        
-        // Always perform search when filter changes to get fresh data for that type
-        // This ensures "All" gets all content types, and specific filters get their type
-        _performSearch(searchController.text.trim());
+        if (isSelected) return;
+        _onFilterTypeSelected(type);
       },
       selectedColor: AppTheme.secondaryColor, // Light blue
       checkmarkColor: AppTheme.primaryColor,
@@ -312,20 +450,12 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildEmptyOrResults() {
-    // Debug: Print current state
-    print('🔍 _buildEmptyOrResults called');
-    print('🔍 searchResults keys: ${searchResults.keys}');
-    print('🔍 searchResults: $searchResults');
-    
-    // Check if we have any results
     final results = searchResults['results'] as Map<String, dynamic>? ?? {};
-    print('🔍 Extracted results keys: ${results.keys}');
-    print('🔍 Extracted results: $results');
-    
-    final hasResults = results.values.any((list) => 
-      list is List && list.isNotEmpty
-    );
-    print('🔍 hasResults: $hasResults');
+
+    final hasResults = selectedType == 'all'
+        ? results.values.any((list) => list is List && list.isNotEmpty)
+        : (results[selectedType] is List &&
+            (results[selectedType] as List).isNotEmpty);
     
     if (!hasResults && searchController.text.trim().isNotEmpty) {
       // Show "no results" message
@@ -403,47 +533,16 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildResults(Map<String, dynamic> results) {
-    // Filter results based on selectedType
     final filteredResults = <String, List<dynamic>>{};
-    
-    print('🔍 _buildResults called with selectedType: $selectedType');
-    print('🔍 Results keys: ${results.keys}');
-    print('🔍 Results photos: ${results['photos']}');
-    print('🔍 Results photos type: ${results['photos'].runtimeType}');
-    print('🔍 Results photos is List: ${results['photos'] is List}');
-    
+
     if (selectedType == 'all') {
-      // Show all types
-      if (results['blogs'] != null && (results['blogs'] is List)) {
-        filteredResults['blogs'] = results['blogs'] as List;
-        print('🔍 Added ${results['blogs'].length} blogs');
+      for (final type in _resultTypes) {
+        if (results[type] is List && (results[type] as List).isNotEmpty) {
+          filteredResults[type] = results[type] as List;
+        }
       }
-      if (results['prayers'] != null && (results['prayers'] is List)) {
-        filteredResults['prayers'] = results['prayers'] as List;
-        print('🔍 Added ${results['prayers'].length} prayers');
-      }
-      if (results['videos'] != null && (results['videos'] is List)) {
-        filteredResults['videos'] = results['videos'] as List;
-        print('🔍 Added ${results['videos'].length} videos');
-      }
-      if (results['photos'] != null && (results['photos'] is List)) {
-        filteredResults['photos'] = results['photos'] as List;
-        print('🔍 Added ${results['photos'].length} photos to filteredResults');
-      } else {
-        print('⚠️ Photos is null or not a List. Photos value: ${results['photos']}');
-      }
-      if (results['stories'] != null && (results['stories'] is List)) {
-        filteredResults['stories'] = results['stories'] as List;
-        print('🔍 Added ${results['stories'].length} stories');
-      }
-      print('🔍 Final filteredResults keys: ${filteredResults.keys}');
-      print('🔍 Final filteredResults photos count: ${filteredResults['photos']?.length ?? 0}');
-    } else {
-      // Show only selected type
-      final typeKey = selectedType; // 'blogs', 'prayers', etc.
-      if (results[typeKey] != null && (results[typeKey] is List)) {
-        filteredResults[typeKey] = results[typeKey] as List;
-      }
+    } else if (results[selectedType] is List) {
+      filteredResults[selectedType] = results[selectedType] as List;
     }
     
     return SingleChildScrollView(
@@ -469,6 +568,7 @@ class _SearchScreenState extends State<SearchScreen> {
               height: ResponsiveHelper.imageHeight(context, mobile: 180, tablet: 300, desktop: 400),
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
+                cacheExtent: 1200,
                 padding: EdgeInsets.symmetric(
                   horizontal: ResponsiveHelper.spacing(context, 16),
                 ),
@@ -476,6 +576,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 itemBuilder: (context, index) {
                   final blog = filteredResults['blogs']![index];
                   return Container(
+                    key: ValueKey('search-blog-${blog['id']}'),
                     margin: EdgeInsets.only(
                       right: index < filteredResults['blogs']!.length - 1 
                           ? ResponsiveHelper.spacing(context, 10) 
@@ -485,7 +586,12 @@ class _SearchScreenState extends State<SearchScreen> {
                       context,
                       blog,
                       'Blog',
-                      () => PaymentGate.navigateToFeature(Routes.BLOG_DETAILS, arguments: blog['id']),
+                      () => HomeScreen.navigateToBlogDetail(
+                        context,
+                        blog['id'] is int
+                            ? blog['id'] as int
+                            : int.tryParse(blog['id'].toString()) ?? 0,
+                      ),
                     ),
                   );
                 },
@@ -527,7 +633,7 @@ class _SearchScreenState extends State<SearchScreen> {
               context,
               video,
               'Video',
-              () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+              () => VideosController.openVideoDetail(video['id']),
             )),
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
           ],
@@ -563,7 +669,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       context,
                       photo,
                       'Photo',
-                      () => PaymentGate.navigateToFeature(Routes.PHOTO_DETAILS, arguments: photo['id']),
+                      () => Get.toNamed(Routes.PHOTO_DETAILS, arguments: photo['id']),
                     ),
                   );
                 },
@@ -595,21 +701,13 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildResultCard(BuildContext context, Map<String, dynamic> item, String type, VoidCallback onTap) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
     String? imageUrl;
     
     if (type == 'Blog') {
-      imageUrl = item['image_url'] != null ? baseUrl + (item['image_url'] as String) : null;
+      imageUrl = ImageHelper.resolveBlogImageUrl(item);
     } else if (type == 'Photo' || type == 'Story') {
-      // For photos, check file_path
       final filePath = item['file_path'] as String?;
-      if (filePath != null && filePath.isNotEmpty) {
-        // Remove leading slash if present
-        final cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-        imageUrl = baseUrl + cleanPath;
-      } else {
-        imageUrl = null;
-      }
+      imageUrl = ImageHelper.resolveMediaPath(filePath);
     } else if (type == 'Video') {
       imageUrl = _getVideoThumbnail(item);
     } else {
@@ -644,16 +742,13 @@ class _SearchScreenState extends State<SearchScreen> {
                   top: Radius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)),
                 ),
                 child: imageUrl != null
-                    ? LazyCachedImage(
-                        imageUrl: imageUrl!,
-                        height: ResponsiveHelper.imageHeight(context, mobile: 90, tablet: 150, desktop: 180),
+                    ? BlogMediaWidget(
+                        mediaUrl: imageUrl,
+                        isVideo: ImageHelper.isVideoUrl(imageUrl),
                         width: double.infinity,
+                        height: ResponsiveHelper.imageHeight(context, mobile: 90, tablet: 150, desktop: 180),
                         fit: BoxFit.cover,
-                        errorWidget: Container(
-                          height: ResponsiveHelper.imageHeight(context, mobile: 90),
-                          color: Colors.grey[300],
-                          child: Icon(Icons.image, size: ResponsiveHelper.iconSize(context, mobile: 36)),
-                        ),
+                        previewMode: true,
                       )
                     : Container(
                         height: ResponsiveHelper.imageHeight(context, mobile: 90),
@@ -709,7 +804,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (photoPath.startsWith('http://') || photoPath.startsWith('https://')) {
           profilePhotoUrl = photoPath;
         } else if (!photoPath.startsWith('assets/') && !photoPath.startsWith('file://') && !photoPath.startsWith('assets/images/')) {
-          profilePhotoUrl = 'https://fruitofthespirit.templateforwebsites.com/$photoPath';
+          profilePhotoUrl = 'http://admin.fosmessenger.com/$photoPath';
         }
       }
       final prayerContent = AutoTranslateHelper.getTranslatedTextSync(
@@ -1102,7 +1197,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Padding(
                       padding: ResponsiveHelper.padding(context, top: 4),
                       child: Text(
-                        _getTimeAgo(createdAt),
+                        TimeHelper.getTimeAgo(createdAt),
                         style: ResponsiveHelper.textStyle(context, fontSize: 12, color: Colors.grey[600]),
                       ),
                     ),
@@ -1366,7 +1461,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (video['thumbnail_path'] != null && (video['thumbnail_path'] as String).isNotEmpty) {
       final thumbnailPath = video['thumbnail_path'] as String;
       if (!thumbnailPath.startsWith('http')) {
-        return 'https://fruitofthespirit.templateforwebsites.com/$thumbnailPath';
+        return 'http://admin.fosmessenger.com/$thumbnailPath';
       }
       return thumbnailPath;
     }
@@ -1375,7 +1470,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (video['thumbnail'] != null && (video['thumbnail'] as String).isNotEmpty) {
       final thumbnail = video['thumbnail'] as String;
       if (!thumbnail.startsWith('http')) {
-        return 'https://fruitofthespirit.templateforwebsites.com/$thumbnail';
+        return 'http://admin.fosmessenger.com/$thumbnail';
       }
       return thumbnail;
     }
@@ -1390,7 +1485,7 @@ class _SearchScreenState extends State<SearchScreen> {
           !lowerPath.endsWith('.webm') &&
           !lowerPath.endsWith('.mkv')) {
         if (!filePath.startsWith('http')) {
-          return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
+          return 'http://admin.fosmessenger.com/$filePath';
         }
         return filePath;
       }
@@ -1415,48 +1510,12 @@ class _SearchScreenState extends State<SearchScreen> {
           if (filePath.startsWith('http')) {
             return filePath;
           }
-          return 'https://fruitofthespirit.templateforwebsites.com/$filePath';
+          return 'http://admin.fosmessenger.com/$filePath';
         }
       }
     }
     return null;
   }
 
-  String _getTimeAgo(String? dateTimeString) {
-    if (dateTimeString == null || dateTimeString.isEmpty) return 'Just now';
-    try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
-      DateTime date;
-      if (!dateTimeString.endsWith('Z')) {
-        date = DateTime.parse('${dateTimeString}Z').toLocal();
-      } else {
-        date = DateTime.parse(dateTimeString).toLocal();
-      }
-      
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
-      }
-
-      final difference = now.difference(date);
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
-    } catch (e) {
-      return 'Just now';
-    }
-  }
 }
 

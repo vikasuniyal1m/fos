@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:fruitsofspirit/services/fruits_service.dart';
+import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/stories_service.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
 import 'package:fruitsofspirit/services/gallery_service.dart';
@@ -12,6 +12,7 @@ import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
+import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
 
 import '../utils/app_theme.dart';
@@ -35,6 +36,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   var oppositeEmojis = <Map<String, dynamic>>[];
   var emotionEmojis = <Map<String, dynamic>>[];
   var userId = 0;
+  String? userEmail;
   String? fruitName;
 
   /// Show a custom snackbar using ScaffoldMessenger
@@ -79,6 +81,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
     super.initState();
     _tabController = TabController(length: 5, vsync: this); // Updated to 5 tabs
     _loadUserId();
+    _loadUserEmail();
     _loadFruitDetails();
   }
 
@@ -95,6 +98,10 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
         userId = id;
       });
     }
+  }
+
+  Future<void> _loadUserEmail() async {
+    userEmail = await UserStorage.getUserEmail();
   }
 
   Future<void> _loadFruitDetails() async {
@@ -444,7 +451,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   }
 
   Widget _buildStoryCard(BuildContext context, Map<String, dynamic> story) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final imageUrl = story['image'] != null ? baseUrl + (story['image'] as String) : null;
     
     return Card(
@@ -558,13 +565,13 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   }
 
   Widget _buildVideoCard(BuildContext context, Map<String, dynamic> video) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final thumbnailUrl = video['thumbnail_url'] != null 
         ? baseUrl + (video['thumbnail_url'] as String)
         : null;
     
     return GestureDetector(
-      onTap: () => PaymentGate.navigateToFeature(Routes.VIDEO_DETAILS, arguments: video['id']),
+      onTap: () => VideosController.openVideoDetail(video['id']),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -659,7 +666,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
   }
 
   Widget _buildPhotoCard(BuildContext context, Map<String, dynamic> photo) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final thumbnailPath = photo['thumbnail_path'] as String?;
     final filePath = photo['file_path'] as String? ?? '';
     final imageUrl = thumbnailPath != null 
@@ -916,6 +923,7 @@ class _FruitDetailsScreenState extends State<FruitDetailsScreen> with SingleTick
                     context,
                     emoji,
                     size: ResponsiveHelper.iconSize(context, mobile: 50),
+                    userEmail: userEmail,
                   ),
                 ),
               ),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/bindings/InitialBinding.dart';
+import 'package:fruitsofspirit/services/auth_session_service.dart';
 import 'dart:io' show Platform;
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
-import 'package:icons_plus/icons_plus.dart';
 import 'package:bootstrap_icons/bootstrap_icons.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -163,32 +163,50 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       style: ResponsiveHelper.textStyle(
                         context,
                         fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
+                        color: Colors.green,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    SizedBox(height: ResponsiveHelper.spacing(context, 10)),
+                    SizedBox(height: ResponsiveHelper.spacing(context, 12)),
                     Container(
-                      padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 10)),
+                      padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 12)),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
+                        color: Colors.blue.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)),
-                        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                        border: Border.all(color: Colors.blue.withOpacity(0.3)),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.info_outline,
-                            color: Colors.orange,
-                            size: ResponsiveHelper.iconSize(context, mobile: 20),
-                          ),
-                          SizedBox(width: ResponsiveHelper.spacing(context, 10)),
-                          Expanded(
-                            child: Text(
-                              'Your Blogger role request is pending admin approval. Please wait for approval before you can login.',
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.isMobile(context) ? 12 : 14,
-                                color: Colors.orange.shade800,
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                color: Colors.blue,
+                                size: ResponsiveHelper.iconSize(context, mobile: 20),
                               ),
+                              SizedBox(width: ResponsiveHelper.spacing(context, 10)),
+                              Expanded(
+                                child: Text(
+                                  'Your account is registered as Blogger with Pending status.',
+                                  style: ResponsiveHelper.textStyle(
+                                    context,
+                                    fontSize: ResponsiveHelper.isMobile(context) ? 13 : 15,
+                                    color: Colors.blue.shade800,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: ResponsiveHelper.spacing(context, 8)),
+                          Text(
+                            '• You can login immediately as Blogger\n• Basic access is available now\n• Full blogging features require admin approval\n• You will be notified when approved',
+                            style: ResponsiveHelper.textStyle(
+                              context,
+                              fontSize: ResponsiveHelper.isMobile(context) ? 12 : 14,
+                              color: Colors.grey.shade700,
+                              height: 1.4,
                             ),
                           ),
                         ],
@@ -203,7 +221,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       Get.offAllNamed(Routes.LOGIN); // Go to login page
                     },
                     child: Text(
-                      'OK',
+                      'Go to Login',
                       style: ResponsiveHelper.textStyle(
                         context,
                         fontSize: ResponsiveHelper.isMobile(context) ? 14 : 16,
@@ -219,18 +237,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         }
       } else {
         // Regular user - save and go to home
-        await UserStorage.saveUser(user);
-        // Re-initialize controllers
-        InitialBinding().dependencies();
-        
-         if (mounted) {
+        if (mounted) {
           _showCustomSnackbar(
             'Success',
             'Your account has been created successfully',
             backgroundColor: AppTheme.iconscolor,
           );
-          Get.offAllNamed(Routes.DASHBOARD);
         }
+        await AuthSessionService.finishAuthAndGoHome(user);
         
       }
     } on ApiException catch (e) {
@@ -377,19 +391,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       );
 
       // Save user data
-      await UserStorage.saveUser(user);
-
-      // Re-initialize controllers
-      InitialBinding().dependencies();
-
       if (mounted) {
         _showCustomSnackbar(
           'Success',
           'Logged in successfully with Apple',
           backgroundColor: AppTheme.iconscolor,
         );
-        Get.offAllNamed(Routes.DASHBOARD);
       }
+      await AuthSessionService.finishAuthAndGoHome(user);
     } on SignInWithAppleAuthorizationException catch (e) {
       // Handle Apple Sign In specific errors
       if (mounted) {
@@ -503,23 +512,16 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       // Web Client ID - Used for backend authentication (idToken)
       const String webClientId = '502290384332-79ibsfgk52dd7d9lhvfv9fspn3k26u83.apps.googleusercontent.com';
       
-      // Initialize Google Sign In with serverClientId for proper idToken generation
+      // Initialize Google Sign In with serverClientId for proper authentication
       final GoogleSignIn googleSignIn = GoogleSignIn(
         scopes: ['email', 'profile'],
-        serverClientId: webClientId, // Web Client ID for backend authentication
+        serverClientId: '55853574935-qcg38dj6gnhac02l0gm8v1gqgvv5uiu2.apps.googleusercontent.com', // Web Client ID from Google Cloud Console
         // Android OAuth Client ID is automatically matched by package name + SHA-1
         // iOS OAuth Client ID is configured in Info.plist
       );
 
       // Clear any existing sign-in before attempting new sign-in (prevents cached session issues)
       print('🔵 Clearing any existing Google Sign-In session...');
-      try {
-        await googleSignIn.signOut();
-        await Future.delayed(const Duration(milliseconds: 300));
-      } catch (e) {
-        print('⚠️ Sign out warning (continuing): $e');
-      }
-
       print('🔐 Calling googleSignIn.signIn()...');
       // Sign in - will show account picker
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
@@ -561,16 +563,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         email: email,
         name: name,
         profilePicture: profilePicture,
+        role: _selectedRole, // Use selected role from signup form
       );
       print('✅ Backend authentication successful');
-
-      print('💾 Saving user data...');
-      // Save user data
-      await UserStorage.saveUser(user);
-      print('✅ User data saved');
-
-      // Re-initialize controllers
-      InitialBinding().dependencies();
 
       if (mounted) {
         _showCustomSnackbar(
@@ -578,8 +573,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
           'Logged in successfully with Google',
           backgroundColor: AppTheme.iconscolor,
         );
-        Get.offAllNamed(Routes.DASHBOARD);
       }
+      await AuthSessionService.finishAuthAndGoHome(user);
     } on ApprovalPendingException catch (e) {
       if (mounted) {
         showDialog(

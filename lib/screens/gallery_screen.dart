@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/gallery_controller.dart';
@@ -8,6 +9,7 @@ import 'package:fruitsofspirit/widgets/cached_image.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
 
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
@@ -29,6 +31,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.bootstrapGallery();
+      controller.filterByFruitTag('');
+
       final args = Get.arguments;
       final fromProfile = args is Map && args['fromProfile'] == true;
       final dynamic rawUserId = args is Map ? args['filterUserId'] : null;
@@ -42,14 +47,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
         if (controller.filterUserId.value != filterUserId) {
           controller.filterUserId.value = filterUserId;
         }
-        controller.loadPhotos(refresh: true);
+        controller.filterByFruitTag('');
+        controller.loadPhotos(
+          refresh: true,
+          silent: controller.photos.isNotEmpty,
+        );
         return;
       }
 
       if (controller.filterUserId.value != 0) {
         controller.filterUserId.value = 0;
-        controller.loadPhotos(refresh: true);
       }
+      unawaited(controller.loadPhotos(refresh: true, silent: true));
     });
   }
 
@@ -556,12 +565,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     // Initialize ScreenSize for responsive design
     ScreenSize.init(context);
     
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
-    final thumbnailPath = photo['thumbnail_path'] as String?;
-    final filePath = photo['file_path'] as String? ?? '';
-    final imageUrl = thumbnailPath != null 
-        ? baseUrl + thumbnailPath 
-        : (filePath.isNotEmpty ? baseUrl + filePath : null);
+    final imageUrl = ImageHelper.resolveGalleryPhotoUrl(photo);
     
     final userName = photo['user_name'] as String? ?? 'Anonymous';
     final testimony = photo['testimony'] as String? ?? '';
@@ -573,32 +577,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
     
     return GestureDetector(
       onTap: () async {
-        // Show loading indicator
-        Get.dialog(
-          const Center(
-            child: CircularProgressIndicator(
-              color: Color(0xFF8B4513),
-            ),
-          ),
-          barrierDismissible: false,
-        );
-
-        try {
-          // Load details before navigating (to ensure data is ready)
-          await controller.loadPhotoDetails(photo['id']);
-        } catch (e) {
-          print('Error loading photo details: $e');
-        } finally {
-          // Close loading indicator
-          if (Get.isDialogOpen ?? false) {
-            Get.back();
-          }
-        }
-
-        // Navigate to details
-        PaymentGate.navigateToFeature(
-          Routes.PHOTO_DETAILS,
-          arguments: photo['id'],
+        final photoId = photo['id'];
+        if (photoId == null) return;
+        await GalleryController.openPhotoDetail(
+          photoId,
+          previewPhoto: photo,
         );
       },
       child: Container(

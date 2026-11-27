@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/services/terms_service.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
+import 'package:fruitsofspirit/utils/time_helper.dart';
 
 /// Terms & Conditions Screen
 /// Displays terms content from backend
@@ -169,7 +170,7 @@ class _TermsScreenState extends State<TermsScreen> {
                                       ),
                                     if (_updatedAt.isNotEmpty)
                                       Text(
-                                        'Last Updated: ${_formatDate(_updatedAt)}',
+                                        'Last Updated: ${TimeHelper.getTimeAgo(_updatedAt)}',
                                         style: ResponsiveHelper.textStyle(
                                           context,
                                           fontSize: ResponsiveHelper.fontSize(context, mobile: 12),
@@ -214,33 +215,6 @@ class _TermsScreenState extends State<TermsScreen> {
                   ),
                 ),
     );
-  }
-
-  String _formatDate(String dateString) {
-    try {
-      final date = DateTime.parse(dateString);
-      return '${date.day} ${_getMonthName(date.month)} ${date.year}';
-    } catch (e) {
-      return dateString;
-    }
-  }
-
-  String _getMonthName(int month) {
-    const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December'
-    ];
-    return months[month - 1];
   }
 }
 

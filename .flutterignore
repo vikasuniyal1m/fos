@@ -1,0 +1,40 @@
+# Excluded from Flutter build / asset bundling (smaller APK & IPA)
+# Managed by scripts/build_for_store.sh — do not bundle backend or docs.
+
+# PHP admin panel (not part of mobile app)
+admin/
+
+# Ruby fastlane / CocoaPods vendor (not app code)
+vendor/
+
+# Docs & readmes
+**/*.md
+README*
+CHANGELOG*
+LICENSE*
+docs/
+
+# Archives & junk
+**/*.zip
+**/*.tar
+**/*.tar.gz
+**/*.rar
+**/*.7z
+
+# CI / git / IDE (never ship in app)
+.git/
+.github/
+.cursor/
+.idea/
+.vscode/
+*.iml
+
+# Test / dev only (not shipped in release binary)
+test/
+coverage/
+devtools_options.yaml
+
+# Backend / server configs at repo root
+*.sql
+*.env
+*.env.*

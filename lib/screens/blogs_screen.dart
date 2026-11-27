@@ -6,6 +6,7 @@ import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/routes/routes.dart';
 import 'package:fruitsofspirit/widgets/standard_app_bar.dart';
 import 'package:fruitsofspirit/services/payment_gate.dart';
+import 'package:fruitsofspirit/screens/home_screen.dart';
 
 /// Blogs Screen
 /// Displays list of approved blogs
@@ -22,6 +23,8 @@ class BlogsScreen extends GetView<BlogsController> {
         : null;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.bootstrapBlogs();
+
       final args = Get.arguments;
       final fromProfile = args is Map && args['fromProfile'] == true;
       final dynamic rawUserId = args is Map ? args['filterUserId'] : null;
@@ -41,7 +44,11 @@ class BlogsScreen extends GetView<BlogsController> {
 
       if (controller.filterUserId.value != 0) {
         controller.filterUserId.value = 0;
-        controller.loadBlogs(refresh: true);
+        if (controller.blogs.isEmpty) {
+          controller.loadBlogs(refresh: false);
+        } else {
+          controller.loadBlogs(refresh: true, silent: true);
+        }
       }
     });
     
@@ -58,7 +65,7 @@ class BlogsScreen extends GetView<BlogsController> {
         ),
         child: Obx(() => StandardAppBar(
           showBackButton: true,
-          rightActions: controller.userRole.value == 'Blogger'
+          rightActions: (controller.userRole.value == 'Blogger' || controller.userRole.value == 'Admin' || controller.userRole.value == 'admin')
               ? [
                   StandardAppBar.buildActionIcon(
                     context,
@@ -129,13 +136,38 @@ class BlogsScreen extends GetView<BlogsController> {
             child: ResponsiveHelper.constrainedContent(
               context: context,
               maxWidth: maxContentWidthValue,
-              child: ListView.builder(
-            padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
-            itemCount: controller.blogs.length,
-            itemBuilder: (context, index) {
-              final blog = controller.blogs[index];
-              return _buildBlogCard(context, blog, controller);
-            },
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (ScrollNotification scrollInfo) {
+                  if (scrollInfo is ScrollEndNotification &&
+                      controller.hasMore.value &&
+                      !controller.isLoading.value) {
+                    if (scrollInfo.metrics.pixels >=
+                        scrollInfo.metrics.maxScrollExtent - 200) {
+                      controller.loadMore();
+                    }
+                  }
+                  return false;
+                },
+                child: ListView.builder(
+                  padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+                  itemCount: controller.blogs.length + (controller.isLoading.value ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index == controller.blogs.length) {
+                      // Show loading indicator at the bottom
+                      return Padding(
+                        padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 16)),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            color: const Color(0xFF8B4513),
+                          ),
+                        ),
+                      );
+                    }
+                    
+                    final blog = controller.blogs[index];
+                    return _buildBlogCard(context, blog, controller);
+                  },
+                ),
               ),
             ),
           ),
@@ -145,7 +177,7 @@ class BlogsScreen extends GetView<BlogsController> {
   }
 
   Widget _buildBlogCard(BuildContext context, Map<String, dynamic> blog, BlogsController controller) {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final imageUrl = blog['image'] != null ? baseUrl + (blog['image'] as String) : null;
     
     return Container(
@@ -165,9 +197,11 @@ class BlogsScreen extends GetView<BlogsController> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => PaymentGate.navigateToFeature(
-            Routes.BLOG_DETAILS,
-            arguments: blog['id'],
+          onTap: () => HomeScreen.navigateToBlogDetail(
+            context,
+            blog['id'] is int
+                ? blog['id'] as int
+                : int.tryParse(blog['id'].toString()) ?? 0,
           ),
           borderRadius: BorderRadius.circular(AppTheme.radiusLG),
           splashColor: AppTheme.primaryColor.withOpacity(0.1),
@@ -345,7 +379,7 @@ class BlogsScreen extends GetView<BlogsController> {
                                         (blog['profile_photo'] as String).startsWith('http://') || 
                                         (blog['profile_photo'] as String).startsWith('https://')
                                           ? blog['profile_photo'] as String
-                                          : 'https://fruitofthespirit.templateforwebsites.com/${blog['profile_photo']}'
+                                          : 'http://admin.fosmessenger.com/${blog['profile_photo']}'
                                       )
                                     : null,
                                 child: blog['profile_photo'] == null

@@ -5,6 +5,81 @@ import 'api_service.dart';
 /// Videos Service
 /// Handles video listing, uploading, and live videos
 class VideosService {
+  static String get mediaBaseUrl =>
+      ApiConfig.baseUrl.replaceFirst('/api', '');
+
+  static String resolveMediaUrl(String path) {
+    if (path.isEmpty) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    return '$mediaBaseUrl/$cleanPath';
+  }
+
+  static bool isVideoFile(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.mp4') ||
+        lower.endsWith('.mov') ||
+        lower.endsWith('.avi') ||
+        lower.endsWith('.webm') ||
+        lower.endsWith('.mkv');
+  }
+
+  static String? _firstNonEmptyUrl(Map<String, dynamic> video, List<String> keys) {
+    for (final key in keys) {
+      final raw = video[key];
+      if (raw == null) continue;
+      final value = raw.toString().trim();
+      if (value.isNotEmpty) {
+        return resolveMediaUrl(value);
+      }
+    }
+    return null;
+  }
+
+  /// Backend upload convention: uploads/thumb_{videoBaseName}.jpg
+  static String? inferThumbnailFromVideoPath(String filePath) {
+    if (filePath.isEmpty || !isVideoFile(filePath)) return null;
+
+    final normalized = filePath.replaceAll('\\', '/');
+    final slash = normalized.lastIndexOf('/');
+    final fileName = slash >= 0 ? normalized.substring(slash + 1) : normalized;
+    final dir = slash >= 0 ? normalized.substring(0, slash + 1) : 'uploads/';
+
+    final dot = fileName.lastIndexOf('.');
+    if (dot <= 0) return null;
+    final baseName = fileName.substring(0, dot);
+    if (baseName.isEmpty) return null;
+
+    return resolveMediaUrl('${dir}thumb_$baseName.jpg');
+  }
+
+  /// Per-video thumbnail URL from DB upload, or inferred jpg path.
+  static String? getThumbnailUrl(Map<String, dynamic> video) {
+    final fromFields = _firstNonEmptyUrl(video, [
+      'thumbnail_path',
+      'thumbnail',
+      'thumb',
+      'poster',
+      'poster_url',
+      'image_url',
+    ]);
+    if (fromFields != null) return fromFields;
+
+    final filePath = video['file_path']?.toString() ?? '';
+    if (filePath.isNotEmpty && !isVideoFile(filePath)) {
+      return resolveMediaUrl(filePath);
+    }
+
+    return inferThumbnailFromVideoPath(filePath);
+  }
+
+  /// Per-video file URL for frame extraction fallback.
+  static String? getVideoUrl(Map<String, dynamic> video) {
+    final filePath = video['file_path']?.toString() ?? '';
+    if (filePath.isEmpty || !isVideoFile(filePath)) return null;
+    return resolveMediaUrl(filePath);
+  }
+
   /// Get Videos
   /// 
   /// Parameters:
@@ -154,6 +229,64 @@ class VideosService {
       return List<Map<String, dynamic>>.from(response['data']);
     } else {
       throw ApiException(response['message'] ?? 'Failed to fetch live videos');
+    }
+  }
+
+  // edit feature: Edit Video (15-minute window)
+  /// Edit Video (15-minute window)
+  ///
+  /// Parameters:
+  /// - userId: User ID (must be the video owner)
+  /// - videoId: Video ID to edit
+  /// - title: New title (optional)
+  /// - description: New description (optional)
+  /// - category: New category (optional)
+  ///
+  /// Returns: Success status
+  static Future<Map<String, dynamic>> editVideo({ // edit feature
+    required int userId, // edit feature
+    required int videoId, // edit feature
+    String? title, // edit feature
+    String? description, // edit feature
+    String? category, // edit feature
+  }) async { // edit feature
+    final body = <String, String>{ // edit feature
+      'action': 'edit', // edit feature
+      'user_id': userId.toString(), // edit feature
+      'video_id': videoId.toString(), // edit feature
+    }; // edit feature
+
+    if (title != null) body['title'] = title; // edit feature
+    if (description != null) body['description'] = description; // edit feature
+    if (category != null) body['category'] = category; // edit feature
+
+    final response = await ApiService.post( // edit feature
+      ApiConfig.videos, // edit feature
+      body: body, // edit feature
+    ); // edit feature
+
+    if (response['success'] == true) { // edit feature
+      return response; // edit feature
+    } else { // edit feature
+      throw ApiException(response['message'] ?? 'Failed to edit video'); // edit feature
+    } // edit feature
+  } // edit feature
+
+  static Future<void> deleteVideo({
+    required int userId,
+    required int videoId,
+  }) async {
+    final response = await ApiService.post(
+      ApiConfig.videos,
+      body: {
+        'action': 'delete',
+        'user_id': userId.toString(),
+        'video_id': videoId.toString(),
+      },
+    );
+
+    if (response['success'] != true) {
+      throw ApiException(response['message'] ?? 'Failed to delete video');
     }
   }
 }

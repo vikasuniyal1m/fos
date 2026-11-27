@@ -132,40 +132,25 @@ class AppBottomNavigationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Calculate icon sizes - bigger sizes
-    double iconSize;
-    double activeIconSize;
+    final iconSize = ResponsiveHelper.bottomNavIconSize(context);
+    final activeIconSize = ResponsiveHelper.bottomNavActiveIconSize(context);
+    final themeColor = AppTheme.primaryColor;
+    final shadowBlur = ResponsiveHelper.dim(context, mobile: 10);
 
-    if (ResponsiveHelper.isMobile(context)) {
-      // Mobile: 36-40px (little bit smaller)
-      iconSize = 37.0;
-      activeIconSize = 40.0;
-    } else if (ResponsiveHelper.isTablet(context)) {
-      // Tablet: 40-44px (little bit smaller)
-      iconSize = 40.0;
-      activeIconSize = 44.0;
-    } else {
-      // Desktop: 44-48px (little bit smaller)
-      iconSize = 44.0;
-      activeIconSize = 48.0;
-    }
-
-    final themeColor = const Color(0xFF8B4513);
-
-    return SafeArea(
-      top: false,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              spreadRadius: 0,
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            spreadRadius: 0,
+            blurRadius: shadowBlur,
+            offset: Offset(0, -ResponsiveHelper.dim(context, mobile: 2)),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
         child: BottomNavigationBar(
           type: BottomNavigationBarType.fixed,
           backgroundColor: Colors.white,
@@ -176,6 +161,8 @@ class AppBottomNavigationBar extends StatelessWidget {
           iconSize: iconSize,
           showSelectedLabels: false,
           showUnselectedLabels: false,
+          selectedFontSize: 0,
+          unselectedFontSize: 0,
           onTap: onTap,
           items: [
             BottomNavigationBarItem(
@@ -227,44 +214,22 @@ class AppBottomNavigationBar extends StatelessWidget {
               icon: SizedBox(
                 width: iconSize,
                 height: iconSize,
-                child: Icon(
-                  Icons.apple,
-                  size: activeIconSize,
-                  color: AppTheme.primaryColor,
-                ) /*Image.asset(
-                  'assets/happy.png',
+                child: Image.asset(
+                  'assets/orange.png',
                   width: iconSize,
                   height: iconSize,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.apple,
-                      size: iconSize,
-                      color: Colors.grey[600],
-                    );
-                  },
-                )*/,
+                ),
               ),
               activeIcon: SizedBox(
                 width: activeIconSize,
                 height: activeIconSize,
-                child: Icon(
-                  Icons.apple,
-                  size: activeIconSize,
-                  color: AppTheme.primaryColor,
-                ) /*Image.asset(
-                  'assets/happy.png',
+                child: Image.asset(
+                  'assets/orange.png',
                   width: activeIconSize,
                   height: activeIconSize,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.apple,
-                      size: activeIconSize,
-                      color: themeColor,
-                    );
-                  },
-                )*/,
+                ),
               ),
               label: '',
             ),
@@ -352,6 +317,4 @@ class AppBottomNavigationBar extends StatelessWidget {
       ),
     );
   }
-
-
 }

@@ -1,21 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fruitsofspirit/services/cache_service.dart';
+import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import '../helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    // Initialize Flutter binding and SharedPreferences mock
     await setupTestEnvironment();
   });
 
   setUp(() async {
-    // Clear cache before each test
-    SharedPreferences.setMockInitialValues({});
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await HiveCacheService.clearAll();
   });
-  
+
   group('CacheService', () {
     test('should cache and retrieve data', () async {
       const key = 'test_key';
@@ -33,12 +29,9 @@ void main() {
       const key = 'expired_key';
       final testData = {'name': 'Test'};
 
-      // Cache with 0 hours expiry (immediately expired)
       await CacheService.cacheData(key, testData, expiryHours: 0);
-      
-      // Wait a bit
       await Future.delayed(const Duration(milliseconds: 100));
-      
+
       final retrieved = await CacheService.getCachedData(key);
       expect(retrieved, isNull);
     });
@@ -79,4 +72,3 @@ void main() {
     });
   });
 }
-

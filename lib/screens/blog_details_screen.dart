@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:fruitsofspirit/utils/app_theme.dart';
 import 'package:fruitsofspirit/utils/share_helper.dart';
@@ -6,13 +8,21 @@ import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
 import 'package:fruitsofspirit/utils/auto_translate_helper.dart';
 import 'package:fruitsofspirit/utils/responsive_helper.dart';
+import 'package:fruitsofspirit/widgets/see_translation_widget.dart';
 import 'package:fruitsofspirit/widgets/cached_image.dart';
+import 'package:fruitsofspirit/widgets/blog_media_widget.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/comments_service.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
 import 'package:fruitsofspirit/services/user_blocking_service.dart';
 import 'package:fruitsofspirit/utils/fruit_emoji_helper.dart';
 import 'package:fruitsofspirit/utils/report_utils.dart';
+import 'package:fruitsofspirit/utils/sticker_emoji_helper.dart';
+import 'package:fruitsofspirit/widgets/emoji_sticker_picker.dart';
+import 'package:fruitsofspirit/services/blogs_service.dart'; // edit feature
+import 'package:fruitsofspirit/utils/time_helper.dart';
+import 'package:fruitsofspirit/utils/content_delete_helper.dart';
+import 'package:fruitsofspirit/utils/image_helper.dart';
 
 /// Blog Details Screen
 /// User-friendly and attractive UI with like, comment, and ask questions functionality
@@ -23,9 +33,19 @@ class BlogDetailsScreen extends StatefulWidget {
   State<BlogDetailsScreen> createState() => _BlogDetailsScreenState();
 }
 
+// Message model for proper text/sticker separation
+class CommentMessage {
+  final String? text;
+  final String? stickerId;
+  final bool isSticker;
+
+  CommentMessage({this.text, this.stickerId, required this.isSticker});
+}
+
 class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   final BlogsController controller = Get.find<BlogsController>();
   final commentController = TextEditingController();
+  final List<CommentMessage> commentMessages = [];
   final questionController = TextEditingController();
   final replyControllers = <int, TextEditingController>{};
   final replyFocusNodes = <int, FocusNode>{};
@@ -36,18 +56,47 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   var isSubmittingQuestion = false.obs;
   var showQuestionInput = false.obs;
   int? currentUserId;
+  String? userEmail;
+  // edit feature: Edit mode state
+  final editControllers = <int, TextEditingController>{}; // edit feature
+  final showEditInput = <int, bool>{}; // edit feature
+  var isEditingComment = false.obs; // edit feature
+
+  // edit feature: Post edit state
+  final postEditTitleController = TextEditingController(); // edit feature
+  final postEditBodyController = TextEditingController(); // edit feature
+  final postEditCategoryController = TextEditingController(); // edit feature
+  var showPostEditInput = false.obs; // edit feature
+  var isEditingPost = false.obs; // edit feature
 
   @override
   void initState() {
     super.initState();
+    final blogId = Get.arguments as int? ?? 0;
+    if (blogId > 0) {
+      if (controller.preparedDetailBlogId != blogId) {
+        unawaited(controller.prepareBlogDetails(blogId));
+      }
+    }
     _loadCurrentUserId();
+    _loadUserEmail();
   }
 
   Future<void> _loadCurrentUserId() async {
     final user = await UserStorage.getUser();
-    if (user != null) {
-      currentUserId = user['id'] as int?;
+    if (user != null && mounted) {
+      final id = user['id'];
+      final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (parsed != null && parsed > 0) {
+        setState(() {
+          currentUserId = parsed;
+        });
+      }
     }
+  }
+
+  Future<void> _loadUserEmail() async {
+    userEmail = await UserStorage.getUserEmail();
   }
 
   @override
@@ -61,6 +110,10 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     for (var focusNode in replyFocusNodes.values) {
       focusNode.dispose();
     }
+    // edit feature: Dispose post edit controllers
+    postEditTitleController.dispose(); // edit feature
+    postEditBodyController.dispose(); // edit feature
+    postEditCategoryController.dispose(); // edit feature
     super.dispose();
   }
 
@@ -115,45 +168,469 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     );
   }
 
-  /// Format time ago
-  String _getTimeAgo(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return 'Just now';
-    
+  /// Get India time (IST) from timestamp
+  String _getIndiaTime(String? dateString) {
+    if (dateString == null || dateString.isEmpty) return '';
+
     try {
-      // FIX: Assume backend sends UTC time if 'Z' is missing.
       DateTime date;
-      if (!dateString.endsWith('Z')) {
-        date = DateTime.parse('${dateString}Z').toLocal();
+      // Handle different timestamp formats
+      if (dateString.contains('T')) {
+        // ISO 8601 format
+        date = DateTime.parse(dateString);
       } else {
-        date = DateTime.parse(dateString).toLocal();
-      }
-      
-      final now = DateTime.now();
-      if (date.isAfter(now)) {
-        date = now.subtract(const Duration(seconds: 1));
+        // Try parsing as standard MySQL datetime format
+        date = DateTime.parse('${dateString}Z');
       }
 
-      final difference = now.difference(date);
-      
-      if (difference.inDays > 365) {
-        final years = (difference.inDays / 365).floor();
-        return '$years ${years == 1 ? 'year' : 'years'} ago';
-      } else if (difference.inDays > 30) {
-        final months = (difference.inDays / 30).floor();
-        return '$months ${months == 1 ? 'month' : 'months'} ago';
-      } else if (difference.inDays > 0) {
-        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-      } else if (difference.inMinutes >= 60) {
-        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-      } else if (difference.inMinutes > 0) {
-        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-      } else {
-        return 'Just now';
-      }
+      // Convert to India time (IST = UTC+5:30)
+      final indiaTimeZone = Duration(hours: 5, minutes: 30);
+      final indiaTime = date.toUtc().add(indiaTimeZone);
+
+      // Format as HH:MM AM/PM
+      final hour = indiaTime.hour;
+      final minute = indiaTime.minute;
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+      final displayMinute = minute.toString().padLeft(2, '0');
+
+      return '$displayHour:$displayMinute $period IST';
     } catch (e) {
-      return 'Just now';
+      return '';
     }
   }
+
+  // edit feature: Configurable edit time window in minutes
+  static const int _editTimeWindowMinutes = 15; // edit feature
+
+  int? _activeUserId() => currentUserId ?? controller.userId.value;
+
+  bool _isWithinEditWindow(dynamic createdAt) {
+    if (createdAt == null) return false;
+    try {
+      var formattedDate = createdAt.toString();
+      if (!formattedDate.contains('Z') && !formattedDate.contains('+')) {
+        formattedDate = formattedDate.replaceAll(' ', 'T') + 'Z';
+      }
+      var serverTimeUtc = DateTime.parse(formattedDate).toUtc();
+      serverTimeUtc = serverTimeUtc.add(const Duration(hours: 4));
+      final difference = DateTime.now().toUtc().difference(serverTimeUtc);
+      return difference.inMinutes < _editTimeWindowMinutes;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // edit feature: Check if comment can be edited (owner only, within 15 minutes)
+  bool _canEditComment(Map<String, dynamic> comment) {
+    final uid = _activeUserId();
+    if (uid == null || uid == 0) return false;
+    if (!ContentDeleteHelper.isOwner(uid, comment['user_id'])) return false;
+    return _isWithinEditWindow(comment['created_at']);
+  }
+
+  // edit feature: Build edit button widget
+  Widget _buildEditButton(BuildContext context, Map<String, dynamic> comment, int blogId) { // edit feature
+    print('🔨 _buildEditButton called for comment ${comment['id']}'); // debug
+    if (!_canEditComment(comment)) return const SizedBox.shrink(); // edit feature
+    print('✅ Edit button will be shown for comment ${comment['id']}'); // debug
+    final commentId = comment['id'] as int; // edit feature
+
+    return InkWell( // edit feature
+      onTap: () { // edit feature
+        setState(() { // edit feature
+          if (!editControllers.containsKey(commentId)) { // edit feature
+            // Get the raw comment content
+            final rawContent = (comment['comment'] as String? ?? comment['content'] as String? ?? '').trim();
+            print('📝 Edit - Raw content: "$rawContent"');
+
+            // If content is an image URL, don't show it in the edit field (it's an emoji/sticker)
+            // Only show text content for editing
+            String editContent = rawContent;
+            if (rawContent.startsWith('http') && (rawContent.contains('.png') || rawContent.contains('.jpg') || rawContent.contains('.jpeg'))) {
+              // It's an image URL - show empty for editing (user can't edit emojis)
+              editContent = '';
+              print('📝 Edit - Content is image URL, clearing for edit');
+            }
+
+            editControllers[commentId] = TextEditingController(
+              text: editContent,
+            ); // edit feature
+          } // edit feature
+          showEditInput[commentId] = !(showEditInput[commentId] ?? false); // edit feature
+        }); // edit feature
+      }, // edit feature
+      child: Row( // edit feature
+        children: [ // edit feature
+          Icon( // edit feature
+            Icons.edit, // edit feature
+            size: ResponsiveHelper.iconSize(context, mobile: 18), // edit feature
+            color: Colors.orange, // edit feature: Orange like reply button
+          ), // edit feature
+          SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+          Text( // edit feature
+            'Edit', // edit feature
+            style: ResponsiveHelper.textStyle( // edit feature
+              context, // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 12, tablet: 13), // edit feature
+              color: Colors.orange, // edit feature: Orange like reply button
+            ), // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Build edit input widget
+  Widget _buildEditInput(BuildContext context, int commentId, int blogId, String postType) { // edit feature
+    if (!editControllers.containsKey(commentId)) { // edit feature
+      editControllers[commentId] = TextEditingController(); // edit feature
+    } // edit feature
+    final editController = editControllers[commentId]!; // edit feature
+
+    return Container( // edit feature
+      padding: ResponsiveHelper.padding(context, all: 12), // edit feature
+      decoration: BoxDecoration( // edit feature
+        color: const Color(0xFFE3F2FD), // edit feature
+        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+        border: Border.all( // edit feature
+          color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+          width: 1.5, // edit feature
+        ), // edit feature
+      ), // edit feature
+      child: Column( // edit feature
+        crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+        children: [ // edit feature
+          Text( // edit feature
+            'Edit Comment', // edit feature
+            style: ResponsiveHelper.textStyle( // edit feature
+              context, // edit feature
+              fontSize: ResponsiveHelper.fontSize(context, mobile: 12), // edit feature
+              fontWeight: FontWeight.bold, // edit feature
+              color: const Color(0xFF1976D2), // edit feature
+            ), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          TextField( // edit feature
+            controller: editController, // edit feature
+            decoration: InputDecoration( // edit feature
+              hintText: 'Edit your comment...', // edit feature
+              border: InputBorder.none, // edit feature
+              hintStyle: ResponsiveHelper.textStyle( // edit feature
+                context, // edit feature
+                fontSize: 13, // edit feature
+                color: Colors.blue[400], // edit feature
+              ), // edit feature
+              contentPadding: ResponsiveHelper.padding( // edit feature
+                context, // edit feature
+                horizontal: 12, // edit feature
+                vertical: 8, // edit feature
+              ), // edit feature
+            ), // edit feature
+            maxLines: null, // edit feature
+            textInputAction: TextInputAction.newline, // edit feature
+            style: ResponsiveHelper.textStyle( // edit feature
+              context, // edit feature
+              fontSize: 13, // edit feature
+              color: const Color(0xFF1565C0), // edit feature
+            ), // edit feature
+          ), // edit feature
+          SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+          Row( // edit feature
+            mainAxisAlignment: MainAxisAlignment.end, // edit feature
+            children: [ // edit feature
+              TextButton( // edit feature
+                onPressed: () { // edit feature
+                  setState(() { // edit feature
+                    showEditInput[commentId] = false; // edit feature
+                  }); // edit feature
+                }, // edit feature
+                child: Text( // edit feature
+                  'Cancel', // edit feature
+                  style: ResponsiveHelper.textStyle( // edit feature
+                    context, // edit feature
+                    fontSize: 12, // edit feature
+                    color: Colors.grey[600], // edit feature
+                  ), // edit feature
+                ), // edit feature
+              ), // edit feature
+              SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+              ElevatedButton( // edit feature
+                onPressed: () => _editComment(commentId, blogId, postType), // edit feature
+                style: ElevatedButton.styleFrom( // edit feature
+                  backgroundColor: const Color(0xFF2196F3), // edit feature
+                  padding: ResponsiveHelper.padding( // edit feature
+                    context, // edit feature
+                    horizontal: 16, // edit feature
+                    vertical: 8, // edit feature
+                  ), // edit feature
+                ), // edit feature
+                child: Obx(() => isEditingComment.value // edit feature
+                    ? SizedBox( // edit feature
+                        width: ResponsiveHelper.iconSize(context, mobile: 16), // edit feature
+                        height: ResponsiveHelper.iconSize(context, mobile: 16), // edit feature
+                        child: CircularProgressIndicator( // edit feature
+                          strokeWidth: 2, // edit feature
+                          color: Colors.white, // edit feature
+                        ), // edit feature
+                      ) // edit feature
+                    : Text( // edit feature
+                        'Save', // edit feature
+                        style: ResponsiveHelper.textStyle( // edit feature
+                          context, // edit feature
+                          fontSize: 12, // edit feature
+                          color: Colors.white, // edit feature
+                        ), // edit feature
+                      )), // edit feature
+              ), // edit feature
+            ], // edit feature
+          ), // edit feature
+        ], // edit feature
+      ), // edit feature
+    ); // edit feature
+  } // edit feature
+
+  // edit feature: Edit comment method
+  Future<void> _editComment(int commentId, int blogId, String postType) async {
+    Map<String, dynamic>? targetComment;
+    for (final comment in controller.blogComments) {
+      if (_parseCommentId(comment) == commentId) {
+        targetComment = comment;
+        break;
+      }
+    }
+    if (targetComment == null || !_canEditComment(targetComment)) {
+      Get.snackbar(
+        'Error',
+        'You can only edit your own comments within 15 minutes',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 2),
+      );
+      return;
+    }
+
+    final editController = editControllers[commentId];
+    if (editController == null) return; // edit feature
+
+    final content = editController.text.trim(); // edit feature
+    if (content.isEmpty) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Comment cannot be empty', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (currentUserId == null || currentUserId == 0) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Please login first', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    isEditingComment.value = true; // edit feature
+    try { // edit feature
+      await CommentsService.editComment( // edit feature
+        userId: currentUserId!, // edit feature
+        commentId: commentId, // edit feature
+        postType: postType, // edit feature
+        postId: blogId, // edit feature
+        content: content, // edit feature
+      ); // edit feature
+
+      setState(() { // edit feature
+        showEditInput[commentId] = false; // edit feature
+      }); // edit feature
+
+      await controller.loadBlogComments(blogId); // edit feature
+
+      Get.snackbar( // edit feature
+        'Success', // edit feature
+        'Comment edited successfully', // edit feature
+        backgroundColor: Colors.green, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } catch (e) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        e.toString().replaceAll('Exception: ', ''), // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingComment.value = false; // edit feature
+    } // edit feature
+  } // edit feature
+
+  // edit feature: Check if blog post can be edited (owner only, within 15 minutes)
+  bool _canEditPost(Map<String, dynamic> blog) {
+    final uid = _activeUserId();
+    if (uid == null || uid == 0) return false;
+    if (!ContentDeleteHelper.isOwner(uid, blog['user_id'])) return false;
+    return _isWithinEditWindow(blog['created_at']);
+  }
+
+  int _parseBlogId(Map<String, dynamic> blog) {
+    final id = blog['id'];
+    if (id is int) return id;
+    return int.tryParse(id?.toString() ?? '') ?? 0;
+  }
+
+  bool _canDeletePost(Map<String, dynamic> blog) {
+    final uid = _activeUserId();
+    if (uid == null || uid == 0) return false;
+    return ContentDeleteHelper.isOwner(uid, blog['user_id']);
+  }
+
+  Future<void> _deletePost(int blogId) async {
+    final uid = _activeUserId();
+    if (uid == null || uid == 0) {
+      Get.snackbar('Error', 'Please login first', backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+    if (blogId <= 0) return;
+
+    FocusScope.of(context).unfocus();
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'post');
+    if (!confirmed || !mounted) return;
+
+    final success = await controller.deleteBlog(blogId);
+    if (!mounted) return;
+
+    if (success) {
+      Get.back();
+      Get.snackbar('Success', 'Post deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } else {
+      Get.snackbar(
+        'Error',
+        controller.message.value.replaceAll('Exception: ', ''),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  int _parseCommentId(Map<String, dynamic> comment) {
+    final id = comment['id'];
+    if (id is int) return id;
+    if (id is String) return int.tryParse(id) ?? 0;
+    return 0;
+  }
+
+  Future<void> _deleteComment(int commentId, int blogId) async {
+    if (currentUserId == null || currentUserId == 0 || commentId <= 0) return;
+    final confirmed = await ContentDeleteHelper.confirmDelete(context, itemLabel: 'comment');
+    if (!confirmed) return;
+
+    final success = await controller.deleteBlogComment(blogId, commentId);
+    if (!mounted) return;
+
+    if (success) {
+      setState(() {});
+      Get.snackbar('Success', 'Comment deleted successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    } else {
+      Get.snackbar(
+        'Error',
+        controller.message.value.replaceAll('Exception: ', ''),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  Widget _buildDeleteCommentButton(Map<String, dynamic> comment, int blogId) {
+    if (!ContentDeleteHelper.isOwner(currentUserId, comment['user_id'])) return const SizedBox.shrink();
+    final commentId = _parseCommentId(comment);
+    if (commentId <= 0) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(left: ResponsiveHelper.spacing(context, 16)),
+      child: ContentDeleteHelper.buildDeleteAction(onTap: () => _deleteComment(commentId, blogId)),
+    );
+  }
+
+  // edit feature: Edit blog post method
+  Future<void> _editPost(int blogId) async {
+    final blog = controller.selectedBlog;
+    if (blog.isEmpty || !_canEditPost(blog)) {
+      Get.snackbar(
+        'Error',
+        'You can only edit your own post within 15 minutes',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 2),
+      );
+      return;
+    }
+
+    final title = postEditTitleController.text.trim();
+    final body = postEditBodyController.text.trim(); // edit feature
+    final category = postEditCategoryController.text.trim(); // edit feature
+
+    if (title.isEmpty && body.isEmpty && category.isEmpty) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'At least one field must be filled', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    if (currentUserId == null || currentUserId == 0) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        'Please login first', // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+      return; // edit feature
+    } // edit feature
+
+    isEditingPost.value = true; // edit feature
+    try { // edit feature
+      // edit feature: Import BlogsService
+      final response = await BlogsService.editBlog( // edit feature
+        userId: currentUserId!, // edit feature
+        blogId: blogId, // edit feature
+        title: title.isEmpty ? null : title, // edit feature
+        body: body.isEmpty ? null : body, // edit feature
+        category: category.isEmpty ? null : category, // edit feature
+      ); // edit feature
+
+      showPostEditInput.value = false; // edit feature
+      await controller.loadBlogDetails(blogId, silent: true, force: true); // edit feature
+
+      Get.snackbar( // edit feature
+        'Success', // edit feature
+        'Blog edited successfully', // edit feature
+        backgroundColor: Colors.green, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } catch (e) { // edit feature
+      Get.snackbar( // edit feature
+        'Error', // edit feature
+        e.toString().replaceAll('Exception: ', ''), // edit feature
+        backgroundColor: Colors.red, // edit feature
+        colorText: Colors.white, // edit feature
+        duration: const Duration(seconds: 2), // edit feature
+      ); // edit feature
+    } finally { // edit feature
+      isEditingPost.value = false; // edit feature
+    } // edit feature
+  } // edit feature
 
   /// Get category color
   Color _getCategoryColor(String? category) {
@@ -181,7 +658,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   ImageProvider? _getImageProvider(String? photoUrl) {
     if (photoUrl == null || photoUrl.isEmpty) return null;
     
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'https://admin.fosmessenger.com/';
     String fixedUrl = photoUrl.trim();
     
     print('🔍 _getImageProvider: Original URL = "$fixedUrl"');
@@ -255,12 +732,6 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final blogId = Get.arguments as int? ?? 0;
-    
-    if (blogId > 0 && (controller.selectedBlog.isEmpty || controller.selectedBlog['id'] != blogId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadBlogDetails(blogId);
-      });
-    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAF6EC),
@@ -296,6 +767,28 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
             ),
           ),
           actions: [
+            // edit feature: Edit post button
+            Obx(() {
+              final blog = controller.selectedBlog;
+              if (blog.isNotEmpty && _canEditPost(blog)) {
+                return IconButton(
+                  icon: Icon(
+                    Icons.edit,
+                    color: AppTheme.iconscolor,
+                    size: ResponsiveHelper.iconSize(context, mobile: 24, tablet: 28),
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      postEditTitleController.text = blog['title'] as String? ?? '';
+                      postEditBodyController.text = blog['body'] as String? ?? '';
+                      postEditCategoryController.text = blog['category'] as String? ?? '';
+                      showPostEditInput.value = true;
+                    });
+                  },
+                );
+              }
+              return const SizedBox.shrink();
+            }),
             IconButton(
               icon: Icon(
                 Icons.share,
@@ -304,27 +797,13 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
               ),
               onPressed: () {
                 final blog = controller.selectedBlog;
-                final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
-                final imagePath = blog['image_url'] as String?;
-                String? blogImageUrl;
-                if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
-                  if (imagePath.toString().startsWith('http')) {
-                    blogImageUrl = imagePath.toString();
-                  } else {
-                    final cleanPath = imagePath.toString().startsWith('/') 
-                        ? imagePath.toString().substring(1) 
-                        : imagePath.toString();
-                    blogImageUrl = '$baseUrl$cleanPath';
-                  }
-                }
-
                 ShareHelper.shareContent(
                   context: context,
                   contentType: 'blog',
                   contentId: blogId,
                   title: blog['title'] ?? 'Blog',
-                  content: blog['body'],
-                  mediaUrl: blogImageUrl,
+                  content: blog['body'] as String? ?? blog['content'] as String?,
+                  mediaUrl: ImageHelper.resolveBlogImageUrl(blog),
                 );
               },
 
@@ -380,31 +859,27 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         }
 
         final blog = controller.selectedBlog;
-        final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
-        final imagePath = blog['image_url'] as String?;
-        String? imageUrl;
-        if (imagePath != null && imagePath.toString().trim().isNotEmpty) {
-          if (imagePath.toString().startsWith('http')) {
-            imageUrl = imagePath.toString();
-          } else {
-            final cleanPath = imagePath.toString().startsWith('/') 
-                ? imagePath.toString().substring(1) 
-                : imagePath.toString();
-            imageUrl = '$baseUrl$cleanPath';
-          }
-        }
+        final imageUrl = ImageHelper.resolveBlogMediaUrl(blog);
+        final hasVideoMedia = ImageHelper.isVideoUrl(imageUrl);
 
         final isLiked = blog['is_liked'] == true || blog['is_liked'] == 1;
         final likeCount = int.tryParse((blog['like_count'] ?? 0).toString()) ?? 0;
         final commentCount = controller.blogComments.length;
 
-        return RefreshIndicator(
-          onRefresh: () => controller.loadBlogDetails(blogId),
-          color: AppTheme.iconscolor,
-          backgroundColor: Colors.white,
-          child: Column(
-            children: [
-              Expanded(
+        return Column(
+          children: [
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => controller.loadBlogDetails(
+                  blogId,
+                  silent: false,
+                  force: true,
+                ),
+                color: AppTheme.iconscolor,
+                backgroundColor: Colors.white,
+                child: Column(
+                  children: [
+                    Expanded(
                 child: SingleChildScrollView(
                   controller: _scrollController,
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -412,32 +887,25 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Blog Image
+                      // Blog Media
                       if (imageUrl != null && imageUrl.isNotEmpty)
                         ClipRRect(
                           borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 20)),
-                          child: CachedImage(
-                            imageUrl: imageUrl,
-                            height: ResponsiveHelper.imageHeight(context, mobile: 280, tablet: 320, desktop: 360),
+                          child: Container(
                             width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorWidget: Container(
-                              height: ResponsiveHelper.imageHeight(context, mobile: 280, tablet: 320, desktop: 360),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    const Color(0xFFFAF6EC),
-                                    const Color(0xFF9F9467).withOpacity(0.2),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
+                            color: const Color(0xFFF5F0E6),
+                            child: BlogMediaWidget(
+                              mediaUrl: imageUrl,
+                              isVideo: hasVideoMedia,
+                              width: double.infinity,
+                              height: ResponsiveHelper.imageHeight(
+                                context,
+                                mobile: 300,
+                                tablet: 340,
+                                desktop: 380,
                               ),
-                              child: Icon(
-                                Icons.image_not_supported,
-                                size: ResponsiveHelper.iconSize(context, mobile: 60),
-                                color: AppTheme.iconscolor,
-                              ),
+                              fit: BoxFit.contain,
+                              previewMode: false,
                             ),
                           ),
                         ),
@@ -485,20 +953,37 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                               ),
 
                             // Title
-                            Text(
-                              AutoTranslateHelper.getTranslatedTextSync(
-                                text: blog['title'] as String? ?? 'Untitled',
-                                sourceLanguage: blog['language'] as String?,
-                              ),
-                              style: ResponsiveHelper.textStyle(
-                                context,
-                                fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22, desktop: 24),
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
-                                height: 1.3,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
+                            Column( // edit feature
+                              crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+                              children: [ // edit feature
+                                Text( // edit feature
+                                  AutoTranslateHelper.getTranslatedTextSync( // edit feature
+                                    text: blog['title'] as String? ?? 'Untitled', // edit feature
+                                    sourceLanguage: blog['language'] as String?, // edit feature
+                                  ), // edit feature
+                                  style: ResponsiveHelper.textStyle( // edit feature
+                                    context, // edit feature
+                                    fontSize: ResponsiveHelper.fontSize(context, mobile: 20, tablet: 22), // edit feature
+                                    fontWeight: FontWeight.bold, // edit feature
+                                    color: Colors.black, // edit feature
+                                    height: 1.3, // edit feature
+                                    letterSpacing: 0.2, // edit feature
+                                  ), // edit feature
+                                ), // edit feature
+                                // edit feature: Show "edited" label if blog was edited
+                                if (blog['is_edited'] == true || blog['is_edited'] == 1) ...[ // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 4)), // edit feature
+                                  Text( // edit feature
+                                    'edited', // edit feature
+                                    style: TextStyle( // edit feature
+                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11), // edit feature
+                                      color: Colors.grey[500],
+                                      fontStyle: FontStyle.italic, // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                ], // edit feature
+                              ], // edit feature
+                            ), // edit feature
                             SizedBox(height: ResponsiveHelper.spacing(context, 16)),
 
                             // Author Info Row
@@ -534,7 +1019,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                       if (blog['created_at'] != null) ...[
                                         SizedBox(height: ResponsiveHelper.spacing(context, 4)),
                                         Text(
-                                          _getTimeAgo(blog['created_at'] as String),
+                                          TimeHelper.getTimeAgo(blog['created_at'] as String?),
                                           style: ResponsiveHelper.textStyle(
                                             context,
                                             fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
@@ -548,14 +1033,52 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                 _buildBlogOptions(context, blog),
                               ],
                             ),
+                            // edit feature: Edit button for own posts within 15 minutes
+                            if (_canEditPost(blog)) ...[ // edit feature
+                              SizedBox(height: ResponsiveHelper.spacing(context, 8)), // edit feature
+                              GestureDetector( // edit feature
+                                onTap: () { // edit feature
+                                  setState(() { // edit feature
+                                    postEditTitleController.text = blog['title'] as String? ?? ''; // edit feature
+                                    postEditBodyController.text = blog['body'] as String? ?? ''; // edit feature
+                                    postEditCategoryController.text = blog['category'] as String? ?? ''; // edit feature
+                                    showPostEditInput.value = !showPostEditInput.value; // edit feature
+                                  }); // edit feature
+                                }, // edit feature
+                                child: Container( // edit feature
+                                  padding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 6), // edit feature
+                                  decoration: BoxDecoration( // edit feature
+                                    color: Colors.grey[200], // edit feature
+                                    borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+                                  ), // edit feature
+                                  child: Row( // edit feature
+                                    mainAxisSize: MainAxisSize.min, // edit feature
+                                    children: [ // edit feature
+                                      Icon( // edit feature
+                                        Icons.edit, // edit feature
+                                        size: ResponsiveHelper.iconSize(context, mobile: 14), // edit feature
+                                        color: Colors.grey[700], // edit feature
+                                      ), // edit feature
+                                      SizedBox(width: ResponsiveHelper.spacing(context, 4)), // edit feature
+                                      Text( // edit feature
+                                        'Edit Post', // edit feature
+                                        style: ResponsiveHelper.textStyle( // edit feature
+                                          context, // edit feature
+                                          fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12), // edit feature
+                                          color: Colors.grey[700], // edit feature
+                                        ), // edit feature
+                                      ), // edit feature
+                                    ], // edit feature
+                                  ), // edit feature
+                                ), // edit feature
+                              ), // edit feature
+                            ], // edit feature
                             SizedBox(height: ResponsiveHelper.spacing(context, 20)),
 
                             // Body Content
-                            Text(
-                              AutoTranslateHelper.getTranslatedTextSync(
-                                text: blog['body'] as String? ?? '',
-                                sourceLanguage: blog['language'] as String?,
-                              ),
+                            SeeTranslationWidget(
+                              text: blog['body'] as String? ?? '',
+                              sourceLanguage: blog['language'] as String?,
                               style: ResponsiveHelper.textStyle(
                                 context,
                                 fontSize: ResponsiveHelper.fontSize(context, mobile: 14, tablet: 15, desktop: 16),
@@ -564,6 +1087,128 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                 letterSpacing: 0.1,
                               ),
                             ),
+                            // edit feature: Post edit input UI
+                            Obx(() => showPostEditInput.value ? Container( // edit feature
+                              margin: EdgeInsets.only(top: ResponsiveHelper.spacing(context, 16)), // edit feature
+                              padding: ResponsiveHelper.padding(context, all: 16), // edit feature
+                              decoration: BoxDecoration( // edit feature
+                                color: const Color(0xFFE3F2FD), // edit feature
+                                borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 12)), // edit feature
+                                border: Border.all( // edit feature
+                                  color: const Color(0xFF2196F3).withOpacity(0.3), // edit feature
+                                  width: 1.5, // edit feature
+                                ), // edit feature
+                              ), // edit feature
+                              child: Column( // edit feature
+                                crossAxisAlignment: CrossAxisAlignment.start, // edit feature
+                                children: [ // edit feature
+                                  Text( // edit feature
+                                    'Edit Blog Post', // edit feature
+                                    style: ResponsiveHelper.textStyle( // edit feature
+                                      context, // edit feature
+                                      fontSize: ResponsiveHelper.fontSize(context, mobile: 14), // edit feature
+                                      fontWeight: FontWeight.bold, // edit feature
+                                      color: const Color(0xFF1976D2), // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                  TextField( // edit feature
+                                    controller: postEditTitleController, // edit feature
+                                    decoration: InputDecoration( // edit feature
+                                      labelText: 'Title', // edit feature
+                                      border: OutlineInputBorder( // edit feature
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                      ), // edit feature
+                                      contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                    ), // edit feature
+                                    maxLines: 2, // edit feature
+                                    style: ResponsiveHelper.textStyle( // edit feature
+                                      context, // edit feature
+                                      fontSize: 13, // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                  TextField( // edit feature
+                                    controller: postEditBodyController, // edit feature
+                                    decoration: InputDecoration( // edit feature
+                                      labelText: 'Content', // edit feature
+                                      border: OutlineInputBorder( // edit feature
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                      ), // edit feature
+                                      contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                    ), // edit feature
+                                    maxLines: 5, // edit feature
+                                    style: ResponsiveHelper.textStyle( // edit feature
+                                      context, // edit feature
+                                      fontSize: 13, // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                  TextField( // edit feature
+                                    controller: postEditCategoryController, // edit feature
+                                    decoration: InputDecoration( // edit feature
+                                      labelText: 'Category (optional)', // edit feature
+                                      border: OutlineInputBorder( // edit feature
+                                        borderRadius: BorderRadius.circular(ResponsiveHelper.borderRadius(context, mobile: 8)), // edit feature
+                                      ), // edit feature
+                                      contentPadding: ResponsiveHelper.padding(context, horizontal: 12, vertical: 12), // edit feature
+                                    ), // edit feature
+                                    style: ResponsiveHelper.textStyle( // edit feature
+                                      context, // edit feature
+                                      fontSize: 13, // edit feature
+                                    ), // edit feature
+                                  ), // edit feature
+                                  SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+                                  Row( // edit feature
+                                    mainAxisAlignment: MainAxisAlignment.end, // edit feature
+                                    children: [ // edit feature
+                                      TextButton( // edit feature
+                                        onPressed: () { // edit feature
+                                          showPostEditInput.value = false; // edit feature
+                                        }, // edit feature
+                                        child: Text( // edit feature
+                                          'Cancel', // edit feature
+                                          style: ResponsiveHelper.textStyle( // edit feature
+                                            context, // edit feature
+                                            fontSize: 12, // edit feature
+                                            color: Colors.grey[600], // edit feature
+                                          ), // edit feature
+                                        ), // edit feature
+                                      ), // edit feature
+                                      SizedBox(width: ResponsiveHelper.spacing(context, 8)), // edit feature
+                                      ElevatedButton( // edit feature
+                                        onPressed: () => _editPost(blog['id'] as int), // edit feature
+                                        style: ElevatedButton.styleFrom( // edit feature
+                                          backgroundColor: const Color(0xFF2196F3), // edit feature
+                                          padding: ResponsiveHelper.padding( // edit feature
+                                            context, // edit feature
+                                            horizontal: 16, // edit feature
+                                            vertical: 8, // edit feature
+                                          ), // edit feature
+                                        ), // edit feature
+                                        child: Obx(() => isEditingPost.value // edit feature
+                                            ? SizedBox( // edit feature
+                                                width: ResponsiveHelper.iconSize(context, mobile: 16), // edit feature
+                                                height: ResponsiveHelper.iconSize(context, mobile: 16), // edit feature
+                                                child: CircularProgressIndicator( // edit feature
+                                                  strokeWidth: 2, // edit feature
+                                                  color: Colors.white, // edit feature
+                                                ), // edit feature
+                                              ) // edit feature
+                                            : Text( // edit feature
+                                                'Save', // edit feature
+                                                style: ResponsiveHelper.textStyle( // edit feature
+                                                  context, // edit feature
+                                                  fontSize: 12, // edit feature
+                                                  color: Colors.white, // edit feature
+                                                ), // edit feature
+                                              )), // edit feature
+                                      ), // edit feature
+                                    ], // edit feature
+                                  ), // edit feature
+                                ], // edit feature
+                              ), // edit feature
+                            ) : const SizedBox.shrink()), // edit feature
                             SizedBox(height: ResponsiveHelper.spacing(context, 24)),
 
                             // Like and Comment Count Row
@@ -1044,29 +1689,23 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                       child: Row(
                         children: [
                           Expanded(
-                            child: TextField(
-                              controller: commentController,
-                              decoration: InputDecoration(
-                                prefixIcon: IconButton(
-                                  icon: const Icon(
-                                    Icons.emoji_emotions_outlined,
-                                    color: Color(0xFF8B4513),
-                                  ),
-                                  onPressed: () => _showEmojiPicker(context, blogId, controller),
-                                ),
-                                hintText: 'Write a comment...',
-                                border: InputBorder.none,
-                                hintStyle: ResponsiveHelper.textStyle(
-                                  context,
-                                  fontSize: 15,
-                                  color: Colors.grey[500],
-                                ),
-                                contentPadding: ResponsiveHelper.padding(context, horizontal: 8, vertical: 8),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                borderRadius: BorderRadius.circular(25),
                               ),
-                              style: ResponsiveHelper.textStyle(context, fontSize: 15),
-                              maxLines: null,
-                            ),
-                          ),
+                              child: Row(
+                                children: [
+                                  // IconButton(
+                                  //   icon: const Icon(
+                                  //     Icons.emoji_emotions_outlined,
+                                  //     color: Color(0xFF8B4513),
+                                  //   ),
+                                  //   onPressed: () => _showEmojiPicker(context, blogId, commentController),
+                                  // ),
+                                  Expanded(
+                                    child: _buildCustomCommentInput(blogId),
+                                  ),
                           Obx(() => isSubmittingComment.value
                               ? Padding(
                                   padding: ResponsiveHelper.padding(context, all: 8),
@@ -1094,14 +1733,21 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                     onPressed: () => _submitComment(blogId, parentCommentId: null),
                                   ),
                                 )),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         );
       }),
     );
@@ -1109,25 +1755,52 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
 
   /// Submit comment
   Future<void> _submitComment(int blogId, {int? parentCommentId}) async {
-    final text = parentCommentId != null 
+    if (isSubmittingComment.value) return;
+
+    // Get text from controller
+    final text = parentCommentId != null
         ? (replyControllers[parentCommentId]?.text.trim() ?? '')
         : commentController.text.trim();
     
-    if (text.isEmpty) return;
+    // Combine stickers and text
+    String finalContent = '';
 
-    // FIX: Dismiss keyboard immediately
-    FocusScope.of(context).unfocus();
-
-    if (parentCommentId != null) {
-      isSubmittingComment.value = true;
-    } else {
-      isSubmittingComment.value = true;
+    // Add all sticker codes first (without names)
+    for (var msg in commentMessages) {
+      if (msg.isSticker && msg.stickerId != null) {
+        // Extract just the sticker code (e.g., :sticker_123:)
+        final stickerCode = msg.stickerId!;
+        finalContent += stickerCode;
+        print('📝 Adding sticker to content: $stickerCode');
+      } else if (msg.text != null) {
+        // Add text messages
+        finalContent += msg.text!;
+        print('📝 Adding text to content: ${msg.text}');
+      }
     }
+
+    // Add text content - just concatenate like WhatsApp (no delimiter)
+    if (text.isNotEmpty) {
+      finalContent += text;
+      print('📝 Adding text field content: "$text"');
+    }
+
+    print('📝 Final comment content: "$finalContent"');
+    print('📝 Final content length: ${finalContent.length}');
+
+    if (finalContent.trim().isEmpty) return;
+
+    FocusScope.of(context).unfocus();
+    isSubmittingComment.value = true;
     
     try {
-      final success = await controller.addComment(blogId, text, parentCommentId: parentCommentId);
+      final success = await controller.addComment(blogId, finalContent, parentCommentId: parentCommentId);
       if (success) {
         if (parentCommentId == null) {
+          // Clear comment messages after sending
+          commentMessages.clear();
+          commentController.clear();
+
           // Scroll to bottom to show latest comment
           await Future.delayed(const Duration(milliseconds: 300));
           if (_scrollController.hasClients) {
@@ -1145,12 +1818,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
             // Auto-expand parent to show the new reply
             expandedReplies.add(parentCommentId);
           });
-        } else {
-          commentController.clear();
         }
-        
-        // Reload comments to show the new comment/reply
-        await controller.loadBlogDetails(blogId);
         
         _showCustomSnackbar(
           context,
@@ -1172,13 +1840,13 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
 
   /// Submit question (marked with ? prefix to distinguish from comments)
   Future<void> _submitQuestion(int blogId) async {
+    if (isSubmittingQuestion.value) return;
+
     final questionText = questionController.text.trim();
     if (questionText.isEmpty) return;
 
-    isSubmittingQuestion.value = true;
-
-    // FIX: Dismiss keyboard immediately
     FocusScope.of(context).unfocus();
+    isSubmittingQuestion.value = true;
 
     try {
       // Add ? prefix to mark as question (will be used for filtering)
@@ -1196,8 +1864,6 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
         }
         questionController.clear();
         showQuestionInput.value = false;
-        // Reload comments to show the new question
-        await controller.loadBlogDetails(blogId);
         _showCustomSnackbar(
           context,
           'Success',
@@ -1292,7 +1958,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                           ),
                           SizedBox(width: ResponsiveHelper.spacing(context, 8)),
                           Text(
-                            _getTimeAgo(comment['created_at'] as String),
+                            TimeHelper.getTimeAgo(comment['created_at'] as String?),
                             style: ResponsiveHelper.textStyle(
                               context,
                               fontSize: ResponsiveHelper.fontSize(context, mobile: 11, tablet: 12, desktop: 13),
@@ -1316,7 +1982,20 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                         color: Colors.black87,
                         height: 1.5,
                       ),
+                      userEmail: userEmail,
                     ),
+                    // edit feature: Show "edited" label if comment was edited
+                    if (comment['is_edited'] == true || comment['is_edited'] == 1) ...[ // edit feature
+                      SizedBox(height: ResponsiveHelper.spacing(context, 6)), // edit feature
+                      Text( // edit feature
+                        'edited', // edit feature
+                        style: TextStyle( // edit feature
+                          fontSize: ResponsiveHelper.fontSize(context, mobile: 10, tablet: 11), // edit feature
+                          color: Colors.grey[500], // edit feature
+                          fontStyle: FontStyle.italic, // edit feature
+                        ), // edit feature
+                      ), // edit feature
+                    ], // edit feature
                     SizedBox(height: ResponsiveHelper.spacing(context, 12)),
                     // Action Buttons: Like, Reply, Report
                     Row(
@@ -1351,25 +2030,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                         InkWell(
                           onTap: () {
                             setState(() {
-                              showReplyInput[commentId] = !(showReplyInput[commentId] ?? false);
-                              final shouldShow = showReplyInput[commentId] ?? false;
-                               
-                              if (shouldShow) {
-                                // Initialize focus node if not exists
-                                if (!replyFocusNodes.containsKey(commentId)) {
-                                  replyFocusNodes[commentId] = FocusNode();
-                                }
-                               
-                                // Unfocus any other fields first
-                                FocusScope.of(context).unfocus();
-                                
-                                // Focus on the reply input after a short delay to ensure it's rendered
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  if (mounted && replyFocusNodes.containsKey(commentId)) {
-                                    replyFocusNodes[commentId]!.requestFocus();
-                                  }
-                                });
-                              }
+                              // Close all other reply inputs first
+                              showReplyInput.clear();
+
+                              // Toggle current reply input
+                              showReplyInput[commentId] = true;
                             });
                           },
                           child: Row(
@@ -1391,6 +2056,10 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                             ],
                           ),
                         ),
+                        SizedBox(width: ResponsiveHelper.spacing(context, 16)),
+                        // edit feature: Edit Button - Show for all comments within 15 minutes
+                        _buildEditButton(context, comment, blogId), // edit feature
+                        _buildDeleteCommentButton(comment, blogId),
                         SizedBox(width: ResponsiveHelper.spacing(context, 16)),
                         // Report Button - Only show for other users' comments
                         if (currentUserId != null && (comment['user_id'] != null && comment['user_id'].toString() != currentUserId.toString()))
@@ -1422,6 +2091,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
               ),
             ],
           ),
+          // edit feature: Edit Input (if shown)
+          if (showEditInput[commentId] == true) ...[ // edit feature
+            SizedBox(height: ResponsiveHelper.spacing(context, 12)), // edit feature
+            _buildEditInput(context, commentId, blogId, 'blog'), // edit feature
+          ], // edit feature
           // Reply Input (if shown)
           if (showReplyInput[commentId] == true) ...[
             SizedBox(height: ResponsiveHelper.spacing(context, 12)),
@@ -1576,7 +2250,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                     if (question['created_at'] != null) ...[
                       SizedBox(height: ResponsiveHelper.spacing(context, 4)),
                       Text(
-                        _getTimeAgo(question['created_at'] as String),
+                        TimeHelper.getTimeAgo(question['created_at'] as String?),
                         style: ResponsiveHelper.textStyle(
                           context,
                           fontSize: 12,
@@ -1603,6 +2277,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
               color: const Color(0xFF1565C0),
               height: 1.5,
             ),
+            userEmail: userEmail,
           ),
           SizedBox(height: ResponsiveHelper.spacing(context, 12)),
           // Question Actions (Like, Answer)
@@ -1636,25 +2311,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
               InkWell(
                 onTap: () {
                   setState(() {
-                    showReplyInput[questionId] = !(showReplyInput[questionId] ?? false);
-                    final shouldShow = showReplyInput[questionId] ?? false;
+                    // Close all other reply inputs first
+                    showReplyInput.clear();
                     
-                    if (shouldShow) {
-                      // Initialize focus node if not exists
-                      if (!replyFocusNodes.containsKey(questionId)) {
-                        replyFocusNodes[questionId] = FocusNode();
-                      }
-                      
-                      // Unfocus any other fields first
-                      FocusScope.of(context).unfocus();
-                       
-                      // Focus on the answer input after a short delay to ensure it's rendered
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted && replyFocusNodes.containsKey(questionId)) {
-                          replyFocusNodes[questionId]!.requestFocus();
-                        }
-                      });
-                    }
+                    // Toggle current reply input
+                    showReplyInput[questionId] = true;
                   });
                 },
                 child: Row(
@@ -1758,18 +2419,14 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
       return;
     }
 
-    try {
-      await CommentsService.toggleCommentLike(
-        userId: currentUserId!,
-        commentId: commentId,
-      );
-      // Reload blog details to get updated comments
-      await controller.loadBlogDetails(blogId);
-    } catch (e) {
+    final success = await controller.toggleCommentLike(commentId);
+    if (!success && mounted) {
       _showCustomSnackbar(
         context,
         'Error',
-        'Failed to like comment',
+        controller.message.value.isNotEmpty
+            ? controller.message.value
+            : 'Failed to like comment',
         isError: true,
       );
     }
@@ -1877,7 +2534,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
   Widget _buildReplyCard(BuildContext context, Map<String, dynamic> reply, int blogId, {int depth = 0, bool isQuestionThread = false}) {
     // blog_comments uses 'comment' field, not 'content'
     final content = (reply['comment'] as String? ?? reply['content'] as String? ?? '').trim();
-    final timeAgo = _getTimeAgo(reply['created_at'] as String?);
+    final timeAgo = TimeHelper.getTimeAgo(reply['created_at'] as String?);
     final replyId = reply['id'] as int;
     final isLiked = reply['is_liked'] == true || reply['is_liked'] == 1;
     final likeCount = int.tryParse((reply['like_count'] ?? 0).toString()) ?? 0;
@@ -1978,7 +2635,8 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                               ],
                             ),
                             SizedBox(height: ResponsiveHelper.spacing(context, 4)),
-                            Text(
+                            FruitEmojiHelper.buildCommentText(
+                              context,
                               AutoTranslateHelper.getTranslatedTextSync(
                                 text: content,
                                 sourceLanguage: reply['language'] as String?,
@@ -2023,7 +2681,11 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                                 InkWell(
                                   onTap: () {
                                     setState(() {
-                                      showReplyInput[replyId] = !(showReplyInput[replyId] ?? false);
+                                      // Close all other reply inputs first
+                                      showReplyInput.clear();
+
+                                      // Toggle current reply input
+                                      showReplyInput[replyId] = true;
                                     });
                                   },
                                   child: Row(
@@ -2197,7 +2859,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                           Navigator.of(context).pop();
                           _showCustomSnackbar(context, 'Success', 'User blocked');
                           final currentBlogId = controller.selectedBlog['id'] is int ? controller.selectedBlog['id'] : int.parse(controller.selectedBlog['id'].toString());
-                          controller.loadBlogDetails(currentBlogId);
+                          controller.loadBlogDetails(currentBlogId, silent: true, force: true);
                         }
                       } catch (e) {
                         _showCustomSnackbar(context, 'Error', 'Failed to block user', isError: true);
@@ -2484,7 +3146,7 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
                 Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: () => _showEmojiPicker(context, blogId, controller),
+                    onTap: () => _showEmojiPicker(context, blogId, commentController),
                     borderRadius: BorderRadius.circular(ResponsiveHelper.isMobile(context) ? 40 : 44),
                     child: Padding(
                       padding: EdgeInsets.all(ResponsiveHelper.spacing(context, 4)),
@@ -2679,173 +3341,140 @@ class _BlogDetailsScreenState extends State<BlogDetailsScreen> {
     });
   }
 
-  /// Show Emoji Picker Dialog
-  void _showEmojiPicker(BuildContext context, int blogId, BlogsController controller) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.6,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Choose an Emoji',
-                  style: ResponsiveHelper.textStyle(
-                    context,
-                    fontSize: ResponsiveHelper.fontSize(context, mobile: 18, tablet: 19, desktop: 20),
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black,
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.close, color: AppTheme.iconscolor),
-                  onPressed: (){
-                    if (context.mounted) {
-                      Navigator.of(context, rootNavigator: true).pop();
-                    }
-                  },
-                ),
-              ],
+  /// Build custom comment input field that displays both text and stickers in real-time
+  Widget _buildCustomCommentInput(int blogId) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(25),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(
+              Icons.emoji_emotions_outlined,
+              color: Color(0xFF8B4513),
             ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: Obx(() {
-                if (controller.availableEmojis.isEmpty) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                
-                return GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 1,
-                  ),
-                  itemCount: controller.availableEmojis.length,
-                  itemBuilder: (context, index) {
-                    final emojiData = controller.availableEmojis[index];
-                    String? emoji = emojiData['emoji_char'] as String?;
-                    if (emoji == null || emoji.trim().isEmpty) {
-                      emoji = emojiData['code'] as String?;
-                    }
-                    if (emoji == null || emoji.trim().isEmpty) {
-                      final name = emojiData['name'] as String? ?? '';
-                      if (name.isNotEmpty) {
-                        String baseName = name.toLowerCase();
-                        if (baseName.contains(':')) {
-                          final parts = baseName.split(':');
-                          if (parts.length > 1) {
-                            baseName = parts[1].trim();
-                          }
-                        }
-                        if (baseName.contains(' ')) {
-                          baseName = baseName.split(' ')[0].trim();
-                        }
-                        emoji = baseName;
-                      }
-                    }
-                    
-                    final isValidEmoji = emoji != null && emoji.trim().isNotEmpty;
-                    
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: null, // Handled by _EmojiButtonWithLoading
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey[50],
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Center(
-                            child: HomeScreen.buildEmojiDisplay(
-                              context,
-                              emojiData,
-                              size: 48,
-                              onTap: isValidEmoji ? () async {
-                                // Get the root context that will persist after bottom sheet is closed
-                                final rootContext = context.findRootAncestorStateOfType<NavigatorState>()?.context;
-                                if (rootContext == null) return;
-                                
-                                // Close the emoji picker bottom sheet first
-                                Navigator.of(context).pop();
-                                
-                                try {
-                                  // Make API call directly without intermediate loading dialog
-                                  // The UI will update automatically when the reaction is added
-                                  FocusScope.of(rootContext).unfocus();
-                                  final success = await controller.addEmojiReaction(blogId, emoji!);
-                                  
-                                  if (success) {
-                                    // Show success message
-                                    if (rootContext.mounted) {
-                                      _showCustomSnackbar(
-                                        rootContext,
-                                        'Success',
-                                        'Reaction added successfully',
-                                      );
-                                    }
-                                  } else {
-                                    // Show error message
-                                    if (rootContext.mounted) {
-                                      _showCustomSnackbar(
-                                        rootContext,
-                                        'Error',
-                                        controller.message.value.isNotEmpty 
-                                            ? controller.message.value 
-                                            : 'Failed to add reaction. Please try again.',
-                                        isError: true,
-                                      );
-                                    }
-                                  }
-                                } catch (e) {
-                                  if (rootContext.mounted) {
-                                    _showCustomSnackbar(
-                                      rootContext,
-                                      'Error',
-                                      'Failed to add reaction. Please try again.',
-                                      isError: true,
-                                    );
-                                  }
-                                }
-                              } : null,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              }),
-            ),
-          ],
-        ),
+            onPressed: () => _showEmojiPicker(context, blogId, commentController),
+          ),
+          Expanded(
+            child: _buildRichTextInput(),
+          ),
+        ],
       ),
     );
   }
 
+  /// Build rich text input that can display both text and sticker messages
+  Widget _buildRichTextInput() {
+    return Container(
+      padding: ResponsiveHelper.padding(context, horizontal: 8, vertical: 8),
+      child: Row(
+        children: [
+          // Display all sticker messages as images
+          ...commentMessages.map((message) => _buildCommentMessage(message)).toList(),
+          // Text input field for regular text
+          Expanded(
+            child: TextField(
+              controller: commentController,
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                hintText: commentMessages.isEmpty ? 'Write a comment...' : '',
+                hintStyle: ResponsiveHelper.textStyle(
+                  context,
+                  fontSize: 15,
+                  color: Colors.grey[500],
+                ),
+              ),
+              style: ResponsiveHelper.textStyle(context, fontSize: 15),
+              maxLines: null,
+              onChanged: (value) {
+                setState(() {});
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build message widget that properly renders text vs stickers
+  Widget _buildCommentMessage(CommentMessage message) {
+    if (message.isSticker) {
+      // Return sticker widget
+      return StickerEmojiHelper.buildStickerWidget(message.stickerId ?? '', size: 40);
+    } else {
+      // Return text widget
+      return Text(
+        message.text ?? '',
+        style: ResponsiveHelper.textStyle(context, fontSize: 15),
+      );
+    }
+  }
+
+  /// Show emoji picker for blog comments - sends emoji directly without showing in input field
+  void _showEmojiPicker(BuildContext context, int blogId, TextEditingController controller) {
+    showEmojiStickerPicker(
+      context: context,
+      onEmojiSelected: (emoji) async {
+        print('Blog emoji selected: "$emoji"');
+
+        // Send emoji directly as comment - no preview in text field!
+        await _sendEmojiDirectly(blogId, emoji);
+      },
+      height: 350,
+    );
+  }
+
+  /// Send emoji/sticker directly as comment without showing in input field
+  Future<void> _sendEmojiDirectly(int blogId, String emoji) async {
+    if (emoji.isEmpty) return;
+
+    // Dismiss keyboard
+    FocusScope.of(context).unfocus();
+
+    isSubmittingComment.value = true;
+
+    try {
+      final success = await controller.addComment(blogId, emoji);
+      if (success) {
+        // Scroll to bottom to show new comment
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+        }
+
+        _showCustomSnackbar(context, 'Success', 'Comment added successfully');
+      } else {
+        _showCustomSnackbar(context, 'Error', controller.message.value, isError: true);
+      }
+    } finally {
+      isSubmittingComment.value = false;
+    }
+  }
+
   Widget _buildBlogOptions(BuildContext context, Map<String, dynamic> blog) {
+    final uid = _activeUserId();
+    final blogId = _parseBlogId(blog);
+
+    if (_canDeletePost(blog)) {
+      return ContentDeleteHelper.buildDeleteIconButton(
+        onTap: () => _deletePost(blogId),
+      );
+    }
+
     final userIdRaw = blog['user_id'] ?? blog['created_by'];
     final posterId = userIdRaw is int ? userIdRaw : int.tryParse(userIdRaw?.toString() ?? '');
     
-    // Check if we have any options to show
-    final hasOptions = posterId != null && posterId != currentUserId;
-    
-    // Only show the PopupMenuButton if there are options
+    final hasOptions = posterId != null && posterId != uid;
     if (!hasOptions) {
-      return SizedBox(width: 40); // Empty placeholder for alignment
+      return SizedBox(width: 40);
     }
-    
+
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[400]),
       onSelected: (value) async {

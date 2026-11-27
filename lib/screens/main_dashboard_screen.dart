@@ -3,11 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/main_dashboard_controller.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
-import 'package:fruitsofspirit/screens/fruits_screen.dart';
+import 'package:fruitsofspirit/screens/fruit_screen.dart';
 import 'package:fruitsofspirit/screens/prayer_requests_screen.dart';
 import 'package:fruitsofspirit/screens/videos_screen.dart';
 import 'package:fruitsofspirit/screens/gallery_screen.dart';
 import 'package:fruitsofspirit/widgets/app_bottom_navigation_bar.dart';
+import 'package:fruitsofspirit/utils/responsive_helper.dart';
 
 import 'package:fruitsofspirit/screens/temp_video_test_screen.dart';
 
@@ -75,42 +76,43 @@ class MainDashboardScreen extends GetView<MainDashboardController> {
           SystemNavigator.pop();
         }
       },
-      child: Obx(() {
-        return Stack(
-          children: [
-            Scaffold(
-              body: Stack(
-                children: [
-                  Obx(
-                    () => IndexedStack(
-                      index: controller.currentIndex.value,
-                      children: const [
-                        HomeScreen(),
-                        FruitsScreen(isRootTab: true),
-                        PrayerRequestsScreen(),
-                        VideosScreen(),
-                        GalleryScreen(),
-                      ],
-                    ),
-                  ),
-                ],
+      child: Stack(
+        children: [
+          Scaffold(
+            extendBody: false,
+            body: ResponsiveHelper.constrainedContent(
+              context: context,
+              child: Obx(
+                () => IndexedStack(
+                  index: controller.currentIndex.value,
+                  children: const [
+                    HomeScreen(),
+                    FruitScreen(isRootTab: true),
+                    PrayerRequestsScreen(),
+                    VideosScreen(),
+                    GalleryScreen(),
+                  ],
+                ),
               ),
-              bottomNavigationBar: AppBottomNavigationBar(
+            ),
+            bottomNavigationBar: Obx(
+              () => AppBottomNavigationBar(
                 currentIndex: controller.currentIndex.value,
                 onTap: controller.changeIndex,
               ),
             ),
-            if (controller.showIntroVideo.value)
-              Positioned.fill(
-                child: TempVideoTestScreen(
-                  onVideoFinished: () {
-                    controller.hideIntroVideo();
-                  },
-                ),
-              ),
-          ],
-        );
-      }),
+          ),
+          Obx(
+            () => controller.showIntroVideo.value
+                ? Positioned.fill(
+                    child: TempVideoTestScreen(
+                      onVideoFinished: controller.hideIntroVideo,
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
     );
   }
 }

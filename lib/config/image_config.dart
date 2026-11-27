@@ -1,7 +1,7 @@
 class ImageConfig {
   // Base URL for images on Hostinger
   // Direct uploads folder (all images directly in uploads/)
-  static const String baseUrl = 'https://fruitofthespirit.templateforwebsites.com/uploads/';
+  static const String baseUrl = 'http://admin.fosmessenger.com/uploads/';
   
   // App Images - Network URLs (with proper URL encoding for spaces)
   static String notification = '${baseUrl}images/notification.png';
@@ -20,7 +20,7 @@ class ImageConfig {
   
   // Fruits of the Spirit Images Base URL
   // Original URL provided by user
-  static const String fruitsBaseUrl = 'https://fruitofthespirit.templateforwebsites.com/uploads/fruitofspirit/';
+  static const String fruitsBaseUrl = 'http://admin.fosmessenger.com/uploads/fruitofspirit/';
   
   // Helper method to get fruit image URL based on fruit name
   // Based on website reference: https://fosmessenger.com/fruit-of-the-spirit/
@@ -30,7 +30,7 @@ class ImageConfig {
   static String getFruitImageUrl(String fruitName) {
     // Normalize fruit name (trim and lowercase for matching)
     final normalizedName = fruitName.trim().toLowerCase();
-    
+
     // Map fruit names to actual image filenames in uploads/fruitofspirit/ folder
     // Using -01 versions as default (each fruit has -01, -02, -03 variants)
     final fruitImageMap = {
@@ -47,17 +47,17 @@ class ImageConfig {
       'self control': '${fruitsBaseUrl}Green-apple-01.png',  // Alternative name
       'discipline': '${fruitsBaseUrl}Green-apple-01.png',    // Alternative name for Self-Control
     };
-    
+
     // Get image URL - if it's already a full URL (strawberry), return it directly
     // Otherwise, it's already a full URL from the map
     final imageUrl = fruitImageMap[normalizedName];
-    
+
     if (imageUrl != null) {
       // Debug: Print for troubleshooting
       print('Fruit: $fruitName -> URL: $imageUrl');
       return imageUrl;
     }
-    
+
     // Default fallback
     final defaultUrl = '${fruitsBaseUrl}pineapple-01.png';
     print('Fruit: $fruitName -> Default URL: $defaultUrl');
@@ -116,7 +116,7 @@ class ImageConfig {
   }
 
   // PHP endpoint for emoji images (from uploads/emojis folder)
-  static const String emojiImageApiUrl = 'https://fruitofthespirit.templateforwebsites.com/api/get-emoji-image.php';
+  static const String emojiImageApiUrl = 'http://admin.fosmessenger.com/api/get-emoji-image.php';
 
   // Fruit reaction images base URLs (from uploads/images/128-128 and 256-256) - DEPRECATED
   // Now using PHP endpoint from uploads/emojis folder
@@ -126,12 +126,13 @@ class ImageConfig {
   /// Get fruit reaction image URL from emoji character
   /// Maps emoji characters to fruit images via PHP endpoint (from uploads/emojis folder)
   /// Returns null if emoji character not found
-  /// 
+  ///
   /// Parameters:
   /// - emojiChar: Emoji character (e.g., '😊', '☮️', '🙏')
   /// - size: Image size in pixels (passed to PHP endpoint)
   /// - variant: Image variant (01, 02, 03) - defaults to 01
-  static String? getFruitReactionImageUrl(String emojiChar, {double? size, int variant = 1}) {
+  /// - userEmail: User email for backend authentication (required)
+  static String? getFruitReactionImageUrl(String emojiChar, {double? size, int variant = 1, String? userEmail}) {
     // Map emoji characters to verify it's a valid emoji
     final emojiToFruitMap = {
       '😊': 'joy_pineapple',           // Joy
@@ -146,21 +147,22 @@ class ImageConfig {
       '⭐': 'goodness_mango',          // Star (maps to goodness)
       '👏': 'joy_pineapple',          // Clap (maps to joy)
     };
-    
+
     // Check if emoji is valid
     if (!emojiToFruitMap.containsKey(emojiChar)) {
       return null;
     }
-    
+
     // Build URL with PHP endpoint - encode emoji character for URL
     final encodedEmoji = Uri.encodeComponent(emojiChar);
     final sizeParam = size != null ? '&size=${size.toInt()}' : '';
-    return '$emojiImageApiUrl?emoji_char=$encodedEmoji&variant=$variant$sizeParam';
+    final emailParam = (userEmail != null && userEmail.isNotEmpty) ? '&user_email=${Uri.encodeComponent(userEmail)}' : '';
+    return '$emojiImageApiUrl?emoji_char=$encodedEmoji&variant=$variant$sizeParam$emailParam';
   }
 
   /// Get fruit reaction image URL from fruit name
   /// Maps fruit names to emoji characters, then uses PHP endpoint (from uploads/emojis folder)
-  static String? getFruitReactionImageUrlByName(String fruitName, {double? size, int variant = 1}) {
+  static String? getFruitReactionImageUrlByName(String fruitName, {double? size, int variant = 1, String? userEmail}) {
     // Map fruit names to emoji characters
     final fruitNameToEmojiMap = {
       'joy': '😊',
@@ -176,15 +178,15 @@ class ImageConfig {
       'discipline': '🎯',
       'love': '❤️',
     };
-    
+
     final normalizedName = fruitName.toLowerCase().trim();
     final emojiChar = fruitNameToEmojiMap[normalizedName];
     if (emojiChar == null) {
       return null;
     }
-    
+
     // Use the emoji-based function
-    return getFruitReactionImageUrl(emojiChar, size: size, variant: variant);
+    return getFruitReactionImageUrl(emojiChar, size: size, variant: variant, userEmail: userEmail);
   }
 }
 

@@ -1,0 +1,6 @@
+app_identifier("com.fruitsofspirit.ios")
+apple_id("") # Your Apple ID email - fill this in
+
+itunes_connect_id("") # App Store Connect Team ID - fill this in
+app_store_connect_team_id("") # App Store Connect Team ID
+developer_portal_team_id("") # Developer Portal Team ID

@@ -63,20 +63,20 @@ class GroupsService {
   }
 
   /// Create Group
-  /// 
+  ///
   /// Parameters:
   /// - userId: User ID (creator)
   /// - name: Group name
   /// - description: Group description (optional)
-  /// - category: Group category (default: 'Prayer')
+  /// - category: Group category (optional)
   /// - groupImage: Group image file (optional)
-  /// 
+  ///
   /// Returns: Created group ID
   static Future<int> createGroup({
     required int userId,
     required String name,
     String? description,
-    String category = 'Prayer',
+    String? category,
     File? groupImage,
   }) async {
     // Validate name is not empty
@@ -88,8 +88,11 @@ class GroupsService {
     final fields = <String, String>{
       'user_id': userId.toString(),
       'name': trimmedName, // Ensure trimmed and not empty
-      'category': category,
     };
+
+    if (category != null && category.trim().isNotEmpty) {
+      fields['category'] = category.trim();
+    }
 
     if (description != null && description.trim().isNotEmpty) {
       fields['description'] = description.trim();
@@ -140,6 +143,28 @@ class GroupsService {
       return response['message'] ?? 'Joined group successfully';
     } else {
       throw ApiException(response['message'] ?? 'Failed to join group');
+    }
+  }
+
+  /// Remove Member (group owner only)
+  static Future<String> removeMember({
+    required int userId,
+    required int groupId,
+    required int memberId,
+  }) async {
+    final response = await ApiService.post(
+      '${ApiConfig.groups}?action=remove-member',
+      body: {
+        'user_id': userId.toString(),
+        'group_id': groupId.toString(),
+        'member_id': memberId.toString(),
+      },
+    );
+
+    if (response['success'] == true) {
+      return response['message'] ?? 'Member removed successfully';
+    } else {
+      throw ApiException(response['message'] ?? 'Failed to remove member');
     }
   }
 

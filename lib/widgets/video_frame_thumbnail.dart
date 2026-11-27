@@ -29,12 +29,29 @@ class _VideoFrameThumbnailState extends State<VideoFrameThumbnail> {
   @override
   void initState() {
     super.initState();
-    _initializeVideo();
+    _initializeVideo(widget.videoUrl);
   }
 
-  Future<void> _initializeVideo() async {
+  @override
+  void didUpdateWidget(VideoFrameThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoUrl != widget.videoUrl) {
+      _initializeVideo(widget.videoUrl);
+    }
+  }
+
+  Future<void> _initializeVideo(String videoUrl) async {
+    await _controller?.dispose();
+    _controller = null;
+    if (!mounted) return;
+
+    setState(() {
+      _isInitialized = false;
+      _hasError = false;
+    });
+
     try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+      _controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
       await _controller!.initialize();
       
       // Seek to first frame (0 seconds) and pause

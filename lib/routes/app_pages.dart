@@ -8,7 +8,9 @@ import 'package:fruitsofspirit/screens/create_account_screen.dart';
 import 'package:fruitsofspirit/screens/phone_auth_screen.dart';
 import 'package:fruitsofspirit/screens/forgot_password_screen.dart';
 import 'package:fruitsofspirit/screens/home_screen.dart';
-import 'package:fruitsofspirit/screens/fruits_screen.dart';
+import 'package:fruitsofspirit/bindings/home_binding.dart';
+import 'package:fruitsofspirit/bindings/InitialBinding.dart';
+import 'package:fruitsofspirit/screens/fruit_screen.dart';
 import 'package:fruitsofspirit/screens/prayer_requests_screen.dart';
 import 'package:fruitsofspirit/screens/create_prayer_screen.dart';
 import 'package:fruitsofspirit/screens/prayer_details_screen.dart';
@@ -37,7 +39,7 @@ import 'package:fruitsofspirit/screens/notifications_screen.dart';
 import 'package:fruitsofspirit/screens/saved_content_screen.dart';
 import 'package:fruitsofspirit/screens/terms_screen.dart';
 import 'package:fruitsofspirit/screens/fruit_details_screen.dart';
-import 'package:fruitsofspirit/screens/fruits_variant_01_screen.dart';
+import 'package:fruitsofspirit/screens/fruit_variant_01_screen.dart';
 import 'package:fruitsofspirit/screens/prayer_reminders_screen.dart';
 import 'package:fruitsofspirit/screens/live_screen.dart';
 import 'package:fruitsofspirit/screens/reset_password_screen.dart';
@@ -46,6 +48,14 @@ import '../bindings/live_stream_binding.dart';
 import '../screens/agora_live_screen.dart';
 import '../screens/live_stream_viewer_screen.dart';
 import '../screens/payment_screen.dart';
+import 'package:fruitsofspirit/screens/denominations_screen.dart';
+import 'package:fruitsofspirit/screens/church_locator_screen.dart';
+import 'package:fruitsofspirit/screens/shorts_screen.dart';
+import 'package:fruitsofspirit/screens/upload_short_screen.dart';
+import 'package:fruitsofspirit/screens/saved_shorts_screen.dart';
+import 'package:fruitsofspirit/screens/my_shorts_screen.dart';
+import 'package:fruitsofspirit/bindings/shorts_binding.dart';
+
 
 part 'app_routes.dart';
 
@@ -63,6 +73,7 @@ class AppPages {
     GetPage(
       name: Routes.DASHBOARD,
       page: () => const MainDashboardScreen(),
+      binding: InitialBinding(),
       transition: Transition.fadeIn,
     ),
     GetPage(
@@ -99,11 +110,12 @@ class AppPages {
     GetPage(
       name: Routes.HOME,
       page: () => const HomeScreen(),
+      binding: HomeBinding(),
       transition: Transition.fadeIn,
     ),
     GetPage(
-      name: Routes.FRUITS,
-      page: () => const FruitsScreen(),
+      name: Routes.FRUIT,
+      page: () => const FruitScreen(),
       transition: Transition.fadeIn,
     ),
     GetPage(
@@ -249,8 +261,8 @@ class AppPages {
       transition: Transition.fadeIn,
     ),
     GetPage(
-      name: Routes.FRUITS_VARIANT_01,
-      page: () => const FruitsVariant01Screen(),
+      name: Routes.FRUIT_VARIANT_01,
+      page: () => const FruitVariant01Screen(),
       transition: Transition.fadeIn,
     ),
     GetPage(
@@ -279,6 +291,7 @@ class AppPages {
         return AgoraLiveScreen(
           channelName: args['channel_name'] as String? ?? '',
           title: args['title'] as String? ?? 'Live',
+          description: args['description'] as String? ?? '',
           isBroadcaster: args['is_broadcaster'] as bool? ?? false,
         );
       },
@@ -287,7 +300,44 @@ class AppPages {
     GetPage(
       name: Routes.PAYMENT,
       page: () => const PaymentScreen(),
+      transition: Transition.rightToLeft,
+      transitionDuration: const Duration(milliseconds: 280),
+    ),
+
+    GetPage(
+      name: Routes.DENOMINATIONS,
+      page: () => const DenominationsScreen(),
       transition: Transition.fadeIn,
     ),
+    GetPage(
+      name: Routes.CHURCH_LOCATOR,
+      page: () => const ChurchLocatorScreen(),
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.SHORTS,
+      page: () => const ShortsScreen(),
+      binding: ShortsBinding(),
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.UPLOAD_SHORT,
+      page: () => const UploadShortScreen(),
+      binding: ShortsBinding(),
+      transition: Transition.rightToLeft,
+    ),
+    GetPage(
+      name: Routes.SAVED_SHORTS,
+      page: () => const SavedShortsScreen(),
+      binding: ShortsBinding(),
+      transition: Transition.rightToLeft,
+    ),
+    GetPage(
+      name: Routes.MY_SHORTS,
+      page: () => const MyShortsScreen(),
+      binding: ShortsBinding(),
+      transition: Transition.rightToLeft,
+    ),
+
   ];
 }

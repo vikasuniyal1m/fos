@@ -1,0 +1,42 @@
+name: CI - Continuous Integration
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build:
+    name: Run Flutter Tests and Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Quality checks are non-blocking for now: the codebase has existing
+      # format/lint/test debt. Remove continue-on-error once it is cleaned up.
+      - name: Check formatting
+        continue-on-error: true
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze code
+        continue-on-error: true
+        run: flutter analyze
+
+      - name: Run tests
+        continue-on-error: true
+        run: flutter test

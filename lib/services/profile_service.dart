@@ -10,7 +10,7 @@ class ProfileService {
   /// Parameters:
   /// - userId: User ID
   /// 
-  /// Returns: User profile with stats and selected fruits
+  /// Returns: User profile with stats and selected fruit
   static Future<Map<String, dynamic>> getProfile(int userId) async {
     final response = await ApiService.get(
       ApiConfig.profile,

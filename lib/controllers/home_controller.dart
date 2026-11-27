@@ -1,21 +1,26 @@
+import 'dart:async';
 import 'package:get/get.dart';
 import 'package:flutter/material.dart';
-import 'package:fruitsofspirit/services/fruits_service.dart';
+import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/prayers_service.dart';
 import 'package:fruitsofspirit/services/blogs_service.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
 import 'package:fruitsofspirit/services/gallery_service.dart';
 import 'package:fruitsofspirit/services/groups_service.dart';
+import 'package:fruitsofspirit/config/group_posts_config.dart';
+import 'package:fruitsofspirit/services/group_posts_service.dart';
 import 'package:fruitsofspirit/services/emojis_service.dart';
 import 'package:fruitsofspirit/services/stories_service.dart';
+import 'package:fruitsofspirit/services/shorts_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/image_preload_service.dart';
 import 'package:fruitsofspirit/services/data_loading_service.dart';
-import 'package:fruitsofspirit/services/cache_service.dart';
 import 'package:fruitsofspirit/services/hive_cache_service.dart';
 import 'package:fruitsofspirit/config/image_config.dart';
 import 'package:fruitsofspirit/services/intro_service.dart';
+import 'package:fruitsofspirit/services/live_streaming_service.dart';
+import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 
 class HomeController extends GetxController {
   // ScrollController for smooth scrolling
@@ -27,14 +32,34 @@ class HomeController extends GetxController {
   var message = ''.obs;
 
   // Data from database
-  var fruits = <Map<String, dynamic>>[].obs;
+  var fruit = <Map<String, dynamic>>[].obs;
   var prayers = <Map<String, dynamic>>[].obs;
   var blogs = <Map<String, dynamic>>[].obs;
   var videos = <Map<String, dynamic>>[].obs;
   var liveVideos = <Map<String, dynamic>>[].obs;
   var galleryPhotos = <Map<String, dynamic>>[].obs;
   var stories = <Map<String, dynamic>>[].obs; // Stories from stories table
+  var communityShorts = <Map<String, dynamic>>[].obs;
+  var myShorts = <Map<String, dynamic>>[].obs;
+
+  /// Home carousel — user ke grace moments pehle, phir community.
+  List<Map<String, dynamic>> get graceMomentsForHome {
+    final seen = <String>{};
+    final merged = <Map<String, dynamic>>[];
+    for (final s in myShorts) {
+      final id = ShortsService.shortId(s);
+      if (id <= 0 || !seen.add('$id')) continue;
+      merged.add(s);
+    }
+    for (final s in communityShorts) {
+      final id = ShortsService.shortId(s);
+      if (id <= 0 || !seen.add('$id')) continue;
+      merged.add(s);
+    }
+    return merged;
+  }
   var groups = <Map<String, dynamic>>[].obs;
+  var groupPosts = <Map<String, dynamic>>[].obs;
   var emojis = <Map<String, dynamic>>[].obs; // Main fruits only (for carousel)
   var allEmojis = <Map<String, dynamic>>[].obs; // All emojis (main fruits, opposites, emotions)
   var oppositeEmojis = <Map<String, dynamic>>[].obs; // Opposites only
@@ -51,6 +76,30 @@ class HomeController extends GetxController {
   var _isEmojisLoaded = false;
   var _isLoadingEmojis = false;
 
+  static const String _userFeelingHiveKey = 'user_feeling';
+  static const String _homeBlogsHiveKey = 'home_blogs';
+  static const String _homeGroupsHiveKey = 'home_groups';
+  static const String _homeGroupPostsHiveKey = 'home_group_posts';
+  static const Duration _feelingMinSyncInterval = Duration(minutes: 2);
+  static const Duration _blogsMinSyncInterval = Duration(minutes: 2);
+  static const Duration _groupsMinSyncInterval = Duration(minutes: 2);
+  DateTime? _feelingLastSyncedAt;
+  DateTime? _blogsLastSyncedAt;
+  DateTime? _groupsLastSyncedAt;
+  DateTime? _groupPostsLastSyncedAt;
+  DateTime? _videosLastSyncedAt;
+  DateTime? _liveVideosLastSyncedAt;
+  var _isFeelingSyncing = false;
+  var _isBlogsSyncing = false;
+  var _isGroupsSyncing = false;
+  var _isGroupPostsSyncing = false;
+  var _isVideosSyncing = false;
+  var _isLiveVideosSyncing = false;
+  var _isCommunityShortsSyncing = false;
+  DateTime? _communityShortsLastSyncedAt;
+  static const Duration _communityShortsMinSyncInterval = Duration(minutes: 2);
+  static const Duration _videosMinSyncInterval = Duration(minutes: 2);
+
   // Intro overlay state
   var showIntroOverlay = false.obs;
 
@@ -59,6 +108,7 @@ class HomeController extends GetxController {
     super.onInit();
     _loadUserId();
     _initializeData();
+    NotificationsController.warmUnreadCount();
   }
 
   @override
@@ -96,410 +146,185 @@ class HomeController extends GetxController {
       if (userData != null) {
         userName.value = userData['name'] ?? userData['user_name'] ?? '';
       }
-      // Load user's latest feeling
-      await loadUserFeeling();
+      // Load user's latest feeling (cache first, API silent sync)
+      unawaited(loadUserFeeling());
     }
   }
 
-  /// Load user's latest feeling - First from local storage (instant), then from API (sync)
-  Future<void> loadUserFeeling({bool fromApiOnly = false}) async {
-    print('🍎 FRUIT ISSUE: loadUserFeeling called - fromApiOnly=$fromApiOnly, userId=${userId.value}');
+  /// Load user feeling — cache/Hive first, then silent API sync (Prayer pattern).
+  Future<void> loadUserFeeling({bool silent = false}) async {
+    if (userId.value <= 0) {
+      final id = await UserStorage.getUserId();
+      if (id != null) userId.value = id;
+    }
     if (userId.value <= 0) {
       userFeeling.value = null;
-      print('🍎 FRUIT ISSUE: ⚠️ Cannot load feeling: userId is ${userId.value}');
       return;
     }
-    
-    // STEP 1: Load from local storage FIRST for instant UI update
-    if (!fromApiOnly) {
-      try {
-        final localFeeling = await UserStorage.getUserFeeling();
-        if (localFeeling != null) {
-          // Create new Map to ensure GetX detects change
-          userFeeling.value = Map<String, dynamic>.from(localFeeling);
-          print('🍎 FRUIT ISSUE: ✅ Loaded user feeling from LOCAL STORAGE (instant): emoji=${localFeeling['emoji']}');
-          print('🍎 FRUIT ISSUE: ✅ Local storage emoji_details: ${localFeeling['emoji_details']?['name'] ?? 'null'}');
-          print('🍎 FRUIT ISSUE: ✅ UI should update instantly from local storage');
-          // Force refresh to ensure UI updates
-          userFeeling.refresh();
-        } else {
-          print('🍎 FRUIT ISSUE: ⚠️ No feeling found in local storage');
-        }
-      } catch (e) {
-        print('🍎 FRUIT ISSUE: ⚠️ Error loading feeling from local storage: $e');
-      }
-    } else {
-      print('🍎 FRUIT ISSUE: ⚠️ Skipping local storage load (fromApiOnly=true)');
-    }
-    
-    // STEP 2: Load from API in background to sync with server
-    try {
-      print('🍎 FRUIT ISSUE: 🔄 Loading user feeling from API for userId: ${userId.value}');
-      final feeling = await EmojisService.getUserLatestFeeling(userId: userId.value);
-      print('🍎 FRUIT ISSUE: 📥 API Response received: ${feeling != null ? "has data" : "null"}');
-      
-      if (feeling != null) {
-        // IMPORTANT: If emoji is an ID (number), find emoji details from emoji lists
-        final emojiValue = feeling['emoji'];
-        Map<String, dynamic>? emojiDetails = feeling['emoji_details'] as Map<String, dynamic>?;
-        
-        print('🍎 FRUIT ISSUE: 📊 API returned feeling data:');
-        print('🍎 FRUIT ISSUE:   - API emoji value: $emojiValue');
-        print('🍎 FRUIT ISSUE:   - API emoji_details: ${emojiDetails?['name'] ?? 'null'}');
-        print('🍎 FRUIT ISSUE:   - API emoji_details ID: ${emojiDetails?['id'] ?? 'null'}');
-        
-        // Check if emoji is an ID (number) and emoji_details is missing or old
-        if (emojiValue != null) {
-          final emojiStr = emojiValue.toString();
-          final emojiId = int.tryParse(emojiStr);
-          print('🍎 FRUIT ISSUE: 🔍 Parsed emoji value: $emojiStr (is ID: ${emojiId != null})');
-          
-          // If emoji is an ID and we need to find details
-          if (emojiId != null && (emojiDetails == null || emojiDetails.isEmpty)) {
-            print('🔍 Emoji is an ID ($emojiId), searching for emoji details in emoji lists...');
-            
-            // Search in all emoji lists by ID
-            final allEmojisList = [
-              ...emojis,
-              ...allEmojis,
-              ...oppositeEmojis,
-              ...emotionEmojis,
-            ];
-            
-            for (var emojiItem in allEmojisList) {
-              final id = emojiItem['id'] as int?;
-              if (id == emojiId) {
-                emojiDetails = emojiItem;
-                print('✅ Found emoji details by ID: ${emojiItem['name']}');
-                break;
-              }
-            }
-          }
-          
-          // If still no details found, try to find by code/name match
-          if (emojiDetails == null || emojiDetails.isEmpty) {
-            print('🔍 Searching for emoji details by value: $emojiStr');
-            final allEmojisList = [
-              ...emojis,
-              ...allEmojis,
-              ...oppositeEmojis,
-              ...emotionEmojis,
-            ];
-            
-            for (var emojiItem in allEmojisList) {
-              final code = emojiItem['code'] as String? ?? '';
-              final emojiChar = emojiItem['emoji_char'] as String? ?? '';
-              final imageUrl = emojiItem['image_url'] as String? ?? '';
-              final id = emojiItem['id']?.toString() ?? '';
-              
-              if (code == emojiStr || 
-                  emojiChar == emojiStr || 
-                  imageUrl == emojiStr ||
-                  id == emojiStr ||
-                  code.toLowerCase() == emojiStr.toLowerCase()) {
-                emojiDetails = emojiItem;
-                print('✅ Found emoji details by match: ${emojiItem['name']}');
-                break;
-              }
-            }
-          }
-        }
-        
-        // IMPORTANT: Check if we already have correct data in local storage
-        // Don't overwrite if local storage has more recent/correct data
-        final currentFeeling = userFeeling.value;
-        final currentEmoji = currentFeeling?['emoji']?.toString() ?? '';
-        final apiEmoji = emojiValue?.toString() ?? '';
-        final currentEmojiDetails = currentFeeling?['emoji_details'] as Map<String, dynamic>?;
-        
-        print('🍎 FRUIT ISSUE: 📊 API Load Check - Comparing Local vs API:');
-        print('🍎 FRUIT ISSUE:   - Current emoji (local): $currentEmoji');
-        print('🍎 FRUIT ISSUE:   - Current emoji_details (local): ${currentEmojiDetails?['name'] ?? 'null'}');
-        print('🍎 FRUIT ISSUE:   - Current emoji_details ID (local): ${currentEmojiDetails?['id'] ?? 'null'}');
-        print('🍎 FRUIT ISSUE:   - API emoji: $apiEmoji');
-        print('🍎 FRUIT ISSUE:   - API emoji_details: ${emojiDetails?['name'] ?? 'null'}');
-        print('🍎 FRUIT ISSUE:   - API emoji_details ID: ${emojiDetails?['id'] ?? 'null'}');
-        
-        // Update feeling with found emoji_details
-        final updatedFeeling = Map<String, dynamic>.from(feeling);
-        if (emojiDetails != null && emojiDetails.isNotEmpty) {
-          updatedFeeling['emoji_details'] = emojiDetails;
-          print('✅ Found emoji_details from API: ${emojiDetails['name']}');
-        } else {
-          print('⚠️ Could not find emoji_details for emoji: $emojiValue');
-        }
-        
-        // CRITICAL: Check if API emoji is an ID and matches current emoji_details ID
-        final apiEmojiId = int.tryParse(apiEmoji);
-        final currentEmojiDetailsId = currentEmojiDetails?['id'] as int?;
-        final apiEmojiDetailsId = emojiDetails?['id'] as int?;
-        
-        // Check timestamps to see which is newer
-        final currentUpdatedAt = currentFeeling?['updated_at'] as String?;
-        final apiUpdatedAt = feeling['updated_at'] as String?;
-        final currentCreatedAt = currentFeeling?['created_at'] as String?;
-        final apiCreatedAt = feeling['created_at'] as String?;
 
-        print('🍎 FRUIT ISSUE: 🔍 ID Comparison:');
-        print('🍎 FRUIT ISSUE:   - apiEmojiId: $apiEmojiId');
-        print('🍎 FRUIT ISSUE:   - currentEmojiDetailsId: $currentEmojiDetailsId');
-        print('🍎 FRUIT ISSUE:   - apiEmojiDetailsId: $apiEmojiDetailsId');
-        print('🍎 FRUIT ISSUE:   - currentUpdatedAt: $currentUpdatedAt');
-        print('🍎 FRUIT ISSUE:   - apiUpdatedAt: $apiUpdatedAt');
-        
-        // Check if they represent the same emoji (by ID match)
-        final isSameEmoji = (apiEmojiId != null && currentEmojiDetailsId != null && apiEmojiId == currentEmojiDetailsId) ||
-                           (apiEmojiDetailsId != null && currentEmojiDetailsId != null && apiEmojiDetailsId == currentEmojiDetailsId) ||
-                           (currentEmoji == apiEmoji) ||
-                           (currentEmoji.isNotEmpty && apiEmoji.isNotEmpty && 
-                            (currentEmoji.contains(apiEmoji) || apiEmoji.contains(currentEmoji)));
-        
-        // Check if local storage is newer (has updated_at timestamp)
-        bool isLocalNewer = false;
-        if (currentUpdatedAt != null && apiUpdatedAt != null) {
-          try {
-            final currentTime = DateTime.parse(currentUpdatedAt);
-            final apiTime = DateTime.parse(apiUpdatedAt);
-            isLocalNewer = currentTime.isAfter(apiTime);
-            print('🍎 FRUIT ISSUE: 🔍 Timestamp comparison: local is newer = $isLocalNewer');
-          } catch (e) {
-            print('🍎 FRUIT ISSUE: ⚠️ Error parsing timestamps: $e');
-          }
-        } else if (currentUpdatedAt != null && apiUpdatedAt == null) {
-          // Local has updated_at but API doesn't - local is likely newer
-          isLocalNewer = true;
-          print('🍎 FRUIT ISSUE: 🔍 Local has updated_at but API doesn\'t - assuming local is newer');
-        }
-        
-        print('🍎 FRUIT ISSUE: 🔍 isSameEmoji check: $isSameEmoji');
-        print('🍎 FRUIT ISSUE:   - apiEmojiId == currentEmojiDetailsId: ${apiEmojiId != null && currentEmojiDetailsId != null && apiEmojiId == currentEmojiDetailsId}');
-        print('🍎 FRUIT ISSUE:   - apiEmojiDetailsId == currentEmojiDetailsId: ${apiEmojiDetailsId != null && currentEmojiDetailsId != null && apiEmojiDetailsId == currentEmojiDetailsId}');
-        print('🍎 FRUIT ISSUE:   - currentEmoji == apiEmoji: ${currentEmoji == apiEmoji}');
-        print('🍎 FRUIT ISSUE:   - isLocalNewer: $isLocalNewer');
-        
-        // CRITICAL: If current feeling has emoji_details and it's the same emoji,
-        // keep the current emoji_details (it's more accurate and has the correct code)
-        if (currentEmojiDetails != null && 
-            currentEmoji.isNotEmpty && 
-            isSameEmoji) {
-          print('🍎 FRUIT ISSUE: ✅ Keeping current emoji_details (more accurate): ${currentEmojiDetails['name']}');
-          updatedFeeling['emoji_details'] = currentEmojiDetails;
-          // Also update emoji to match current if API returned ID
-          if (apiEmoji != currentEmoji && currentEmoji.isNotEmpty) {
-            updatedFeeling['emoji'] = currentEmoji;
-            print('🍎 FRUIT ISSUE: ✅ Using current emoji value ($currentEmoji) instead of API value ($apiEmoji)');
-          }
-        } else {
-          print('🍎 FRUIT ISSUE: ⚠️ NOT keeping current emoji_details - currentEmojiDetails is null or isSameEmoji is false');
-        }
-        
-        // CRITICAL FIX: Don't overwrite if:
-        // 1. Local storage has emoji_details with a different ID (user selected a different fruit)
-        // 2. Local storage is newer (has updated_at timestamp that's more recent)
-        // 3. Local storage has complete emoji_details but API doesn't match
-        final isDifferentFruit = currentEmojiDetailsId != null && 
-                                 apiEmojiDetailsId != null && 
-                                 currentEmojiDetailsId != apiEmojiDetailsId;
-        
-        final shouldPreserveLocal = isLocalNewer || 
-                                    (isDifferentFruit && currentEmojiDetails != null) ||
-                                    (currentEmojiDetails != null && !isSameEmoji && currentEmoji.isNotEmpty);
-        
-        print('🍎 FRUIT ISSUE: 🔍 shouldPreserveLocal check:');
-        print('🍎 FRUIT ISSUE:   - isDifferentFruit: $isDifferentFruit');
-        print('🍎 FRUIT ISSUE:   - shouldPreserveLocal: $shouldPreserveLocal');
-        
-        // Only update if:
-        // 1. We don't have current feeling, OR
-        // 2. Emoji actually changed AND local is not newer AND they're the same emoji, OR
-        // 3. Current feeling doesn't have emoji_details (but API does) AND local is not newer
-        // IMPORTANT: Don't overwrite if local storage is newer or has different fruit
-        final shouldUpdate = !shouldPreserveLocal && (
-                            currentFeeling == null || 
-                            (isSameEmoji && !isLocalNewer && currentEmojiDetails == null && emojiDetails != null) ||
-                            (isSameEmoji && !isLocalNewer && currentEmoji.isEmpty && apiEmoji.isNotEmpty)
-                            );
-        
-        print('🍎 FRUIT ISSUE: 🔍 shouldUpdate decision:');
-        print('🍎 FRUIT ISSUE:   - shouldPreserveLocal: $shouldPreserveLocal');
-        print('🍎 FRUIT ISSUE:   - currentFeeling == null: ${currentFeeling == null}');
-        print('🍎 FRUIT ISSUE:   - FINAL shouldUpdate: $shouldUpdate');
-        
-        if (shouldUpdate) {
-          print('🍎 FRUIT ISSUE: ⚠️⚠️⚠️ OVERWRITING LOCAL STORAGE WITH API DATA ⚠️⚠️⚠️');
-          print('🍎 FRUIT ISSUE:   - OLD local emoji: $currentEmoji');
-          print('🍎 FRUIT ISSUE:   - OLD local emoji_details: ${currentEmojiDetails?['name'] ?? 'null'}');
-          print('🍎 FRUIT ISSUE:   - NEW API emoji: ${updatedFeeling['emoji']}');
-          print('🍎 FRUIT ISSUE:   - NEW API emoji_details: ${updatedFeeling['emoji_details']?['name'] ?? 'null'}');
-          
-          // Update UI with API data - Create new Map to ensure GetX detects change
-          userFeeling.value = updatedFeeling;
-          // Also save to local storage for next time
-          await UserStorage.saveUserFeeling(updatedFeeling);
-          print('🍎 FRUIT ISSUE: ✅ Loaded user feeling from API: emoji=${updatedFeeling['emoji']}, emoji_details=${updatedFeeling['emoji_details']?['name']}');
-          print('🍎 FRUIT ISSUE: ✅ Saved to local storage for instant access next time');
-          // Force refresh to ensure UI updates
-          userFeeling.refresh();
-        } else {
-          print('🍎 FRUIT ISSUE: ✅ PRESERVING LOCAL STORAGE - not overwriting with API data');
-          print('🍎 FRUIT ISSUE: ✅ Keeping current emoji: $currentEmoji with details: ${currentEmojiDetails?['name']}');
-          print('🍎 FRUIT ISSUE: ⚠️ API returned emoji: $apiEmoji (ignoring because local is newer/different)');
-        }
-      } else {
-        print('⚠️ No feeling found for user in API');
-        // Don't clear local storage if API returns null - keep the local one
-        if (fromApiOnly) {
-          userFeeling.value = null;
-        }
-      }
-    } catch (e) {
-      print('⚠️ Error loading user feeling from API: $e');
-      // Keep local storage value if API fails
-      if (fromApiOnly) {
-        userFeeling.value = null;
-      }
+    if (!silent) {
+      await _loadFeelingFromCache();
+    }
+
+    if (silent &&
+        _feelingLastSyncedAt != null &&
+        DateTime.now().difference(_feelingLastSyncedAt!) < _feelingMinSyncInterval) {
+      return;
+    }
+
+    if (_isFeelingSyncing) return;
+    _isFeelingSyncing = true;
+    try {
+      await _syncFeelingFromApi();
+    } finally {
+      _isFeelingSyncing = false;
     }
   }
 
-  /// Update user feeling after recording - Optimized for instant UI update
-  /// [emoji] - The emoji identifier (code, emoji_char, or image_url)
-  /// [emojiData] - Optional emoji data for instant display (if available)
-  Future<void> updateUserFeeling(String emoji, {Map<String, dynamic>? emojiData}) async {
-    print('🍎 FRUIT ISSUE: updateUserFeeling called - emoji=$emoji, emojiData=${emojiData?['name'] ?? 'null'}');
+  Future<void> _loadFeelingFromCache() async {
+    try {
+      final hiveFeeling = HiveCacheService.getCachedData(_userFeelingHiveKey);
+      if (hiveFeeling is Map) {
+        userFeeling.value =
+            _enrichFeeling(Map<String, dynamic>.from(hiveFeeling));
+        return;
+      }
+    } catch (_) {}
+
+    final localFeeling = await UserStorage.getUserFeeling();
+    if (localFeeling != null) {
+      userFeeling.value = _enrichFeeling(localFeeling);
+    }
+  }
+
+  Future<void> _syncFeelingFromApi() async {
+    try {
+      final feeling =
+          await EmojisService.getUserLatestFeeling(userId: userId.value);
+      if (feeling == null) return;
+
+      final enriched = _enrichFeeling(Map<String, dynamic>.from(feeling));
+      final current = userFeeling.value;
+      if (current != null && _isLocalFeelingNewer(current, enriched)) {
+        return;
+      }
+
+      userFeeling.value = enriched;
+      await _cacheFeeling(enriched);
+      _feelingLastSyncedAt = DateTime.now();
+    } catch (_) {}
+  }
+
+  bool _isLocalFeelingNewer(
+    Map<String, dynamic> local,
+    Map<String, dynamic> remote,
+  ) {
+    final localAt = local['updated_at'] as String?;
+    final remoteAt = remote['updated_at'] as String?;
+    if (localAt == null) return false;
+    if (remoteAt == null) return true;
+    try {
+      return DateTime.parse(localAt).isAfter(DateTime.parse(remoteAt));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Map<String, dynamic> _enrichFeeling(Map<String, dynamic> feeling) {
+    final copy = Map<String, dynamic>.from(feeling);
+    final details = copy['emoji_details'];
+    if (details is Map && details.isNotEmpty) {
+      return copy;
+    }
+
+    final emoji = copy['emoji']?.toString() ?? '';
+    final found = _findEmojiDetailsForValue(emoji);
+    if (found != null) {
+      copy['emoji_details'] = Map<String, dynamic>.from(found);
+    }
+    return copy;
+  }
+
+  Map<String, dynamic>? _findEmojiDetailsForValue(
+    String emoji, {
+    Map<String, dynamic>? hint,
+  }) {
+    if (hint != null && hint.isNotEmpty) {
+      return hint;
+    }
+    if (emoji.isEmpty) return null;
+
+    final allLists = [
+      ...emojis,
+      ...allEmojis,
+      ...oppositeEmojis,
+      ...emotionEmojis,
+    ];
+    final emojiId = int.tryParse(emoji);
+
+    for (final item in allLists) {
+      if (emojiId != null && item['id'] == emojiId) {
+        return Map<String, dynamic>.from(item);
+      }
+      final code = item['code']?.toString() ?? '';
+      final emojiChar = item['emoji_char']?.toString() ?? '';
+      final imageUrl = item['image_url']?.toString() ?? '';
+      final id = item['id']?.toString() ?? '';
+      if (emoji == code ||
+          emoji == emojiChar ||
+          emoji == imageUrl ||
+          emoji == id) {
+        return Map<String, dynamic>.from(item);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _cacheFeeling(Map<String, dynamic> feeling) async {
+    await UserStorage.saveUserFeeling(feeling);
+    await HiveCacheService.cacheData(
+      _userFeelingHiveKey,
+      feeling,
+      expiryHours: 24,
+    );
+  }
+
+  /// Optimistic feeling update — UI + cache first, API in background.
+  Future<void> updateUserFeeling(
+    String emoji, {
+    Map<String, dynamic>? emojiData,
+  }) async {
     if (userId.value <= 0) {
       final id = await UserStorage.getUserId();
       if (id != null) {
         userId.value = id;
       } else {
-        print('🍎 FRUIT ISSUE: ⚠️ Cannot update feeling: userId is still ${userId.value}');
         return;
       }
     }
-    
-    print('🍎 FRUIT ISSUE: 🔄 Updating user feeling with emoji: $emoji');
-    
-    // INSTANT UI UPDATE: Optimistically update the feeling immediately
-    // This makes the UI update instantly while API processes in background
+
+    final emojiDetails = _findEmojiDetailsForValue(emoji, hint: emojiData);
+    final now = DateTime.now().toIso8601String();
+    final optimistic = <String, dynamic>{
+      'emoji': emoji,
+      'user_id': userId.value,
+      'created_at': now,
+      'updated_at': now,
+      if (emojiDetails != null)
+        'emoji_details': Map<String, dynamic>.from(emojiDetails),
+    };
+
+    userFeeling.value = Map<String, dynamic>.from(optimistic);
+    unawaited(_cacheFeeling(optimistic));
+    unawaited(_postFeelingToServer(emoji));
+  }
+
+  Future<void> _postFeelingToServer(String emoji) async {
     try {
-      // Try to find emoji details for instant display
-      Map<String, dynamic>? emojiDetails;
-      
-      // Use provided emojiData if available (from variant selection)
-      if (emojiData != null) {
-        emojiDetails = emojiData;
-        print('✅ Using provided emoji data for instant display: ${emojiData['name']}');
-      } else {
-        // Search in all emoji lists for matching emoji
-        final allEmojisList = [
-          ...emojis,
-          ...allEmojis,
-          ...oppositeEmojis,
-          ...emotionEmojis,
-        ];
-        
-        // Try to find emoji by ID first (if emoji is a number)
-        final emojiId = int.tryParse(emoji);
-        if (emojiId != null) {
-          // Search by ID
-          for (var emojiItem in allEmojisList) {
-            final id = emojiItem['id'] as int?;
-            if (id == emojiId) {
-              emojiDetails = emojiItem;
-              print('✅ Found emoji details by ID: ${emojiItem['name']}');
-              break;
-            }
-          }
-        }
-        
-        // If not found by ID, try by code, emoji_char, or image_url
-        if (emojiDetails == null) {
-          for (var emojiItem in allEmojisList) {
-            final code = emojiItem['code'] as String? ?? '';
-            final emojiChar = emojiItem['emoji_char'] as String? ?? '';
-            final imageUrl = emojiItem['image_url'] as String? ?? '';
-            final id = emojiItem['id']?.toString() ?? '';
-            
-            if (code == emoji || 
-                emojiChar == emoji || 
-                imageUrl == emoji ||
-                id == emoji ||
-                code.toLowerCase() == emoji.toLowerCase() ||
-                emoji.contains(code) || 
-                emoji.contains(imageUrl)) {
-              emojiDetails = emojiItem;
-              print('✅ Found emoji details for instant display: ${emojiItem['name']}');
-              break;
-            }
-          }
-        }
-      }
-      
-      // Create optimistic feeling data for instant UI update
-      // CRITICAL: Always create a completely new object with new timestamp to ensure GetX detects change
-      // Even if emoji is the same, the new timestamp ensures GetX sees it as a different object
-      final now = DateTime.now().toIso8601String();
-      final optimisticFeeling = <String, dynamic>{
-        'emoji': emoji,
-        'user_id': userId.value,
-        'created_at': now,
-        'updated_at': now, // Add updated_at to ensure uniqueness and force GetX to detect change
-      };
-      
-      // Add emoji details if found for instant display
-      if (emojiDetails != null) {
-        optimisticFeeling['emoji_details'] = Map<String, dynamic>.from(emojiDetails);
-        print('✅ Added emoji_details to optimistic feeling: ${emojiDetails['name']}, image_url: ${emojiDetails['image_url']}');
-      } else {
-        print('⚠️ No emoji details found for instant display');
-      }
-      
-      // STEP 1: Save to LOCAL STORAGE FIRST for instant persistence
-      // IMPORTANT: Always save with complete emoji_details to ensure correct display
-      await UserStorage.saveUserFeeling(optimisticFeeling);
-      print('🍎 FRUIT ISSUE: ✅ Saved feeling to LOCAL STORAGE for instant access');
-      print('🍎 FRUIT ISSUE: ✅ Saved emoji: ${optimisticFeeling['emoji']}');
-      print('🍎 FRUIT ISSUE: ✅ Saved emoji_details: ${optimisticFeeling['emoji_details']?['name'] ?? 'null'}');
-      print('🍎 FRUIT ISSUE: ✅ Saved emoji_details ID: ${optimisticFeeling['emoji_details']?['id'] ?? 'null'}');
-      print('🍎 FRUIT ISSUE: ✅ Saved timestamp: ${optimisticFeeling['updated_at']}');
-
-      // STEP 2: Update UI instantly - this should trigger Obx rebuild
-      // IMPORTANT: Set to null first, then set new value to force GetX to detect change
-      // This ensures UI updates even if emoji code is the same but details changed
-      print('🍎 FRUIT ISSUE: 🔄 Updating UI - setting userFeeling.value to null first');
-      userFeeling.value = null;
-      print('🍎 FRUIT ISSUE: 🔄 Step 2.1: userFeeling set to null (rebuild triggered)');
-      
-      await Future.delayed(const Duration(milliseconds: 50)); // Slightly longer delay
-      
-      userFeeling.value = Map<String, dynamic>.from(optimisticFeeling);
-      print('🍎 FRUIT ISSUE: ✅ Step 2.2: userFeeling updated with value: ${userFeeling.value?['emoji']}');
-      userFeeling.refresh(); // Force another refresh
-      
-      print('🍎 FRUIT ISSUE: ✅ User feeling updated instantly in UI with emoji: $emoji');
-      print('🍎 FRUIT ISSUE: ✅ userFeeling.value emoji: ${userFeeling.value?['emoji']}');
-      print('🍎 FRUIT ISSUE: ✅ userFeeling.value emoji_details: ${userFeeling.value?['emoji_details']?['name'] ?? 'null'}');
-      print('🍎 FRUIT ISSUE: ✅ userFeeling.value emoji_details ID: ${userFeeling.value?['emoji_details']?['id'] ?? 'null'}');
-      print('🍎 FRUIT ISSUE: ✅ userFeeling.value has emoji_details: ${userFeeling.value?['emoji_details'] != null}');
-      print('🍎 FRUIT ISSUE: ✅ New timestamp: ${optimisticFeeling['updated_at']}');
-
-      // Force UI refresh multiple times to ensure update
-      userFeeling.refresh();
-      await Future.delayed(const Duration(milliseconds: 50));
-      userFeeling.refresh();
-      print('✅ Forced UI refresh multiple times');
-
-      // Note: Backend update should be done BEFORE calling this function
-      // This function just updates UI optimistically
-      // The caller should reload from API after backend update
+      await EmojisService.useEmoji(userId: userId.value, emoji: emoji);
+      _feelingLastSyncedAt = DateTime.now();
     } catch (e) {
-      print('⚠️ Error updating user feeling: $e');
-      // Fallback: try to load from API
-      try {
-        await Future.delayed(const Duration(milliseconds: 1000));
-        await loadUserFeeling();
-      } catch (retryError) {
-        print('⚠️ Error updating user feeling on retry: $retryError');
-      }
+      print('Feeling API sync failed: $e');
     }
   }
 
@@ -510,7 +335,7 @@ class HomeController extends GetxController {
     print('🏠 HomeController: Setting initial data from external source...');
 
     if (data['fruits'] != null && (data['fruits'] as List).isNotEmpty) {
-      fruits.value = List<Map<String, dynamic>>.from(data['fruits']);
+      fruit.value = List<Map<String, dynamic>>.from(data['fruits']);
     }
     if (data['prayers'] != null && (data['prayers'] as List).isNotEmpty) {
       prayers.value = List<Map<String, dynamic>>.from(data['prayers']);
@@ -520,6 +345,9 @@ class HomeController extends GetxController {
     }
     if (data['videos'] != null && (data['videos'] as List).isNotEmpty) {
       videos.value = List<Map<String, dynamic>>.from(data['videos']);
+    }
+    if (data['communityShorts'] != null && (data['communityShorts'] as List).isNotEmpty) {
+      communityShorts.value = List<Map<String, dynamic>>.from(data['communityShorts']);
     }
     if (data['liveVideos'] != null && (data['liveVideos'] as List).isNotEmpty) {
       liveVideos.value = List<Map<String, dynamic>>.from(data['liveVideos']);
@@ -537,7 +365,7 @@ class HomeController extends GetxController {
       final emojisList = List<Map<String, dynamic>>.from(data['emojis']);
       
       // Categorize emojis
-      final mainFruitsList = <Map<String, dynamic>>[];
+      final mainFruitList = <Map<String, dynamic>>[];
       final allEmojisList = <Map<String, dynamic>>[];
       final oppositeEmojisList = <Map<String, dynamic>>[];
       final emotionEmojisList = <Map<String, dynamic>>[];
@@ -551,7 +379,7 @@ class HomeController extends GetxController {
         final hasFruitName = fruitNames.any((fruit) => name.contains(fruit));
         
         if (category.toLowerCase().contains('fruit') || category == 'Fruits' || (category.isEmpty && hasFruitName)) {
-          mainFruitsList.add(emoji);
+          mainFruitList.add(emoji);
         } else if (category.toLowerCase().contains('opposite')) {
           oppositeEmojisList.add(emoji);
         } else if (category.toLowerCase().contains('emotion')) {
@@ -559,7 +387,7 @@ class HomeController extends GetxController {
         }
       }
       
-      emojis.value = mainFruitsList;
+      emojis.value = mainFruitList;
       allEmojis.value = allEmojisList;
       oppositeEmojis.value = oppositeEmojisList;
       emotionEmojis.value = emotionEmojisList;
@@ -570,21 +398,24 @@ class HomeController extends GetxController {
     _isDataLoaded = true;
 
     // If we have some data, we can stop initial loading
-    if (fruits.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
+    if (_hasAnyHomeCache()) {
       isInitialLoading.value = false;
       print('✅ HomeController: Initial loading finished (data populated via setInitialData)');
     }
     
     // Refresh UI
-    fruits.refresh();
+    fruit.refresh();
     prayers.refresh();
     blogs.refresh();
+    communityShorts.refresh();
+
+    unawaited(loadCommunityShorts(silent: communityShorts.isNotEmpty));
   }
 
   /// Initialize data: load from cache first (instant), then refresh in background
   Future<void> _initializeData() async {
     // If data already loaded externally (e.g. from SplashScreen via setInitialData), skip
-    if (_isDataLoaded && (fruits.isNotEmpty || prayers.isNotEmpty)) {
+    if (_isDataLoaded && _hasAnyHomeCache()) {
       isInitialLoading.value = false;
       print('🏠 HomeController: Data already loaded externally, skipping _initializeData');
       return;
@@ -598,7 +429,7 @@ class HomeController extends GetxController {
       await _loadFromCache();
 
       // If cache has data, hide loading immediately
-      if (fruits.isNotEmpty || prayers.isNotEmpty || blogs.isNotEmpty) {
+      if (_hasAnyHomeCache()) {
         isInitialLoading.value = false;
         print('✅ Data loaded from cache - showing instantly');
         
@@ -607,6 +438,7 @@ class HomeController extends GetxController {
           print('✅ Background data refresh completed');
         }).catchError((e) {
           print('⚠️ Background refresh error: $e');
+          return null;
         });
       } else {
         // If NO cache, we MUST wait for the API to show something
@@ -626,18 +458,20 @@ class HomeController extends GetxController {
   Future<void> _loadFromCache() async {
     try {
       // Use Hive cache for faster access
-      final cachedFruits = HiveCacheService.getCachedList('home_fruits');
+      final cachedFruit = HiveCacheService.getCachedList('home_fruit');
       final cachedPrayers = HiveCacheService.getCachedList('home_prayers');
       final cachedBlogs = HiveCacheService.getCachedList('home_blogs');
       final cachedVideos = HiveCacheService.getCachedList('home_videos');
+      final cachedShorts = HiveCacheService.getCachedList('home_shorts');
       final cachedLiveVideos = HiveCacheService.getCachedList('home_live_videos');
       final cachedGalleryPhotos = HiveCacheService.getCachedList('home_gallery_photos');
       final cachedStories = HiveCacheService.getCachedList('home_stories');
       final cachedGroups = HiveCacheService.getCachedList('home_groups');
+      final cachedGroupPosts = HiveCacheService.getCachedList('home_group_posts');
       final cachedEmojis = HiveCacheService.getCachedList('home_emojis');
       
-      if (cachedFruits.isNotEmpty) {
-        fruits.value = cachedFruits;
+      if (cachedFruit.isNotEmpty) {
+        fruit.value = cachedFruit;
       }
       if (cachedPrayers.isNotEmpty) {
         prayers.value = cachedPrayers;
@@ -648,11 +482,31 @@ class HomeController extends GetxController {
       if (cachedVideos.isNotEmpty) {
         videos.value = cachedVideos;
       }
+      if (cachedShorts.isNotEmpty) {
+        communityShorts.value = cachedShorts;
+      }
+      final cachedMyShorts = HiveCacheService.getCachedList('shorts_my');
+      if (cachedMyShorts.isNotEmpty) {
+        myShorts.value = List<Map<String, dynamic>>.from(cachedMyShorts);
+      }
       if (cachedLiveVideos.isNotEmpty) {
-        liveVideos.value = cachedLiveVideos;
+        // Filter cached data to only show live streams (exclude ended)
+        final onlyLive = cachedLiveVideos.where((s) {
+          final status = (s['status'] ?? '').toString().toLowerCase();
+          return status == 'live';
+        }).toList();
+        liveVideos.value = onlyLive;
       }
       if (cachedGalleryPhotos.isNotEmpty) {
-        galleryPhotos.value = cachedGalleryPhotos;
+        galleryPhotos.value = cachedGalleryPhotos
+            .where((p) {
+              final id = p['id'];
+              if (id is int && id <= 0) return false;
+              final path = p['file_path']?.toString() ?? '';
+              return !path.contains('Frame.png') && !path.contains('Vector.png');
+            })
+            .map((p) => Map<String, dynamic>.from(p))
+            .toList();
       }
       if (cachedStories.isNotEmpty) {
         stories.value = cachedStories;
@@ -660,18 +514,21 @@ class HomeController extends GetxController {
       if (cachedGroups.isNotEmpty) {
         groups.value = cachedGroups;
       }
+      if (cachedGroupPosts.isNotEmpty) {
+        groupPosts.value = cachedGroupPosts;
+      }
       if (cachedEmojis.isNotEmpty) {
         emojis.value = cachedEmojis;
       }
       
-      print('✅ Loaded ${fruits.length} fruits, ${prayers.length} prayers, ${blogs.length} blogs from Hive cache');
+      print('✅ Loaded ${fruit.length} fruit, ${prayers.length} prayers, ${blogs.length} blogs from Hive cache');
     } catch (e) {
       print('⚠️ Error loading from Hive cache: $e');
       // Fallback to old cache service
       try {
       final cachedData = await DataLoadingService.getCachedHomeData();
-      if (cachedData['fruits']?.isNotEmpty == true) {
-        fruits.value = cachedData['fruits'] as List<Map<String, dynamic>>;
+      if (cachedData['fruit']?.isNotEmpty == true) {
+        fruit.value = cachedData['fruit'] as List<Map<String, dynamic>>;
       }
       if (cachedData['prayers']?.isNotEmpty == true) {
         prayers.value = cachedData['prayers'] as List<Map<String, dynamic>>;
@@ -681,6 +538,9 @@ class HomeController extends GetxController {
       }
       if (cachedData['videos']?.isNotEmpty == true) {
         videos.value = cachedData['videos'] as List<Map<String, dynamic>>;
+      }
+      if (cachedData['communityShorts']?.isNotEmpty == true) {
+        communityShorts.value = cachedData['communityShorts'] as List<Map<String, dynamic>>;
       }
       if (cachedData['liveVideos']?.isNotEmpty == true) {
         liveVideos.value = cachedData['liveVideos'] as List<Map<String, dynamic>>;
@@ -712,16 +572,20 @@ class HomeController extends GetxController {
     }
 
     try {
-      // Load all data sequentially instead of parallel to prevent overloading slow servers
-      await loadFruits();
-      await loadPrayers();
-      await loadBlogs();
-      await loadVideos();
-      await loadLiveVideos();
-      await loadGalleryPhotos();
-      await loadStories();
-      await loadGroups();
-      await loadEmojis();
+      await Future.wait([
+        loadFruit(),
+        loadPrayers(),
+        loadBlogs(silent: blogs.isNotEmpty),
+        loadVideos(silent: videos.isNotEmpty),
+        loadLiveVideos(silent: liveVideos.isNotEmpty),
+        loadCommunityShorts(silent: communityShorts.isNotEmpty),
+        loadGalleryPhotos(silent: galleryPhotos.isNotEmpty),
+        loadStories(),
+        loadGroups(silent: groups.isNotEmpty),
+        if (GroupPostsConfig.enabled)
+          loadGroupPosts(silent: groupPosts.isNotEmpty),
+        loadEmojis(),
+      ]);
 
 
       // Cache the loaded data
@@ -747,32 +611,23 @@ class HomeController extends GetxController {
     }
   }
 
-  /// Cache all current data (using Hive for fast persistence)
+  /// Cache all current data (Hive only — trimmed lists, no duplicate prefs storage)
   Future<void> _cacheAllData() async {
     try {
-      // Use Hive cache for better performance (synchronous, fast)
-      HiveCacheService.cacheList('home_fruits', fruits);
-      HiveCacheService.cacheList('home_prayers', prayers);
-      HiveCacheService.cacheList('home_blogs', blogs);
-      HiveCacheService.cacheList('home_videos', videos);
-      HiveCacheService.cacheList('home_live_videos', liveVideos);
-      HiveCacheService.cacheList('home_gallery_photos', galleryPhotos);
-      HiveCacheService.cacheList('home_stories', stories);
-      HiveCacheService.cacheList('home_groups', groups);
-      HiveCacheService.cacheList('home_emojis', emojis);
-      
-      // Also cache in old service for compatibility (async)
-      await CacheService.cacheList('home_fruits', fruits);
-      await CacheService.cacheList('home_prayers', prayers);
-      await CacheService.cacheList('home_blogs', blogs);
-      await CacheService.cacheList('home_videos', videos);
-      await CacheService.cacheList('home_live_videos', liveVideos);
-      await CacheService.cacheList('home_gallery_photos', galleryPhotos);
-      await CacheService.cacheList('home_stories', stories);
-      await CacheService.cacheList('home_groups', groups);
-      await CacheService.cacheList('home_emojis', emojis);
-
-      print('💾 All data cached successfully (Hive + SharedPreferences)');
+      await Future.wait([
+        HiveCacheService.cacheList('home_fruit', List<Map<String, dynamic>>.from(fruit)),
+        HiveCacheService.cacheList('home_prayers', List<Map<String, dynamic>>.from(prayers)),
+        HiveCacheService.cacheList('home_blogs', List<Map<String, dynamic>>.from(blogs)),
+        HiveCacheService.cacheList('home_videos', List<Map<String, dynamic>>.from(videos)),
+        HiveCacheService.cacheList('home_shorts', List<Map<String, dynamic>>.from(communityShorts)),
+        HiveCacheService.cacheList('home_live_videos', List<Map<String, dynamic>>.from(liveVideos)),
+        HiveCacheService.cacheList('home_gallery_photos', List<Map<String, dynamic>>.from(galleryPhotos)),
+        HiveCacheService.cacheList('home_stories', List<Map<String, dynamic>>.from(stories)),
+        HiveCacheService.cacheList('home_groups', List<Map<String, dynamic>>.from(groups)),
+        HiveCacheService.cacheList('home_group_posts', List<Map<String, dynamic>>.from(groupPosts)),
+        HiveCacheService.cacheList('home_emojis', List<Map<String, dynamic>>.from(emojis)),
+      ]);
+      print('💾 All home data cached (Hive)');
     } catch (e) {
       print('⚠️ Error caching data: $e');
     }
@@ -791,7 +646,7 @@ class HomeController extends GetxController {
       for (int i = 0; i < 3 && i < galleryPhotos.length; i++) {
         final photo = galleryPhotos[i];
         if (photo['file_path'] != null) {
-          criticalUrls.add('https://fruitofthespirit.templateforwebsites.com/${photo['file_path']}');
+          criticalUrls.add('http://admin.fosmessenger.com/${photo['file_path']}');
         }
       }
     }
@@ -801,7 +656,7 @@ class HomeController extends GetxController {
       for (int i = 0; i < 2 && i < blogs.length; i++) {
         final blog = blogs[i];
         if (blog['image_url'] != null) {
-          criticalUrls.add('https://fruitofthespirit.templateforwebsites.com/${blog['image_url']}');
+          criticalUrls.add('http://admin.fosmessenger.com/${blog['image_url']}');
         }
       }
     }
@@ -811,7 +666,7 @@ class HomeController extends GetxController {
       for (int i = 0; i < 2 && i < videos.length; i++) {
         final video = videos[i];
         if (video['file_path'] != null) {
-          criticalUrls.add('https://fruitofthespirit.templateforwebsites.com/${video['file_path']}');
+          criticalUrls.add('http://admin.fosmessenger.com/${video['file_path']}');
         }
       }
     }
@@ -866,22 +721,22 @@ class HomeController extends GetxController {
     );
   }
 
-  /// Load all 9 Fruits of the Spirit from database
-  Future<void> loadFruits() async {
+  /// Load all 9 Fruit of the Spirit from database
+  Future<void> loadFruit() async {
     try {
-      print('🔄 Loading fruits from API...');
-      final fruitsList = await FruitsService.getAllFruits();
-      print('✅ Loaded ${fruitsList.length} fruits from database');
-      for (var i = 0; i < fruitsList.length; i++) {
-        print('   ${i + 1}. ID: ${fruitsList[i]['id']}, Name: ${fruitsList[i]['name']}');
+      print('🔄 Loading fruit from API...');
+      final fruitList = await FruitService.getAllFruit();
+      print('✅ Loaded ${fruitList.length} fruit from database');
+      for (var i = 0; i < fruitList.length; i++) {
+        print('   ${i + 1}. ID: ${fruitList[i]['id']}, Name: ${fruitList[i]['name']}');
       }
-      fruits.value = fruitsList;
-      print('✅ Fruits assigned to controller: ${fruits.length}');
+      fruit.value = fruitList;
+      print('✅ Fruit assigned to controller: ${fruit.length}');
     } catch (e) {
-      print('❌ Error loading fruits: $e');
+      print('❌ Error loading fruit: $e');
       // Keep existing data if available, don't clear on error
-      if (fruits.isEmpty) {
-      fruits.value = [];
+      if (fruit.isEmpty) {
+      fruit.value = [];
       }
     }
   }
@@ -904,35 +759,150 @@ class HomeController extends GetxController {
     }
   }
 
-  /// Load latest approved blogs from database
-  Future<void> loadBlogs() async {
+  /// Load latest approved blogs — Hive first, silent background sync (feeling pattern).
+  Future<void> loadBlogs({bool silent = false}) async {
+    if (silent &&
+        _blogsLastSyncedAt != null &&
+        DateTime.now().difference(_blogsLastSyncedAt!) < _blogsMinSyncInterval) {
+      return;
+    }
+    if (_isBlogsSyncing) return;
+    _isBlogsSyncing = true;
+
     try {
       final blogsList = await BlogsService.getBlogs(
         status: 'Approved',
         currentUserId: userId.value > 0 ? userId.value : null,
         limit: 5,
       );
-      blogs.value = blogsList;
+
+      if (blogs.isEmpty) {
+        blogs.value = blogsList;
+      } else if (silent) {
+        _mergeHomeBlogs(blogsList);
+      } else if (!_homeBlogListsEqual(blogs.toList(), blogsList)) {
+        blogs.value = blogsList;
+      }
+
+      _blogsLastSyncedAt = DateTime.now();
+      if (blogs.isNotEmpty) {
+        final snapshot = List<Map<String, dynamic>>.from(blogs);
+        unawaited(
+          HiveCacheService.cacheList(
+            _homeBlogsHiveKey,
+            snapshot,
+            expiryHours: 24,
+          ),
+        );
+        unawaited(
+          HiveCacheService.cacheList(
+            'blogs_list',
+            snapshot,
+            expiryHours: 24,
+          ),
+        );
+      }
     } catch (e) {
       print('Error loading blogs: $e');
       if (blogs.isEmpty) {
-      blogs.value = [];
+        blogs.value = [];
       }
+    } finally {
+      _isBlogsSyncing = false;
     }
   }
 
-  /// Load latest approved videos from database
-  /// Also includes pending videos for the current user
-  Future<void> loadVideos() async {
+  bool _homeBlogListsEqual(
+    List<Map<String, dynamic>> previous,
+    List<Map<String, dynamic>> next,
+  ) {
+    if (previous.length != next.length) return false;
+    for (var i = 0; i < previous.length; i++) {
+      final prev = previous[i];
+      final curr = next[i];
+      if (prev['id'] != curr['id']) return false;
+      if (prev['updated_at'] != curr['updated_at']) return false;
+      if (prev['like_count'] != curr['like_count']) return false;
+      if (prev['comment_count'] != curr['comment_count']) return false;
+      if (prev['title'] != curr['title']) return false;
+    }
+    return true;
+  }
+
+  void _mergeHomeBlogs(List<Map<String, dynamic>> incoming) {
+    if (incoming.isEmpty) return;
+
+    final current = blogs.toList();
+    if (current.isEmpty) {
+      blogs.value = incoming;
+      return;
+    }
+
+    final indexById = <int, int>{};
+    for (var i = 0; i < current.length; i++) {
+      final id = current[i]['id'];
+      final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (parsed != null) indexById[parsed] = i;
+    }
+
+    var changed = false;
+    for (final remote in incoming) {
+      final id = remote['id'];
+      final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (parsed == null) continue;
+
+      final idx = indexById[parsed];
+      if (idx != null) {
+        final local = current[idx];
+        if (local['updated_at'] != remote['updated_at'] ||
+            local['like_count'] != remote['like_count'] ||
+            local['comment_count'] != remote['comment_count'] ||
+            local['title'] != remote['title'] ||
+            local['image'] != remote['image'] ||
+            local['image_url'] != remote['image_url']) {
+          current[idx] = {...local, ...remote};
+          changed = true;
+        }
+      } else {
+        current.insert(0, Map<String, dynamic>.from(remote));
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      blogs.value = current;
+    }
+  }
+
+  bool _hasAnyHomeCache() {
+    return fruit.isNotEmpty ||
+        prayers.isNotEmpty ||
+        blogs.isNotEmpty ||
+        videos.isNotEmpty ||
+        communityShorts.isNotEmpty ||
+        myShorts.isNotEmpty ||
+        liveVideos.isNotEmpty ||
+        groups.isNotEmpty ||
+        galleryPhotos.isNotEmpty;
+  }
+
+  /// Load latest approved videos — silent merge when cache exists.
+  Future<void> loadVideos({bool silent = false}) async {
+    if (silent &&
+        _videosLastSyncedAt != null &&
+        DateTime.now().difference(_videosLastSyncedAt!) < _videosMinSyncInterval) {
+      return;
+    }
+    if (_isVideosSyncing) return;
+    _isVideosSyncing = true;
+
     try {
-      // Load approved videos
       final approvedVideos = await VideosService.getVideos(
         status: 'Approved',
         currentUserId: userId.value > 0 ? userId.value : null,
         limit: 5,
       );
-      
-      // Load pending videos for current user if logged in
+
       List<Map<String, dynamic>> allVideos = List.from(approvedVideos);
 
       if (userId.value > 0) {
@@ -942,42 +912,197 @@ class HomeController extends GetxController {
             userId: userId.value,
             limit: 10,
           );
-          // Add pending videos at the beginning
           allVideos.insertAll(0, pendingVideos);
-          print('📹 Pending Videos Loaded: ${pendingVideos.length}');
         } catch (e) {
           print('Error loading pending videos: $e');
         }
       }
-      
-      videos.value = allVideos;
-      print('📹 Total Videos Loaded: ${allVideos.length} (Approved: ${approvedVideos.length})');
-      for (var video in allVideos) {
-        final status = video['status'] ?? 'Unknown';
-        print('   - Video: ${video['file_path']} (Status: $status)');
+
+      if (videos.isEmpty) {
+        videos.value = allVideos;
+      } else if (silent) {
+        _mergeHomeVideos(allVideos);
+      } else if (!_homeVideoListsEqual(videos.toList(), allVideos)) {
+        videos.value = allVideos;
+      }
+
+      _videosLastSyncedAt = DateTime.now();
+      if (videos.isNotEmpty) {
+        unawaited(
+          HiveCacheService.cacheList(
+            'home_videos',
+            List<Map<String, dynamic>>.from(videos),
+            expiryHours: 24,
+          ),
+        );
       }
     } catch (e) {
       print('Error loading videos: $e');
       if (videos.isEmpty) {
         videos.value = [];
       }
+    } finally {
+      _isVideosSyncing = false;
     }
   }
 
-  /// Load live videos from database
-  Future<void> loadLiveVideos() async {
+  Future<void> loadCommunityShorts({bool silent = false}) async {
+    if (silent &&
+        _communityShortsLastSyncedAt != null &&
+        DateTime.now().difference(_communityShortsLastSyncedAt!) <
+            _communityShortsMinSyncInterval) {
+      return;
+    }
+    if (_isCommunityShortsSyncing) return;
+    _isCommunityShortsSyncing = true;
+
     try {
-      final liveList = await VideosService.getLiveVideos();
-      liveVideos.value = liveList;
-      print('🔴 Live Videos Loaded: ${liveList.length}');
-      for (var video in liveList) {
-        print('   - Live Video: ${video['file_path']}');
+      await _loadUserId();
+      final uid = userId.value;
+
+      final communityFuture = ShortsService.getShorts(
+        currentUserId: uid > 0 ? uid : null,
+        limit: 15,
+      );
+      final mineFuture = uid > 0
+          ? ShortsService.getShorts(
+              status: 'Approved,Pending',
+              userId: uid,
+              currentUserId: uid,
+              limit: 15,
+            )
+          : Future<List<Map<String, dynamic>>>.value([]);
+
+      final results = await Future.wait([communityFuture, mineFuture]);
+      final items = results[0];
+      final mine = results[1];
+
+      myShorts.value = List<Map<String, dynamic>>.from(mine);
+      if (mine.isNotEmpty) {
+        unawaited(
+          HiveCacheService.cacheList(
+            'shorts_my',
+            List<Map<String, dynamic>>.from(mine),
+            expiryHours: 24,
+          ),
+        );
+      }
+
+      final filtered = items.where((short) {
+        final ownerId = int.tryParse(short['user_id']?.toString() ?? '0') ?? 0;
+        return uid <= 0 || ownerId != uid;
+      }).toList();
+
+      communityShorts.value = filtered;
+
+      _communityShortsLastSyncedAt = DateTime.now();
+      if (communityShorts.isNotEmpty) {
+        unawaited(
+          HiveCacheService.cacheList(
+            'home_shorts',
+            List<Map<String, dynamic>>.from(communityShorts),
+            expiryHours: 24,
+          ),
+        );
+        unawaited(
+          HiveCacheService.cacheList(
+            'shorts_community',
+            List<Map<String, dynamic>>.from(communityShorts),
+            expiryHours: 24,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error loading community shorts: $e');
+      if (communityShorts.isEmpty) {
+        communityShorts.value = [];
+      }
+    } finally {
+      _isCommunityShortsSyncing = false;
+    }
+  }
+
+  bool _homeVideoListsEqual(
+    List<Map<String, dynamic>> previous,
+    List<Map<String, dynamic>> next,
+  ) {
+    if (previous.length != next.length) return false;
+    for (var i = 0; i < previous.length; i++) {
+      if (previous[i]['id'] != next[i]['id']) return false;
+      if (previous[i]['updated_at'] != next[i]['updated_at']) return false;
+      if (previous[i]['view_count'] != next[i]['view_count']) return false;
+    }
+    return true;
+  }
+
+  void _mergeHomeVideos(List<Map<String, dynamic>> remote) {
+    final current = List<Map<String, dynamic>>.from(videos);
+    var changed = false;
+
+    for (final item in remote) {
+      final id = item['id'];
+      final idx = current.indexWhere((v) => v['id'] == id);
+      if (idx >= 0) {
+        final local = current[idx];
+        if (local['updated_at'] != item['updated_at'] ||
+            local['view_count'] != item['view_count'] ||
+            local['title'] != item['title'] ||
+            local['file_path'] != item['file_path'] ||
+            local['status'] != item['status']) {
+          current[idx] = {...local, ...item};
+          changed = true;
+        }
+      } else {
+        current.insert(0, Map<String, dynamic>.from(item));
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      videos.value = current;
+    }
+  }
+
+  /// Load live videos — keep cache visible until fresh data arrives.
+  Future<void> loadLiveVideos({bool silent = false}) async {
+    if (silent &&
+        _liveVideosLastSyncedAt != null &&
+        DateTime.now().difference(_liveVideosLastSyncedAt!) < _videosMinSyncInterval) {
+      return;
+    }
+    if (_isLiveVideosSyncing) return;
+    _isLiveVideosSyncing = true;
+
+    try {
+      final liveList = await LiveStreamingService.getAllLiveStreams();
+      final onlyLive = liveList.where((s) {
+        final status = (s['status'] ?? '').toString().toLowerCase();
+        return status == 'live';
+      }).toList();
+
+      if (liveVideos.isEmpty || !silent) {
+        liveVideos.value = onlyLive;
+      } else if (!_homeVideoListsEqual(liveVideos.toList(), onlyLive)) {
+        liveVideos.value = onlyLive;
+      }
+
+      _liveVideosLastSyncedAt = DateTime.now();
+      if (liveVideos.isNotEmpty) {
+        unawaited(
+          HiveCacheService.cacheList(
+            'home_live_videos',
+            List<Map<String, dynamic>>.from(liveVideos),
+            expiryHours: 24,
+          ),
+        );
       }
     } catch (e) {
       print('Error loading live videos: $e');
       if (liveVideos.isEmpty) {
-      liveVideos.value = [];
+        liveVideos.value = [];
       }
+    } finally {
+      _isLiveVideosSyncing = false;
     }
   }
 
@@ -1002,96 +1127,275 @@ class HomeController extends GetxController {
     }
   }
 
-  /// Load latest approved gallery photos from database
-  Future<void> loadGalleryPhotos() async {
-    // Always include static images (Frame.png, Vector.png, Vectorser.png)
-    // These are directly in uploads/ folder, not uploads/images/
-    final staticImages = [
-      {
-        'id': -1,
-        'file_path': 'uploads/Frame.png',
-        'fruit_tag': 'Love',
-        'testimony': 'Frame of love and kindness',
-        'user_name': 'Community',
-      },
-      {
-        'id': -2,
-        'file_path': 'uploads/Vector.png',
-        'fruit_tag': 'Joy',
-        'testimony': 'Vector of joy and peace',
-        'user_name': 'Community',
-      },
-      {
-        'id': -3,
-        'file_path': 'uploads/prayer_group.jpg',
-        'fruit_tag': 'Peace',
-        'testimony': 'Vector of peace and harmony',
-        'user_name': 'Community',
-      },
-    ];
-    
+  /// Load latest approved gallery photos from database (real API data only).
+  Future<void> loadGalleryPhotos({bool silent = false}) async {
     try {
       final photosList = await GalleryService.getPhotos(
         status: 'Approved',
         currentUserId: userId.value > 0 ? userId.value : null,
-        limit: 6,
+        limit: 12,
       );
-      
-      print('📸 Gallery Photos Loaded:');
-      print('   Static images: ${staticImages.length}');
-      print('   API photos: ${photosList.length}');
-      for (var img in staticImages) {
-        print('   - Static: ${img['file_path']}');
-      }
-      for (var img in photosList) {
-        print('   - API: ${img['file_path']}');
+
+      if (galleryPhotos.isEmpty || !silent) {
+        galleryPhotos.value = photosList;
+      } else {
+        _mergeHomeGalleryPhotos(photosList);
       }
 
-      // Merge API photos with static images (static images first)
-      galleryPhotos.value = [...staticImages, ...photosList];
-      print('✅ Total gallery photos: ${galleryPhotos.length}');
+      if (galleryPhotos.isNotEmpty) {
+        unawaited(
+          HiveCacheService.cacheList(
+            'home_gallery_photos',
+            List<Map<String, dynamic>>.from(galleryPhotos),
+            expiryHours: 24,
+          ),
+        );
+      }
+      print('✅ Gallery photos loaded: ${galleryPhotos.length}');
     } catch (e) {
       print('Error loading gallery photos: $e');
-      // On error, show static images
-      galleryPhotos.value = [
-        {
-          'id': -1,
-          'file_path': 'uploads/Frame.png',
-          'fruit_tag': 'Love',
-          'testimony': 'Frame of love and kindness',
-          'user_name': 'Community',
-        },
-        {
-          'id': -2,
-          'file_path': 'uploads/Vector.png',
-          'fruit_tag': 'Joy',
-          'testimony': 'Vector of joy and peace',
-          'user_name': 'Community',
-        },
-        {
-          'id': -3,
-          'file_path': 'uploads/prayer_group.jpg',
-          'fruit_tag': 'Peace',
-          'testimony': 'Vector of peace and harmony',
-          'user_name': 'Community',
-        },
-      ];
+      if (galleryPhotos.isEmpty) {
+        galleryPhotos.value = [];
+      }
     }
   }
 
-  /// Load active groups from database
-  Future<void> loadGroups() async {
+  void _mergeHomeGalleryPhotos(List<Map<String, dynamic>> remote) {
+    final current = List<Map<String, dynamic>>.from(galleryPhotos);
+    var changed = false;
+
+    for (final item in remote) {
+      final id = item['id'];
+      final idx = current.indexWhere((p) => p['id'] == id);
+      if (idx >= 0) {
+        if (current[idx]['updated_at'] != item['updated_at'] ||
+            current[idx]['file_path'] != item['file_path'] ||
+            current[idx]['thumbnail_path'] != item['thumbnail_path']) {
+          current[idx] = {...current[idx], ...item};
+          changed = true;
+        }
+      } else {
+        current.add(Map<String, dynamic>.from(item));
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      galleryPhotos.value = current;
+    }
+  }
+
+  /// Load active groups — Hive first, silent background sync.
+  Future<void> loadGroups({bool silent = false}) async {
+    if (silent &&
+        _groupsLastSyncedAt != null &&
+        DateTime.now().difference(_groupsLastSyncedAt!) < _groupsMinSyncInterval) {
+      return;
+    }
+    if (_isGroupsSyncing) return;
+    _isGroupsSyncing = true;
+
     try {
       final groupsList = await GroupsService.getGroups(
         status: 'Active',
         limit: 6,
       );
-      groups.value = groupsList;
+
+      if (groups.isEmpty) {
+        groups.value = groupsList;
+      } else if (silent) {
+        _mergeHomeGroups(groupsList);
+      } else if (!_homeGroupsListsEqual(groups.toList(), groupsList)) {
+        groups.value = groupsList;
+      }
+
+      _groupsLastSyncedAt = DateTime.now();
+      if (groups.isNotEmpty) {
+        final snapshot = List<Map<String, dynamic>>.from(groups);
+        unawaited(
+          HiveCacheService.cacheList(
+            _homeGroupsHiveKey,
+            snapshot,
+            expiryHours: 24,
+          ),
+        );
+      }
     } catch (e) {
       print('Error loading groups: $e');
       if (groups.isEmpty) {
-      groups.value = [];
+        groups.value = [];
       }
+    } finally {
+      _isGroupsSyncing = false;
+    }
+  }
+
+  bool _homeGroupsListsEqual(
+    List<Map<String, dynamic>> previous,
+    List<Map<String, dynamic>> next,
+  ) {
+    if (previous.length != next.length) return false;
+    for (var i = 0; i < previous.length; i++) {
+      final prev = previous[i];
+      final curr = next[i];
+      if (prev['id'] != curr['id']) return false;
+      if (prev['updated_at'] != curr['updated_at']) return false;
+      if (prev['member_count'] != curr['member_count']) return false;
+      if (prev['name'] != curr['name']) return false;
+    }
+    return true;
+  }
+
+  void _mergeHomeGroups(List<Map<String, dynamic>> incoming) {
+    if (incoming.isEmpty) return;
+
+    final current = groups.toList();
+    if (current.isEmpty) {
+      groups.value = incoming;
+      return;
+    }
+
+    final indexById = <int, int>{};
+    for (var i = 0; i < current.length; i++) {
+      final id = current[i]['id'];
+      final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (parsed != null) indexById[parsed] = i;
+    }
+
+    var changed = false;
+    for (final remote in incoming) {
+      final id = remote['id'];
+      final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (parsed == null) continue;
+
+      final idx = indexById[parsed];
+      if (idx != null) {
+        final local = current[idx];
+        if (local['updated_at'] != remote['updated_at'] ||
+            local['member_count'] != remote['member_count'] ||
+            local['name'] != remote['name']) {
+          current[idx] = {...local, ...remote};
+          changed = true;
+        }
+      } else {
+        current.insert(0, remote);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      groups.value = current;
+    }
+  }
+
+  /// Load recent group posts — Hive first, silent background sync.
+  Future<void> loadGroupPosts({bool silent = false}) async {
+    if (!GroupPostsConfig.enabled) {
+      groupPosts.value = [];
+      return;
+    }
+    if (userId.value <= 0) {
+      groupPosts.value = [];
+      return;
+    }
+
+    if (silent &&
+        _groupPostsLastSyncedAt != null &&
+        DateTime.now().difference(_groupPostsLastSyncedAt!) < _groupsMinSyncInterval) {
+      return;
+    }
+    if (_isGroupPostsSyncing) return;
+    _isGroupPostsSyncing = true;
+
+    try {
+      final posts = await GroupPostsService.getGroupPostsFeed(
+        userId: userId.value,
+        limit: 10,
+      );
+
+      if (groupPosts.isEmpty) {
+        groupPosts.value = posts;
+      } else if (silent) {
+        _mergeHomeGroupPosts(posts);
+      } else if (!_homeGroupPostsListsEqual(groupPosts.toList(), posts)) {
+        groupPosts.value = posts;
+      }
+
+      _groupPostsLastSyncedAt = DateTime.now();
+      if (groupPosts.isNotEmpty) {
+        unawaited(
+          HiveCacheService.cacheList(
+            _homeGroupPostsHiveKey,
+            List<Map<String, dynamic>>.from(groupPosts),
+            expiryHours: 24,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error loading group posts: $e');
+      if (groupPosts.isEmpty) {
+        groupPosts.value = [];
+      }
+    } finally {
+      _isGroupPostsSyncing = false;
+    }
+  }
+
+  bool _homeGroupPostsListsEqual(
+    List<Map<String, dynamic>> previous,
+    List<Map<String, dynamic>> next,
+  ) {
+    if (previous.length != next.length) return false;
+    for (var i = 0; i < previous.length; i++) {
+      final prev = previous[i];
+      final curr = next[i];
+      if (prev['id'] != curr['id']) return false;
+      if (prev['updated_at'] != curr['updated_at']) return false;
+      if (prev['comment_count'] != curr['comment_count']) return false;
+      if (prev['reaction_count'] != curr['reaction_count']) return false;
+    }
+    return true;
+  }
+
+  void _mergeHomeGroupPosts(List<Map<String, dynamic>> incoming) {
+    if (incoming.isEmpty) return;
+
+    final current = groupPosts.toList();
+    if (current.isEmpty) {
+      groupPosts.value = incoming;
+      return;
+    }
+
+    final indexById = <int, int>{};
+    for (var i = 0; i < current.length; i++) {
+      final id = current[i]['id'];
+      final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (parsed != null) indexById[parsed] = i;
+    }
+
+    var changed = false;
+    for (final remote in incoming) {
+      final id = remote['id'];
+      final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (parsed == null) continue;
+
+      final idx = indexById[parsed];
+      if (idx != null) {
+        final local = current[idx];
+        if (local['updated_at'] != remote['updated_at'] ||
+            local['comment_count'] != remote['comment_count'] ||
+            local['reaction_count'] != remote['reaction_count']) {
+          current[idx] = {...local, ...remote};
+          changed = true;
+        }
+      } else {
+        current.insert(0, remote);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      groupPosts.value = current;
     }
   }
 
@@ -1124,7 +1428,7 @@ class HomeController extends GetxController {
       print('✅ Loaded ${emojisList.length} emojis from database');
       
       // Group emojis by category
-      final mainFruitsList = <Map<String, dynamic>>[];
+      final mainFruitList = <Map<String, dynamic>>[];
       final allEmojisList = <Map<String, dynamic>>[];
       final oppositeEmojisList = <Map<String, dynamic>>[];
       final emotionEmojisList = <Map<String, dynamic>>[];
@@ -1147,17 +1451,17 @@ class HomeController extends GetxController {
         
         // Categorize emojis - check both category and name
         if (category.toLowerCase().contains('fruit') || 
-            category == 'Fruits' || 
+            category == 'Fruit' || 
             (category.isEmpty && hasFruitName)) {
-          mainFruitsList.add(emoji);
+          mainFruitList.add(emoji);
         } else if (category.toLowerCase().contains('opposite')) {
           oppositeEmojisList.add(emoji);
         } else if (category.toLowerCase().contains('emotion')) {
           emotionEmojisList.add(emoji);
         } else if (category.isEmpty) {
-          // Default to main fruits if category is empty and name suggests it's a fruit
+          // Default to main fruit if category is empty and name suggests it's a fruit
           if (hasFruitName) {
-            mainFruitsList.add(emoji);
+            mainFruitList.add(emoji);
           } else {
             // Unknown category - add to all emojis but not to specific categories
             // This prevents empty categories from breaking the UI
@@ -1167,15 +1471,26 @@ class HomeController extends GetxController {
       
       print('📊 Emojis from database:');
       print('   Total emojis: ${emojisList.length}');
-      print('   Main fruits: ${mainFruitsList.length}');
+      print('   Main fruit: ${mainFruitList.length}');
       print('   Opposite emojis: ${oppositeEmojisList.length}');
       print('   Emotion emojis: ${emotionEmojisList.length}');
       
       // Store all emojis
-      emojis.value = mainFruitsList; // Main fruits for carousel
+      emojis.value = mainFruitList; // Main fruit for carousel
       allEmojis.value = allEmojisList; // All emojis for reference
       oppositeEmojis.value = oppositeEmojisList; // Opposite emojis
       emotionEmojis.value = emotionEmojisList; // Emotion emojis
+
+      if (mainFruitList.isNotEmpty) {
+        unawaited(HiveCacheService.cacheList(
+          'fruit_screen_emojis',
+          mainFruitList,
+        ));
+        unawaited(HiveCacheService.cacheList(
+          'fruit_screen_all_variants',
+          allEmojisList,
+        ));
+      }
       
       // Performance: Mark as loaded
       _isEmojisLoaded = true;
@@ -1199,16 +1514,16 @@ class HomeController extends GetxController {
   /// Create temporary fruit emojis from uploads/emojis folder
   /// This is a fallback when database doesn't have fruit emojis yet
   List<Map<String, dynamic>> _createTemporaryFruitEmojis() {
-    final baseUrl = 'https://fruitofthespirit.templateforwebsites.com/';
+    final baseUrl = 'http://admin.fosmessenger.com/';
     final emojisBaseUrl = '${baseUrl}uploads/emojis/';
-    
-    // Map of spiritual fruits to physical fruit images from uploads/emojis folder
-    // NOTE: This method is not currently used - fruits are loaded from database via loadEmojis()
+
+    // Map of spiritual fruit to physical fruit images from uploads/emojis folder
+    // NOTE: This method is not currently used - fruit are loaded from database via loadEmojis()
     // All file names should come from database, not hardcoded here
     // IMPORTANT: Only show ONE variant per fruit in carousel to avoid confusion
     // User should see one unique image per fruit, not 3 variants of the same fruit
     final fruitMappings = <Map<String, String>>[];
-    
+
     // Love - Strawberry (using images/Strawberry.png as fallback since strawberry not in emojis folder)
     fruitMappings.add({
       'name': 'Love',
@@ -1217,7 +1532,7 @@ class HomeController extends GetxController {
       'image': '${baseUrl}uploads/images/Strawberry.png',
       'description': 'The strawberry is the fruit of love. Love\'s compatible physical fruit is as sweet as the spiritual fruit. Strawberries, not only look like a fruity heart-shaped valentine, they are filled with unusual phytonutrients that love to promote your health.',
     });
-    
+
     // Joy - Pineapple (from emojis folder - using first available variant)
     fruitMappings.add({
       'name': 'Joy',
@@ -1226,7 +1541,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Kindness_peach_128%20(1).png', // Using available emoji from folder
       'description': 'The pineapple is the fruit of joy. Joy\'s compatible physical fruit is as sweet as the spiritual fruit. Pineapples are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Peace - Watermelon (from emojis folder)
     fruitMappings.add({
       'name': 'Peace',
@@ -1235,7 +1550,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Meekness_grapes_128%20(1).png', // Using available emoji from folder
       'description': 'The watermelon is the fruit of peace. Peace\'s compatible physical fruit is as sweet as the spiritual fruit. Watermelons are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Patience - Lemon (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Patience',
@@ -1244,7 +1559,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Patience_lemon_128%20(1).png', // URL encode space and parentheses
       'description': 'The lemon is the fruit of patience. Patience\'s compatible physical fruit is as sweet as the spiritual fruit. Lemons are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Kindness - Peach (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Kindness',
@@ -1253,7 +1568,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Kindness_peach_128%20(1).png', // URL encode space and parentheses
       'description': 'The peach is the fruit of kindness. Kindness\'s compatible physical fruit is as sweet as the spiritual fruit. Peaches are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Goodness - Load from database (no hardcoded file names)
     // NOTE: This method is not currently used - fruits are loaded from database via loadEmojis()
     // fruitMappings.add({
@@ -1263,7 +1578,7 @@ class HomeController extends GetxController {
     //   'image': '${emojisBaseUrl}Goodness_banana_128%20(1).png', // REMOVED: Hardcoded file name
     //   'description': 'The banana is the fruit of goodness. Goodness\'s compatible physical fruit is as sweet as the spiritual fruit. Bananas are filled with unusual phytonutrients that promote your health.',
     // });
-    
+
     // Faithfulness - Cherry (not available, using goodness banana as fallback)
     fruitMappings.add({
       'name': 'Faithfulness',
@@ -1272,7 +1587,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Goodness_banana_128%20(1).png', // Using available emoji from folder
       'description': 'The cherry is the fruit of faithfulness. Faithfulness\'s compatible physical fruit is as sweet as the spiritual fruit. Cherries are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Meekness/Gentleness - Grapes (from emojis folder - actual file exists)
     fruitMappings.add({
       'name': 'Meekness',
@@ -1281,7 +1596,7 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Meekness_grapes_128%20(1).png', // URL encode space and parentheses
       'description': 'The grape is the fruit of meekness. Meekness\'s compatible physical fruit is as sweet as the spiritual fruit. Grapes are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     // Self-Control - Apple (not in emojis folder, using patience lemon as fallback)
     fruitMappings.add({
       'name': 'Self-Control',
@@ -1290,12 +1605,12 @@ class HomeController extends GetxController {
       'image': '${emojisBaseUrl}Patience_lemon_128%20(1).png', // Using available emoji from folder
       'description': 'The apple is the fruit of self-control. Self-control\'s compatible physical fruit is as sweet as the spiritual fruit. Apples are filled with unusual phytonutrients that promote your health.',
     });
-    
+
     print('🍎 Created ${fruitMappings.length} unique fruit emojis (one per fruit):');
     for (var i = 0; i < fruitMappings.length; i++) {
       print('   ${i + 1}. ${fruitMappings[i]['name']} - ${fruitMappings[i]['code']} - ${fruitMappings[i]['image']}');
     }
-    
+
     // Convert to emoji format
     return fruitMappings.map((fruit) {
       return {
@@ -1313,9 +1628,17 @@ class HomeController extends GetxController {
     }).toList();
   }
 
-  /// Refresh all data
+  /// Pull-to-refresh only — keeps cache visible, silent merge when possible.
   Future<void> refreshData() async {
-    await loadHomeData();
+    await loadHomeData(showLoading: false);
+  }
+
+  /// Reset internal load flags when user logs out (lists cleared elsewhere).
+  void resetSessionState() {
+    _isDataLoaded = false;
+    _isEmojisLoaded = false;
+    _isLoading = false;
+    _isLoadingEmojis = false;
   }
 
   /// Scroll to top smoothly
@@ -1353,6 +1676,18 @@ class HomeController extends GetxController {
         }
       }
       scrollController.dispose();
+      
+      // Clear large data lists to reclaim memory
+      fruit.clear();
+      prayers.clear();
+      blogs.clear();
+      videos.clear();
+      galleryPhotos.clear();
+      stories.clear();
+      groups.clear();
+      emojis.clear();
+      allEmojis.clear();
+      _isDataLoaded = false;
     } catch (e) {
       // Ignore errors during disposal
       // This can happen during hot reload when scroll animation is active

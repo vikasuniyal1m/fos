@@ -1,28 +1,37 @@
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/routes/app_pages.dart';
-import 'package:fruitsofspirit/services/payment_service.dart';
+import 'package:fruitsofspirit/services/iap_service.dart';
 
-/// Payment gate: show payment screen when user tries to use a paid feature.
-/// Video dekhna / browse karna free; jab prayer dalen, blog post karen, group me enter karen, live karen, etc. tab payment dikhe.
+/// Payment gate: DB check first — already paid → enable everywhere, no payment screen.
 class PaymentGate {
-  /// Returns true if user may access (already paid). If not paid, opens payment screen and returns false.
+  static Future<bool> checkPremiumAccess() async {
+    final iap = Get.find<IAPService>();
+    return iap.ensurePremiumFromDatabase();
+  }
+
+  static Future<void> verifyPremiumStatus() async {
+    final iap = Get.find<IAPService>();
+    await iap.ensurePremiumFromDatabase();
+  }
+
+  /// Returns true if user may access. If not paid, opens payment screen.
   static Future<bool> checkAndNavigate() async {
-    final hasPaid = await PaymentService.hasUserPaid();
-    if (hasPaid) return true;
+    final iap = Get.find<IAPService>();
+    if (await iap.ensurePremiumFromDatabase()) return true;
     Get.toNamed(Routes.PAYMENT);
     return false;
   }
 
-  /// Returns true if user has paid (no navigation).
-  static Future<bool> hasPaid() => PaymentService.hasUserPaid();
+  static Future<bool> hasPaid() async {
+    final iap = Get.find<IAPService>();
+    return iap.ensurePremiumFromDatabase();
+  }
 
-  /// Navigate to [route] only if user has paid. If not paid, opens payment screen and does not navigate.
-  /// Use this when user taps Create Prayer, Create Blog, Group enter, Go Live, Create Story, Upload Video/Photo, etc.
   static Future<void> navigateToFeature(String route, {dynamic arguments}) async {
     try {
-      final hasPaid = await PaymentService.hasUserPaid();
-      if (!hasPaid) {
+      final iap = Get.find<IAPService>();
+      if (!await iap.ensurePremiumFromDatabase()) {
         Get.toNamed(Routes.PAYMENT);
         return;
       }
@@ -31,8 +40,7 @@ class PaymentGate {
       } else {
         Get.toNamed(route);
       }
-    } catch (e, st) {
-      // On any error (e.g. network), show payment screen so user can retry
+    } catch (e) {
       debugPrint('PaymentGate.navigateToFeature error: $e');
       Get.toNamed(Routes.PAYMENT);
     }

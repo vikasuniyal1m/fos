@@ -61,11 +61,7 @@ class ResetPasswordController extends GetxController {
       }
 
       onShowSnackbar('Success', result, isError: false);
-      
-      // Navigate to login after success
-      Future.delayed(const Duration(seconds: 2), () {
-        Get.offAllNamed(Routes.LOGIN);
-      });
+      Get.offAllNamed(Routes.LOGIN);
     } on ApiException catch (e) {
       onShowSnackbar('Error', e.message, isError: true);
     } catch (e) {

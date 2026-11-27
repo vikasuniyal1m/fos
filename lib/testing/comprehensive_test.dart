@@ -4,7 +4,7 @@
 
 import 'package:get/get.dart';
 import 'package:fruitsofspirit/controllers/home_controller.dart';
-import 'package:fruitsofspirit/controllers/fruits_controller.dart';
+import 'package:fruitsofspirit/controllers/fruit_controller.dart';
 import 'package:fruitsofspirit/controllers/prayers_controller.dart';
 import 'package:fruitsofspirit/controllers/videos_controller.dart';
 import 'package:fruitsofspirit/controllers/blogs_controller.dart';
@@ -18,11 +18,10 @@ import 'package:fruitsofspirit/controllers/notifications_controller.dart';
 // import 'package:fruitsofspirit/controllers/saved_content_controller.dart';
 import 'package:fruitsofspirit/services/api_service.dart';
 import 'package:fruitsofspirit/services/auth_service.dart';
-import 'package:fruitsofspirit/services/fruits_service.dart';
+import 'package:fruitsofspirit/services/fruit_service.dart';
 import 'package:fruitsofspirit/services/prayers_service.dart';
 import 'package:fruitsofspirit/services/blogs_service.dart';
 import 'package:fruitsofspirit/services/videos_service.dart';
-import 'package:fruitsofspirit/services/gallery_service.dart';
 import 'package:fruitsofspirit/services/groups_service.dart';
 import 'package:fruitsofspirit/services/profile_service.dart';
 import 'package:fruitsofspirit/services/notifications_service.dart';
@@ -31,6 +30,8 @@ import 'package:fruitsofspirit/services/search_service.dart';
 import 'package:fruitsofspirit/services/analytics_service.dart';
 import 'package:fruitsofspirit/services/user_storage.dart';
 import 'package:fruitsofspirit/config/api_config.dart';
+
+import '../services/gallery_service.dart';
 
 class ComprehensiveTest {
   static final List<String> _issues = [];
@@ -79,7 +80,7 @@ class ComprehensiveTest {
 
     final endpoints = {
       'Auth': ApiConfig.auth,
-      'Fruits': ApiConfig.fruits,
+      'Fruit': ApiConfig.fruit,
       'Prayers': ApiConfig.prayers,
       'Blogs': ApiConfig.blogs,
       'Videos': ApiConfig.videos,
@@ -139,16 +140,16 @@ class ComprehensiveTest {
       _issues.add('❌ AuthService: Error - $e');
     }
 
-    // Test Fruits Service
+    // Test Fruit Service
     try {
-      final fruits = await FruitsService.getAllFruits();
-      if (fruits is List) {
-        _success.add('✅ FruitsService.getAllFruits: Returns list');
+      final fruit = await FruitService.getAllFruit();
+      if (fruit is List) {
+        _success.add('✅ FruitService.getAllFruit: Returns list');
       } else {
-        _issues.add('❌ FruitsService.getAllFruits: Does not return list');
+        _issues.add('❌ FruitService.getAllFruit: Does not return list');
       }
     } catch (e) {
-      _warnings.add('⚠️ FruitsService.getAllFruits: Error - $e');
+      _warnings.add('⚠️ FruitService.getAllFruit: Error - $e');
     }
 
     // Test Prayers Service
@@ -301,10 +302,10 @@ class ComprehensiveTest {
     // Test Home Controller
     try {
       final controller = HomeController();
-      if (controller.fruits is RxList) {
-        _success.add('✅ HomeController: fruits observable exists');
+      if (controller.fruit is RxList) {
+        _success.add('✅ HomeController: fruit observable exists');
       } else {
-        _issues.add('❌ HomeController: fruits observable missing');
+        _issues.add('❌ HomeController: fruit observable missing');
       }
       if (controller.prayers is RxList) {
         _success.add('✅ HomeController: prayers observable exists');
@@ -320,16 +321,16 @@ class ComprehensiveTest {
       _issues.add('❌ HomeController: Error - $e');
     }
 
-    // Test Fruits Controller
+    // Test Fruit Controller
     try {
-      final controller = FruitsController();
-      if (controller.allFruits is RxList) {
-        _success.add('✅ FruitsController: allFruits observable exists');
+      final controller = FruitController();
+      if (controller.allFruit is RxList) {
+        _success.add('✅ FruitController: allFruit observable exists');
       } else {
-        _issues.add('❌ FruitsController: allFruits observable missing');
+        _issues.add('❌ FruitController: allFruit observable missing');
       }
     } catch (e) {
-      _issues.add('❌ FruitsController: Error - $e');
+      _issues.add('❌ FruitController: Error - $e');
     }
 
     // Test Prayers Controller
@@ -462,7 +463,7 @@ class ComprehensiveTest {
       'CREATE_ACCOUNT',
       'PHONE_AUTH',
       'FORGOT_PASSWORD',
-      'FRUITS',
+      'FRUIT',
       'PRAYER_REQUESTS',
       'CREATE_PRAYER',
       'PRAYER_DETAILS',
