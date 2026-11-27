@@ -31,6 +31,15 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # key.properties is not in the repo. Create a throwaway key so the release
+      # build can be verified in CI. Output is NOT for store upload.
+      - name: Create temporary CI signing key
+        run: |
+          keytool -genkeypair -keystore android/app/ci-keystore.jks \
+            -storepass ci-password -keypass ci-password -alias ci \
+            -keyalg RSA -keysize 2048 -validity 10 -dname "CN=CI"
+          printf 'storePassword=ci-password\nkeyPassword=ci-password\nkeyAlias=ci\nstoreFile=app/ci-keystore.jks\n' > android/key.properties
+
       - name: Build APK
         run: flutter build apk --release
 
